@@ -306,7 +306,7 @@ def checkGithub(current_version=None):
         mylar.LATEST_VERSION = git['sha']
     except Exception as e:
         if 'sha' in str(e):
-            le_message = 'Updater will only work with the mylar3 repo branches'
+            le_message = 'Updater will only work with the issuarr repo branches'
         else:
             le_message = 'Could not get latest commit from github'
         logger.warn('[ERROR] %s . Error returned: %s' % (le_message, e))
@@ -334,14 +334,14 @@ def checkGithub(current_version=None):
                     if mylar.CONFIG.AUTO_UPDATE is True:
                         mylar.SIGNAL = 'update'
                 elif mylar.COMMITS_BEHIND == 0:
-                    chk_message = 'Mylar is up to date'
+                    chk_message = 'Issuarr is up to date'
                 elif mylar.COMMITS_BEHIND == -1:
-                    chk_message = 'You are running an unknown version of Mylar. Run the updater to identify your version'
+                    chk_message = 'You are running an unknown version of Issuarr. Run the updater to identify your version'
                 logger.info('[CHECK_GITHUB] %s' % chk_message)
                 rtnline = {'status': 'success', 'current_version': mylar.CURRENT_VERSION, 'latest_version': mylar.LATEST_VERSION, 'commits_behind': mylar.COMMITS_BEHIND, 'message': chk_message}
                 mylar.UPDATE_VALUE = json.dumps({'update_value': mylar.COMMITS_BEHIND, 'docker': itype})
         else:
-            chk_message = 'You are running an unknown version of Mylar. Run the updater to identify your version'
+            chk_message = 'You are running an unknown version of Issuarr. Run the updater to identify your version'
             logger.info('[CHECK_GITHUB] %s' % chk_message)
             rtnline = {'status': 'failure', 'current_version': mylar.CURRENT_VERSION, 'latest_version': mylar.CURRENT_VERSION, 'commits_behind': -1, 'message': chk_message}
             mylar.UPDATE_VALUE = json.dumps({'update_value': -1, 'docker': itype})
@@ -376,7 +376,7 @@ def update():
                 logger.info('Output: ' + str(output))
 
     elif mylar.INSTALL_TYPE == 'docker':
-        logger.info('Docker updates via it\'s own mechanics. Updating docker via Mylar GUI not supported at this time.')
+        logger.info('Docker updates via it\'s own mechanics. Updating docker via the Issuarr GUI not supported at this time.')
 
     else:
         tar_download_url = 'https://github.com/%s/%s/tarball/%s' % (mylar.CONFIG.GIT_USER, mylar.CONFIG.GIT_REPO, mylar.CONFIG.GIT_BRANCH)
@@ -468,7 +468,7 @@ def versionload(cli_values=None, carepackage_call=False):
     else:
         vers = 'NONE'
 
-    mylar.USER_AGENT = 'Mylar3/' +str(hash) +'(' +vers +') +https://github.com/MylarComics/mylar3/'
+    mylar.USER_AGENT = 'Issuarr/' +str(hash) +'(' +vers +') +https://github.com/issuarr/issuarr/'
 
     logger.info('Version information: %s [%s]' % (mylar.CONFIG.GIT_BRANCH, mylar.CURRENT_VERSION))
 

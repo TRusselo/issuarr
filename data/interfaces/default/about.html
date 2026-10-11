@@ -9,6 +9,7 @@
         a = about
         ci = a['comicinfo']
         repo = 'https://github.com/issuarr/issuarr'
+        website = 'https://issuarr.github.io/issuarr/'
         version = a['br_version_name'] or a['br_version'] or 'unknown'
         short = version[:7] if (not a['br_version_name'] and len(version) == 40) else version
         def n(x):
@@ -33,6 +34,7 @@
                 </p>
             </div>
             <div class="btn-row">
+                <a class="btn" href="${website}" target="_blank" rel="noopener">Website</a>
                 <a class="btn" href="${repo}/issues" target="_blank" rel="noopener">Report a problem</a>
                 <a class="btn" href="carepackage" title="Logs and settings, with passwords and keys removed, to attach to a bug report">Care package</a>
             </div>
@@ -126,7 +128,7 @@
                <a href="${repo}/issues" target="_blank" rel="noopener">Issuarr's issue tracker</a> rather than to them.</p>
             <p>Thanks to everyone who contributed to Mylar, and to <a href="https://github.com/comictagger/comictagger" target="_blank" rel="noopener">ComicTagger</a>,
                <a href="https://comicvine.gamespot.com/" target="_blank" rel="noopener">ComicVine</a> and <a href="https://www.linuxserver.io/" target="_blank" rel="noopener">linuxserver.io</a>.
-               Licensed under the GNU General Public License v3. <a href="${repo}" target="_blank" rel="noopener">Source code</a>.</p>
+               Licensed under the GNU General Public License v3. <a href="${website}" target="_blank" rel="noopener">Website</a> and <a href="${repo}" target="_blank" rel="noopener">source code</a>.</p>
         </section>
     </div>
 </%def>

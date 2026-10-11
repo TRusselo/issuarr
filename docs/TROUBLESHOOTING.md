@@ -37,3 +37,7 @@ Use **Tools > Import & scan**. See [Bringing in comics Mylar never knew about](M
 ## Direct downloads stay at Snatched
 
 Watch **Downloads > Queue** for the download's progress, and **Tasks > Logs** for `[DDL]` lines. If you use JDownloader 2 for mirror links, see [Checking it works](JDOWNLOADER2.md#checking-it-works).
+
+## This week's issues aren't on ComicVine yet
+
+**Calendar > Upcoming** lists issues from this week's pull list for series you follow that ComicVine doesn't have an entry for yet. Issuarr takes its issue details from ComicVine, so it can't add the issue to the series until ComicVine does. ComicVine's volunteers often add new issues a little after release day. When the issue appears on ComicVine, refresh the series (Issuarr also refreshes followed series when the weekly list updates) and it shows up like any other issue.

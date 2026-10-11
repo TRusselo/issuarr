@@ -179,7 +179,7 @@ _CONFIG_DEFINITIONS = OrderedDict({
 
     'GIT_PATH' : (str, 'Git', None),
     'GIT_USER' : (str, 'Git', 'issuarr'),
-    'GIT_REPO' : (str, 'Git', 'Issuarr'),
+    'GIT_REPO' : (str, 'Git', 'issuarr'),
     'GIT_TOKEN' : (str, 'Git', None),
     'GIT_BRANCH' : (str, 'Git', None),
     'CHECK_GITHUB' : (bool, 'Git', False),
@@ -536,7 +536,7 @@ class Config(object):
                 count = 0
 
             #this is the current version at this particular point in time.
-            self.newconfig = 22
+            self.newconfig = 23
 
             OLDCONFIG_VERSION = 0
             if count == 0:
@@ -984,6 +984,12 @@ class Config(object):
             if self.GIT_USER == 'TRusselo':
                 self.GIT_USER = 'issuarr'
                 config.set('Git', 'GIT_USER', self.GIT_USER)
+
+        if self.CONFIG_VERSION < 23:
+            # the repository is named issuarr/issuarr in lower case
+            if self.GIT_USER == 'issuarr' and self.GIT_REPO == 'Issuarr':
+                self.GIT_REPO = 'issuarr'
+                config.set('Git', 'GIT_REPO', self.GIT_REPO)
 
              
         logger.info('Configuration upgraded to version %s' % self.newconfig)

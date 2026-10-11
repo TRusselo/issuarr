@@ -13,7 +13,7 @@ concurrency:
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_NAME: trusselo/issuarr
+  IMAGE_NAME: issuarr/issuarr
 
 jobs:
     build_and_push:

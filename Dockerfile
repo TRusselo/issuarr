@@ -12,8 +12,8 @@ ARG BUILD_DATE
 ARG VERSION
 ARG MYLAR3_BRANCH=main
 ARG MYLAR3_COMMIT=unknown
-LABEL build_version="TRusselo/Issuarr version:- ${VERSION} Build-date:- ${BUILD_DATE}"
-LABEL org.opencontainers.image.source="https://github.com/TRusselo/Issuarr"
+LABEL build_version="issuarr/issuarr version:- ${VERSION} Build-date:- ${BUILD_DATE}"
+LABEL org.opencontainers.image.source="https://github.com/issuarr/issuarr"
 
 COPY requirements.txt /tmp/requirements.txt
 
@@ -61,7 +61,7 @@ COPY . /app/mylar3/
 RUN \
   printf " (%s)\n%s\n" "${MYLAR3_BRANCH}" "${MYLAR3_COMMIT}" > /app/mylar3/.LAST_RELEASE && \
   rm -rf /app/mylar3/docker && \
-  printf "TRusselo/Issuarr version: ${VERSION}\nBuild-date: ${BUILD_DATE}" > /build_version
+  printf "issuarr/issuarr version: ${VERSION}\nBuild-date: ${BUILD_DATE}" > /build_version
 
 # add local files
 COPY docker/root/ /

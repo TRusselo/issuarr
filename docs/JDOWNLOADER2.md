@@ -32,7 +32,7 @@ In Docker, map the same host folder to the same container path in both container
 ```yaml
 services:
   issuarr:
-    image: ghcr.io/trusselo/issuarr:latest
+    image: ghcr.io/issuarr/issuarr:latest
     volumes:
       - /path/to/config:/config
       - /path/to/comics:/comics

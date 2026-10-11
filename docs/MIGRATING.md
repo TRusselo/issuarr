@@ -37,7 +37,7 @@ Change the image and keep everything else:
 -    image: lscr.io/linuxserver/mylar3:latest
 -    container_name: mylar3
 +  issuarr:
-+    image: ghcr.io/trusselo/issuarr:latest
++    image: ghcr.io/issuarr/issuarr:latest
 +    container_name: issuarr
      environment:
        - PUID=1000
@@ -61,7 +61,7 @@ docker compose pull issuarr
 docker compose up -d issuarr
 ```
 
-With `docker run`, stop and remove the old container and start a new one with the same `-v` and `-e` options and the image `ghcr.io/trusselo/issuarr:latest`.
+With `docker run`, stop and remove the old container and start a new one with the same `-v` and `-e` options and the image `ghcr.io/issuarr/issuarr:latest`.
 
 > Issuarr's data folder is still `/config/mylar`, as in Mylar3, so nothing needs moving.
 
@@ -70,7 +70,7 @@ With `docker run`, stop and remove the old container and start a new one with th
 Clone Issuarr next to your old install rather than over it:
 
 ```sh
-git clone https://github.com/TRusselo/Issuarr.git issuarr
+git clone https://github.com/issuarr/issuarr.git issuarr
 cd issuarr
 python3 -m venv venv && . venv/bin/activate
 pip install -r requirements.txt
@@ -86,7 +86,7 @@ or copy `config.ini`, `mylar.db` (plus `mylar.db-wal` and `mylar.db-shm` if pres
 
 If your service file or init script (systemd, init.d) runs Mylar, change its path to the new folder. The examples in [init-scripts](../init-scripts) still use Mylar's names and paths, so adjust them to match yours.
 
-**Update checks.** Mylar's update check follows the repository named in the `[Git]` section of `config.ini`, which on most installs says `MylarComics`. On its first start Issuarr changes that to `git_user = TRusselo` and `git_branch = main`, so it compares you against Issuarr (`git_repo` defaults to `Issuarr`). If it pointed at your own fork, it is left alone.
+**Update checks.** Mylar's update check follows the repository named in the `[Git]` section of `config.ini`, which on most installs says `MylarComics`. On its first start Issuarr changes that to `git_user = issuarr` and `git_branch = main`, so it compares you against Issuarr (`git_repo` defaults to `Issuarr`). If it pointed at your own fork, it is left alone.
 
 ## 3. Check things after the first start
 

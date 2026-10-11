@@ -2,7 +2,7 @@
 
 # Issuarr
 
-[![Build & Publish Docker Image](https://github.com/TRusselo/Issuarr/actions/workflows/docker_ghcr.yml/badge.svg?branch=main)](https://github.com/TRusselo/Issuarr/actions/workflows/docker_ghcr.yml)
+[![Build & Publish Docker Image](https://github.com/issuarr/issuarr/actions/workflows/docker_ghcr.yml/badge.svg?branch=main)](https://github.com/issuarr/issuarr/actions/workflows/docker_ghcr.yml)
 
 **Issuarr is an automated comic book collection manager.** Tell it which series you follow and it watches for new and missing issues, downloads them, files and renames them, tags them with metadata, and keeps track of what your collection has and lacks.
 
@@ -106,7 +106,7 @@ docker run -d --name issuarr \
   -v /path/to/comics:/comics \
   -v /path/to/downloads:/downloads \
   --restart unless-stopped \
-  ghcr.io/trusselo/issuarr:latest
+  ghcr.io/issuarr/issuarr:latest
 ```
 
 Or with Docker Compose:
@@ -114,7 +114,7 @@ Or with Docker Compose:
 ```yaml
 services:
   issuarr:
-    image: ghcr.io/trusselo/issuarr:latest
+    image: ghcr.io/issuarr/issuarr:latest
     container_name: issuarr
     environment:
       - PUID=1000
@@ -145,7 +145,7 @@ Issuarr's database works best on a local disk. If `/config` is on a network shar
 ### From source
 
 ```sh
-git clone https://github.com/TRusselo/Issuarr.git issuarr
+git clone https://github.com/issuarr/issuarr.git issuarr
 cd issuarr
 python3 -m venv venv && . venv/bin/activate
 pip install -r requirements.txt
@@ -201,7 +201,7 @@ This README and the `docs` folder are Issuarr's documentation. Mylar's old docum
 ## Getting help
 
 - [Troubleshooting](docs/TROUBLESHOOTING.md) covers the common problems.
-- [Issues](https://github.com/TRusselo/Issuarr/issues): bug reports and feature requests.
+- [Issues](https://github.com/issuarr/issuarr/issues): bug reports and feature requests.
 - **Tasks > Logs** shows the log. **About** shows version details and health checks, and its **Care package** button bundles logs and settings, with passwords and keys removed, to attach to a bug report.
 
 ## History and credits

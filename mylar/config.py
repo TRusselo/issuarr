@@ -178,7 +178,7 @@ _CONFIG_DEFINITIONS = OrderedDict({
     'LOG_LEVEL': (int, 'Logs', 1),
 
     'GIT_PATH' : (str, 'Git', None),
-    'GIT_USER' : (str, 'Git', 'TRusselo'),
+    'GIT_USER' : (str, 'Git', 'issuarr'),
     'GIT_REPO' : (str, 'Git', 'Issuarr'),
     'GIT_TOKEN' : (str, 'Git', None),
     'GIT_BRANCH' : (str, 'Git', None),
@@ -536,7 +536,7 @@ class Config(object):
                 count = 0
 
             #this is the current version at this particular point in time.
-            self.newconfig = 21
+            self.newconfig = 22
 
             OLDCONFIG_VERSION = 0
             if count == 0:
@@ -960,12 +960,12 @@ class Config(object):
             config.set('Release Provider', 'release_provider_url', self.RELEASE_PROVIDER_URL)
 
         if self.CONFIG_VERSION < 20:
-            # Issuarr: update checks follow TRusselo/Issuarr, not the retired upstream repos
+            # Issuarr: update checks follow issuarr/issuarr, not the retired upstream repos
             if self.GIT_USER in (None, '', 'None', 'mylar3', 'MylarComics'):
-                logger.info('Update checks now follow TRusselo/Issuarr')
-                self.GIT_USER = 'TRusselo'
+                logger.info('Update checks now follow issuarr/issuarr')
+                self.GIT_USER = 'issuarr'
                 config.set('Git', 'GIT_USER', self.GIT_USER)
-            elif self.GIT_USER != 'TRusselo':
+            elif self.GIT_USER not in ('issuarr', 'TRusselo'):
                 # someone's own fork keeps its Mylar3-era repository name
                 self.GIT_REPO = 'mylar3'
                 config.set('Git', 'GIT_REPO', self.GIT_REPO)
@@ -975,9 +975,15 @@ class Config(object):
 
         if self.CONFIG_VERSION < 21:
             # Issuarr's main branch was called trusselo until 2026-10
-            if self.GIT_USER == 'TRusselo' and self.GIT_BRANCH == 'trusselo':
+            if self.GIT_USER in ('issuarr', 'TRusselo') and self.GIT_BRANCH == 'trusselo':
                 self.GIT_BRANCH = 'main'
                 config.set('Git', 'GIT_BRANCH', self.GIT_BRANCH)
+
+        if self.CONFIG_VERSION < 22:
+            # the repository moved from TRusselo/Issuarr to the issuarr organization in 2026-10
+            if self.GIT_USER == 'TRusselo':
+                self.GIT_USER = 'issuarr'
+                config.set('Git', 'GIT_USER', self.GIT_USER)
 
              
         logger.info('Configuration upgraded to version %s' % self.newconfig)

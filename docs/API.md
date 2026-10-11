@@ -105,7 +105,7 @@ These run as soon as they're called. There's no confirmation step, so don't give
 |---|---|---|
 | `delComic` | `id`, `directory=true` (optional) | Removes the series from the database. With `directory=true` it also **deletes the series folder from disk**. |
 | `changeStatus` with `id=all` | | Changes issue status across the whole library. |
-| `shutdown` / `restart` / `update` | | *OK.* Stops, restarts or updates Issuarr. |
+| `shutdown` / `restart` / `update` | | *OK.* Stops, restarts or updates Issuarr. In Docker, `update` only restarts; pull a new `ghcr.io/issuarr/issuarr` image to update. |
 
 ## The `/rest` endpoints
 

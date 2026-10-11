@@ -101,7 +101,7 @@ class MediaFire(object):
         myDB = db.DBConnection()
         myDB.upsert(
             'ddl_info',
-            {'tmp_filename': fileinfo['filename']},  # tmp_filename should be all that's needed to be updated at this point...
+            {'tmp_filename': filepath},  # tmp_filename should be all that's needed to be updated at this point...
             {'id': id},
         )
 
@@ -117,12 +117,21 @@ class MediaFire(object):
             logger.fdebug('[MediaFire] now writing....')
             with open(filepath, 'wb') as f:
                 for chunk in response.iter_content(chunk_size=4096):
+                    if str(id) in mylar.DDL_CANCEL:
+                        raise mylar.getcomics.DownloadCancelled()
                     if chunk:
                         f.write(chunk)
                         f.flush()
 
         except Exception as e:
-            logger.fdebug('[MediaFire][ERROR] %s' % e)
+            if str(id) in mylar.DDL_CANCEL:
+                logger.info('[MediaFire] Stopped downloading %s - it was aborted or removed from the queue.' % fileinfo['filename'])
+                try:
+                    os.remove(filepath)
+                except OSError:
+                    pass
+            else:
+                logger.fdebug('[MediaFire][ERROR] %s' % e)
             if 'EBLOCKED' in str(e):
                 logger.fdebug('[MediaFire] Content has been removed - we should move on to the next one at this point.')
             return {"success": False, "filename": None, "path": None, "link_type_failure": 'GC-Media'}

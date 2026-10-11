@@ -104,6 +104,9 @@ class MegaNZ(object):
                 return {"success": False, "filename": filename, "path": None, "link_type_failure": site}
 
     def testing(self, data):
+        # the Mega library calls this after every chunk - raising here stops the download
+        if str(self.id) in mylar.DDL_CANCEL:
+            raise mylar.getcomics.DownloadCancelled()
         mth = ( data['current'] / data['total'] ) * 100
 
         if data['tmp_filename'] is not None and self.wrote_tmp is False:

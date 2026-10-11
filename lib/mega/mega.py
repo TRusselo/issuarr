@@ -702,7 +702,7 @@ class Mega:
         else:
             file_name = attribs['n']
 
-        input_file = requests.get(file_url, stream=True).raw
+        input_file = requests.get(file_url, stream=True, timeout=(30, 30)).raw
 
         if dest_path is None:
             dest_path = ''

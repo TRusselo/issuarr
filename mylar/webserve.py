@@ -429,6 +429,10 @@ class WebInterface(object):
         cherrypy.response.headers['Content-Type'] = 'application/json'
         myDB = db.DBConnection()
         wanted = {r['ComicID']: r['cnt'] for r in myDB.select("SELECT ComicID, COUNT(*) AS cnt FROM issues WHERE Status='Wanted' GROUP BY ComicID")}
+        # Each series' issues in number order, so its bar shows where the gaps are (the same bar as the Ledger).
+        every = {}
+        for r in myDB.select('SELECT ComicID, Int_IssueNumber, IssueDate, Status, Issue_Number FROM issues'):
+            every.setdefault(r['ComicID'], []).append((r['Int_IssueNumber'], r['IssueDate'], r['Status'], r['Issue_Number']))
         series = []
         for c in helpers.havetotals():
             total = c['totalissues'] if isinstance(c['totalissues'], int) else 0
@@ -448,7 +452,8 @@ class WebInterface(object):
                             'latest': c['LatestIssue'],
                             'latest_date': c['LatestDate'],
                             'updated': c['DateAdded'],
-                            'cv_removed': c['cv_removed']})
+                            'cv_removed': c['cv_removed'],
+                            'runs': ledger.runs(every.get(c['ComicID'], []))})
         return json.dumps({'series': series})
     library_data.exposed = True
 

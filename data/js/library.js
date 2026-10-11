@@ -51,16 +51,22 @@
     return [s.recent || 'Unknown', ''];
   }
 
+  // The same bar as the Ledger: a series' issues in number order as runs (on disk, wanted, missing and so on),
+  // so each gap shows where it is. Hover a run for its issue numbers.
+  var RUN = { h: ['seg-have', 'on disk'], w: ['seg-wanted', 'wanted'], s: ['seg-snatched', 'snatched'], f: ['seg-failed', 'failed'],
+              i: ['seg-ignored', 'ignored'], m: ['seg-missing', 'missing'] };
   function bar(s) {
-    if (!s.total) return '<div class="collection-bar" title="No issue count yet"></div>';
-    var have = Math.min(s.have, s.total);
-    var wanted = Math.min(s.wanted, Math.max(s.total - have, 0));
-    var rest = Math.max(s.total - have - wanted, 0);
-    var title = have + ' of ' + s.total + ' on disk' + (wanted ? ', ' + wanted + ' wanted' : '');
-    return '<div class="collection-bar" title="' + esc(title) + '">' +
-      (have ? '<span class="seg-have" style="flex: ' + have + ' 1 0"></span>' : '') +
-      (wanted ? '<span class="seg-wanted" style="flex: ' + wanted + ' 1 0"></span>' : '') +
-      (rest ? '<span class="seg-missing" style="flex: ' + rest + ' 1 0"></span>' : '') + '</div>';
+    var runs = s.runs || [];
+    if (!runs.length) return '<div class="collection-bar" title="No issues listed yet"></div>';
+    var tot = {}, n = 0;
+    var spans = runs.map(function (r) {
+      var k = RUN[r[0]] || RUN.m;
+      tot[k[1]] = (tot[k[1]] || 0) + r[1]; n += r[1];
+      var which = r[1] === 1 ? '#' + r[2] : '#' + r[2] + '–#' + r[3];
+      return '<span class="' + k[0] + '" style="flex: ' + r[1] + ' 1 0" title="' + esc(which + ' ' + k[1]) + '"></span>';
+    }).join('');
+    var label = n + ' issues: ' + Object.keys(tot).map(function (k) { return tot[k] + ' ' + k; }).join(', ');
+    return '<div class="collection-bar is-runs" role="img" aria-label="' + esc(label) + '">' + spans + '</div>';
   }
 
   function counts(s) {

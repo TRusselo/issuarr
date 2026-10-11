@@ -435,6 +435,12 @@ input.inline-num { width: 76px; min-height: 34px; padding: 0 8px; box-sizing: bo
 .collection-bar .seg-snatched { background: var(--snatched); }
 .collection-bar .seg-failed { background: var(--failed); }
 .collection-bar .seg-ignored { background: var(--ignored); }
+/* Runs bar (Library, series page, Ledger): a series' issues in number order, so every gap stays visible however long the
+   series. Missing and not wanted is hollow so it reads apart from ignored. */
+.collection-bar.is-runs { gap: 1px; }
+.collection-bar.is-runs > span { min-width: 2px; border-radius: 1px; }
+.collection-bar.is-runs > .seg-have { min-width: 1px; }
+.collection-bar.is-runs > .seg-missing { background: transparent; box-shadow: inset 0 0 0 1.5px var(--faint); }
 
 .cover-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(156px, 1fr)); gap: 26px 20px; }
 .cover-grid[hidden] { display: none; }
@@ -505,6 +511,7 @@ table.dt tr.is-picked td { background: color-mix(in srgb, var(--text) 8%, var(--
 .legend i.is-snatched { background: var(--snatched); }
 .legend i.is-failed { background: var(--failed); }
 .legend i.is-ignored { background: var(--ignored); }
+.legend i.is-missing { background: transparent; box-shadow: inset 0 0 0 1.5px var(--faint); }
 .lib-sub { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 22px; }
 
 /* ---------- Series page ---------- */

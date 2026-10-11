@@ -2179,6 +2179,34 @@ def crc(filename):
 
     return hashlib.md5(filename).hexdigest()
 
+def pack_issue_numbers(pack):
+    """Issue numbers in a pack's range, as strings: "#1 - 12", "1-5, 7", "#-1 - 114", "#1 - 10AI".
+    A range covers every whole number between its ends; an end with a suffix ("10AI") is
+    kept as well, since the numbers either side of it don't name it."""
+    numbers = []
+    def add(x):
+        if x not in numbers:
+            numbers.append(x)
+    for part in re.sub('#', '', pack or '').split(','):
+        part = part.strip()
+        if not part:
+            continue
+        m = re.match(r'^(-?\d+(?:\.\d+)?)([A-Za-z]*)\s*-\s*(-?\d+(?:\.\d+)?)([A-Za-z]*)$', part)
+        if m:
+            first, last = int(float(m.group(1))), int(float(m.group(3)))
+            for x in range(first, last + 1):
+                add(str(x))
+            if m.group(2):
+                add(m.group(1) + m.group(2))
+            if m.group(4):
+                add(m.group(3) + m.group(4))
+        else:
+            for token in part.split():
+                if re.match(r'^-?\d', token):
+                    add(token)
+    return numbers
+
+
 def issue_find_ids(ComicName, ComicID, pack, IssueNumber, pack_id):
 
     #logger.fdebug('pack: %s' % pack)
@@ -2187,37 +2215,8 @@ def issue_find_ids(ComicName, ComicID, pack, IssueNumber, pack_id):
     issuelist = myDB.select("SELECT * FROM issues WHERE ComicID=?", [ComicID])
 
     if 'Annual' not in pack:
-        if ',' not in pack:
-            packlist = pack.split(' ')
-            pack = re.sub('#', '', pack).strip()
-        else:
-            packlist = [x.strip() for x in pack.split(',')]
-        plist = []
-        pack_issues = []
-        logger.fdebug('packlist: %s' % packlist)
-        for pl in packlist:
-            pl = re.sub('#', '', pl).strip()
-            if '-' in pl:
-                le_range = list(range(int(pack[:pack.find('-')]),int(pack[pack.find('-')+1:])+1))
-                for x in le_range:
-                    if not [y for y in plist if y == x]:
-                        plist.append(int(x))
-                #logger.fdebug('plist: %s' % plist)
-            else:
-                #logger.fdebug('starting single: %s' % pl)
-                if not [x for x in plist if x == int(pl)]:
-                    #logger.fdebug('single not present')
-                    plist.append(int(pl))
-            #logger.fdebug('plist:%s' % plist)
-
-        for pi in plist:
-            if type(pi) == list:
-                for x in pi:
-                    pack_issues.append(x)
-            else:
-                pack_issues.append(pi)
-
-        pack_issues.sort()
+        pack_issues = pack_issue_numbers(pack)
+        logger.fdebug('pack issues: %s' % pack_issues)
         annualize = False
     else:
         #remove the annuals wording
@@ -2250,12 +2249,12 @@ def issue_find_ids(ComicName, ComicID, pack, IssueNumber, pack_id):
                    write_valids.append({'issueid': xb['IssueID'],
                                         'pack_id': pack_id})
                    break
-           else:
+           elif xb['Int_IssueNumber'] == int_iss:
                ignores.append(iss)
+               break
 
     if ignores:
-        logger.info('[%s] These issues already exist in the pack and is already in a Downloaded state. Mark the issue as anything'
-                    'other than Wanted if you want the pack to be downloaded.' % ignores)
+        logger.info('[PACK] Already have %s of %s from this pack; those files are kept.' % (', '.join('#%s' % x for x in ignores), ComicName))
 
     if valid:
         for wv in write_valids:

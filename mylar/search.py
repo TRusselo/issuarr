@@ -4223,22 +4223,13 @@ def gen_altnames(ComicName, AlternateSearch, filesafe, smode):
         #    AlternateSearch += '%s Annual' % re.sub('2021 annual', '', ComicName, flags=re.I).strip()
         #    logger.info('Setting alternate search to %s because people are gonna people.' % AlternateSearch)
 
-        if all(
-            [
-                AlternateSearch is not None,
-                AlternateSearch != "None",
-                'special' not in ComicName.lower(),
-            ]
-        ):
-            AlternateSearch += '##%s Annual' % AlternateSearch
-        elif all(
-            [
-                AlternateSearch is None,
-                AlternateSearch == "None",
-                'special' not in ComicName.lower(),
-            ]
-        ):
-            AlternateSearch = '%s Annual' % AlternateSearch
+        # Search "<series> Annual" first ("Alien Annual #1 (2023)"), then the plain name, plus each
+        # alternate name with " Annual" added. Specials keep their own name.
+        if all(['special' not in ComicName.lower(), 'annual' not in ComicName.lower()]):
+            alts = [x for x in re.split(r'!!|##', AlternateSearch or '') if x and x != 'None']
+            names = ['%s Annual' % ComicName]
+            names += ['%s Annual' % x for x in alts if 'annual' not in x.lower()] + alts
+            AlternateSearch = '!!' + '##'.join(names)
 
     searchlist = []
     Altname = None

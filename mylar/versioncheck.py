@@ -261,6 +261,13 @@ def getVersion(ptv):
                     except Exception as e:
                         pass
 
+        if mylar.INSTALL_TYPE == 'docker' and branch and branch in ('main', 'dev'):
+            # the image records the branch it was built from (:latest is main, :dev is dev),
+            # so a container moved between tags compares itself against the right branch
+            if branch != ptv['git_branch']:
+                logger.info('[DOCKER-AWARE] Image was built from the %s branch' % branch)
+            return {'current_version': current_version, 'current_version_name': current_version_name, 'branch': branch, 'current_release_name': current_release_name}
+
         if current_version:
             if mylar.CONFIG.GIT_BRANCH:
                 logger.info('Branch detected & set to : ' + ptv['git_branch'])

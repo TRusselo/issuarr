@@ -88,7 +88,7 @@ or copy `config.ini`, `mylar.db` (plus `mylar.db-wal` and `mylar.db-shm` if pres
 
 If your service file or init script (systemd, init.d) runs Mylar, change its path to the new folder. The examples in [init-scripts](https://github.com/issuarr/issuarr/tree/main/init-scripts) still use Mylar's names and paths, so adjust them to match yours.
 
-**Update checks.** Mylar's update check follows the repository named in the `[Git]` section of `config.ini`, which on most installs says `MylarComics`. On its first start Issuarr changes that to `git_user = issuarr` and `git_branch = main`, so it compares you against Issuarr (`git_repo` defaults to `issuarr`). If it pointed at your own fork, it is left alone.
+**Update checks.** Mylar's update check follows the repository named in the `[Git]` section of `config.ini`, which on most installs says `MylarComics`. On its first start Issuarr changes that to `git_user = issuarr` and `git_branch = main`, so it compares you against Issuarr (`git_repo` defaults to `issuarr`). If it pointed at your own fork, it is left alone. The Docker image compares you against the branch it was built from, so `latest` checks `main` and `dev` checks `dev`. A git checkout of the `dev` branch is detected on its own; an install from a downloaded archive of `dev` should set `git_branch = dev`.
 
 ## 3. Check things after the first start
 

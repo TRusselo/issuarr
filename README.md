@@ -138,6 +138,8 @@ services:
 | `/comics` | Your comic library |
 | `/downloads` | Where your download clients put finished downloads |
 
+**Image tags.** `latest` is the current release, built from the `main` branch. `dev` is built from the `dev` branch every time a change lands there, so it gets fixes and features first but is less tested. Switch between them by changing the tag; your settings and database stay the same.
+
 The image follows the [linuxserver.io](https://www.linuxserver.io/) conventions and is a drop-in replacement for `linuxserver/mylar3`. To switch an existing Mylar3 container, change its image and keep your volumes at the same container paths; see [the migration guide](docs/MIGRATING.md#2a-switch-a-docker-install).
 
 Issuarr's database works best on a local disk. If `/config` is on a network share or Unraid's `/mnt/user`, see ["Database is locked"](docs/TROUBLESHOOTING.md#database-is-locked).

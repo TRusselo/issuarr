@@ -64,7 +64,29 @@ def test_search_all_skips_issues_already_queued(wanted):
 @pytest.mark.unit
 def test_search_all_runs_while_the_queue_is_busy_and_leaves_its_lock(wanted):
     mylar.SEARCHLOCK = True
-    assert search.searchforissue() == {'status': 'IN PROGRESS'}
     search.searchforissue(all_tiers=True)
     assert queued() == ['new', 'old']
     assert mylar.SEARCHLOCK is True
+
+
+@pytest.mark.unit
+def test_tier1_search_queues_while_an_issue_is_being_searched_and_leaves_its_lock(wanted):
+    # The queue worker holds the lock for each issue it searches. A Tier 1 search (the scheduled
+    # one, or the Wanted page's button) only fills the queue, so it used to be dropped for nothing.
+    mylar.SEARCHLOCK = True
+    search.searchforissue()
+    assert queued() == ['new']
+    assert mylar.SEARCHLOCK is True
+
+
+@pytest.mark.unit
+def test_tier1_search_skips_issues_already_queued(wanted):
+    mylar.SEARCH_QUEUE.put({'issueid': 'new'})
+    search.searchforissue()
+    assert queued() == ['new']
+
+
+@pytest.mark.unit
+def test_a_single_issue_still_waits_for_the_lock(wanted):
+    mylar.SEARCHLOCK = True
+    assert search.searchforissue('new') == {'status': 'IN PROGRESS'}

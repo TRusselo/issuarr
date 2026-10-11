@@ -1551,10 +1551,24 @@ def queued_issueids():
     return {x.get('issueid') for x in waiting if isinstance(x, dict)}
 
 
+def search_status():
+    """What the search queue is doing, for the Wanted page: the issue being searched and the ones waiting."""
+    def brief(item):
+        return {'issueid': item.get('issueid'), 'name': item.get('comicname'), 'number': item.get('issuenumber')}
+    with mylar.SEARCH_QUEUE.mutex:
+        waiting = [brief(x) for x in mylar.SEARCH_QUEUE.queue if isinstance(x, dict)]
+    current = mylar.SEARCH_CURRENT
+    return {'current': brief(current) if isinstance(current, dict) else None,
+            'waiting': waiting,
+            # The lock without a current issue: the RSS check is running.
+            'busy': bool(mylar.SEARCHLOCK)}
+
+
 def searchforissue(issueid=None, new=False, rsschecker=None, manual=False, all_tiers=False):
     # all_tiers: the Wanted page's "Search all" button. It also queues Tier 2 issues, which the
-    # scheduled search leaves to RSS. Queueing only fills the search queue, so it doesn't need
-    # (or touch) the lock the queue worker holds while it searches.
+    # scheduled search leaves to RSS. Queueing Wanted issues (no issueid, no RSS) only fills the
+    # search queue, so it doesn't need (or touch) the lock the queue worker holds while it searches.
+    queue_only = not issueid and not rsschecker
     if rsschecker == 'yes':
         while mylar.SEARCHLOCK is True:
            # logger.info(
@@ -1563,7 +1577,7 @@ def searchforissue(issueid=None, new=False, rsschecker=None, manual=False, all_t
            # )
             time.sleep(5)
 
-    if mylar.SEARCHLOCK is True and not all_tiers:
+    if mylar.SEARCHLOCK is True and not queue_only:
         logger.info(
             'A search is currently in progress....queueing this up again to try'
             ' in a bit.'
@@ -1609,7 +1623,7 @@ def searchforissue(issueid=None, new=False, rsschecker=None, manual=False, all_t
         )
     ):
         if not issueid or rsschecker:
-            already_queued = queued_issueids() if all_tiers else set()
+            already_queued = queued_issueids() if queue_only else set()
 
             if rsschecker:
                 logger.info(
@@ -2310,8 +2324,6 @@ def searchforissue(issueid=None, new=False, rsschecker=None, manual=False, all_t
                     mylar.SEARCHLOCK = False
             else:
                 logger.info('Completed Queueing API Search scan')
-                if mylar.SEARCHLOCK is True and not all_tiers:
-                    mylar.SEARCHLOCK = False
         else:
             try:
                 mylar.SEARCHLOCK = True

@@ -61,7 +61,11 @@ def search_queue(queue):
                             manual = item['manual']
                         except Exception:
                             manual = False
-                        mylar.search.searchforissue(item['issueid'], manual=manual)
+                        mylar.SEARCH_CURRENT = item
+                        try:
+                            mylar.search.searchforissue(item['issueid'], manual=manual)
+                        finally:
+                            mylar.SEARCH_CURRENT = None
                     time.sleep(5)
 
             if mylar.SEARCHLOCK is True:

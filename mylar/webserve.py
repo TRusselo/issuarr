@@ -4630,6 +4630,12 @@ class WebInterface(object):
         return json.dumps({'status': 'success'})
     forceSearch.exposed = True
 
+    def search_status(self):
+        # The Wanted page polls this to show what's being searched and what's waiting.
+        cherrypy.response.headers['Content-Type'] = 'application/json'
+        return json.dumps(search.search_status())
+    search_status.exposed = True
+
     def forceRescan(self, ComicID, bulk=False, action='recheck', api=False):
         if bulk:
             cnt = 1
@@ -7977,6 +7983,7 @@ class WebInterface(object):
             out['download_counts'] = dl.get('counts') or {}
         except Exception:
             out['download'] = None
+        out['search'] = search.search_status()
         out.update(monitor_status=mylar.MONITOR_STATUS, monitor_enabled=bool(mylar.CONFIG.ENABLE_CHECK_FOLDER),
                    monitor_folder=mylar.CONFIG.CHECK_FOLDER or '', interval=mylar.CONFIG.DOWNLOAD_SCAN_INTERVAL,
                    review_dir=archives.review_dir(), now=time.time())

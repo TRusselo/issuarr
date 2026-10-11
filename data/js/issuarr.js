@@ -176,7 +176,7 @@
   function setupDock() {
     var dock = $id('dock');
     if (!dock) return;
-    var rows = { pp: $id('dock-pp'), dl: $id('dock-dl'), mon: $id('dock-monitor'), idle: $id('dock-idle') };
+    var rows = { pp: $id('dock-pp'), search: $id('dock-search'), dl: $id('dock-dl'), mon: $id('dock-monitor'), idle: $id('dock-idle') };
     var importRow = $id('import_indicator');
     var timer = null;
 
@@ -186,9 +186,17 @@
       if (text) row.querySelector('.dock-text').textContent = text;
     }
     function refreshIdle() {
-      var busy = ['pp', 'dl'].some(function (k) { return rows[k] && !rows[k].hidden; });
+      var busy = ['pp', 'search', 'dl'].some(function (k) { return rows[k] && !rows[k].hidden; });
       if (importRow && importRow.style.display !== 'none') busy = true;
       if (rows.idle) rows.idle.hidden = busy;
+    }
+    function searchText(s) {
+      if (!s) return '';
+      var n = (s.waiting || []).length;
+      var waiting = n ? ' (' + n + ' waiting)' : '';
+      if (s.current) return 'Searching ' + (s.current.name || '') + ' #' + (s.current.number == null ? '?' : s.current.number) + waiting;
+      if (s.busy) return 'Checking RSS feeds' + waiting;
+      return n ? n + ' queued for search' : '';
     }
     function poll() {
       if (doc.hidden) return;
@@ -196,6 +204,7 @@
         .then(function (r) { if (!r.ok) throw new Error(r.status); return r.json(); })
         .then(function (d) {
           show(rows.pp, d.state === 'Working' ? 'Post-processing' + (d.detail ? ': ' + d.detail : '') : '');
+          show(rows.search, searchText(d.search));
           var queued = (d.download_counts || {}).Queued || 0;
           var dl = d.download ? 'Downloading ' + d.download : '';
           if (queued) dl = dl ? dl + ' (' + queued + ' queued)' : queued + ' queued for download';

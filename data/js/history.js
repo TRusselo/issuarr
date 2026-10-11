@@ -126,8 +126,8 @@
 
     if (e.target.closest('[data-wipe-nzblog]')) {
       $id('h-clear-menu').open = false;
-      if (!window.confirm('Wipe the NZB log? Issuarr forgets which NZBs it sent, so "Search again" can\'t resend them.')) return;
-      get('wipenzblog').then(function () { I().toast('NZB log wiped'); }).catch(function () { I().toast('That didn\'t work. Check the log.', false); });
+      if (!window.confirm('Clear the download log? Issuarr forgets which issue each grabbed download belongs to. Downloads that haven\'t been filed yet are then matched by file name only, and failed-download handling can\'t link them back to their issue. Don\'t do this while anything is downloading.')) return;
+      get('wipenzblog').then(function () { I().toast('Download log cleared.'); }).catch(function () { I().toast('That didn\'t work. Check the log.', false); });
       return;
     }
 

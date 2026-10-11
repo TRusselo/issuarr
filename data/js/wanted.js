@@ -17,7 +17,8 @@
                Archived: 'Marked {n} as archived', OppositeTier: 'Switched the tier of {n}' };
   var STATUS = { Wanted: 'is-wanted', Snatched: 'is-snatched', Failed: 'is-failed' };
 
-  var st = { rows: [], tab: 'all', q: '', sort: 'release-desc', limit: CHUNK, sel: {}, loaded: false };
+  var st = { rows: [], tab: 'all', q: '', sort: 'release-desc', limit: CHUNK, sel: {}, loaded: false,
+             current: null, waiting: {} };
 
   function $id(id) { return document.getElementById(id); }
   function I() { return window.Issuarr; }
@@ -33,7 +34,8 @@
       else { tier = 1; var m = /\[(.*)\]/.exec(tierText); added = m ? m[1] : ''; }
     }
     return { name: r[0] || '', issue: r[1] == null ? '' : String(r[1]), release: r[2] || '', id: String(r[3]), tier: tier, added: added,
-             comicid: r[5], status: r[6] || '', arc: r[7], arcid: r[8], watch: r[10], num: Number(r[11]) || 0 };
+             comicid: r[5], status: r[6] || '', arc: r[7], arcid: r[8], arcissue: r[9] ? String(r[9]) : '', watch: r[10],
+             num: Number(r[11]) || 0 };
   }
 
   function seriesCell(r) {
@@ -44,6 +46,14 @@
     var link = '<a href="comicDetails?ComicID=' + encodeURIComponent(r.comicid) + '">' + name + '</a>';
     if (r.arc) link += ' <a class="muted" href="detailStoryArc?StoryArcID=' + encodeURIComponent(r.arcid) + '">' + esc(r.arc) + '</a>';
     return link;
+  }
+
+  // The search queue knows story-arc issues by their arc issue id.
+  function queueNote(r) {
+    var ids = [r.id, r.arcissue];
+    if (st.current && ids.indexOf(st.current) > -1) return ' <span class="muted">searching now</span>';
+    if (st.waiting[r.id] || (r.arcissue && st.waiting[r.arcissue])) return ' <span class="muted">in search queue</span>';
+    return '';
   }
 
   function tierCell(r) {
@@ -94,7 +104,7 @@
           '<td>' + seriesCell(r) + '</td>' +
           '<td class="mono nowrap">#' + esc(r.issue) + '</td>' +
           '<td class="mono nowrap">' + esc(r.release || '-') + '</td>' +
-          '<td><span class="status ' + (STATUS[r.status] || '') + '">' + esc(r.status) + '</span></td>' +
+          '<td class="nowrap"><span class="status ' + (STATUS[r.status] || '') + '">' + esc(r.status) + '</span>' + queueNote(r) + '</td>' +
           '<td class="nowrap">' + tierCell(r) + '</td>' +
           '<td class="actions">' + (canSearch ? '<button type="button" class="btn btn-sm" data-search="' + esc(r.id) + '">Search now</button>' : '') + '</td></tr>';
       }).join('');
@@ -131,14 +141,54 @@
       });
   }
 
+  /* ---- search status: what's being searched now and what's waiting ---- */
+  function issueName(i) { return (i.name || 'Unknown') + ' #' + (i.number == null ? '?' : i.number); }
+
+  function renderSearching(d) {
+    var el = $id('w-searching');
+    var n = d.waiting.length;
+    var waiting = n ? plural(n) + ' waiting to be searched' : 'nothing else waiting';
+    if (d.current) {
+      el.innerHTML = '<b>Searching now:</b> ' + esc(issueName(d.current)) + ' · ' + waiting + '.';
+    } else if (d.busy) {
+      el.innerHTML = '<b>Checking RSS feeds.</b> ' + (n ? plural(n) + ' waiting to be searched.' : '');
+    } else if (n) {
+      el.innerHTML = '<b>Starting the next search.</b> ' + plural(n) + ' waiting.';
+    } else {
+      el.textContent = 'No search running.';
+    }
+  }
+
+  var pollTimer = null;
+  function poll() {
+    clearTimeout(pollTimer);
+    return fetch('search_status', { credentials: 'same-origin', cache: 'no-store' })
+      .then(function (r) { if (!r.ok) throw new Error(r.status); return r.json(); })
+      .then(function (d) {
+        var before = st.current;
+        st.current = d.current ? String(d.current.issueid) : null;
+        st.waiting = {};
+        d.waiting.forEach(function (w) { st.waiting[String(w.issueid)] = true; });
+        renderSearching(d);
+        // An issue just finished: reload, it may have been snatched.
+        if (before && before !== st.current) load(); else render();
+      })
+      .catch(function () { $id('w-searching').textContent = 'Couldn\'t get the search status.'; })
+      .then(function () { pollTimer = setTimeout(poll, document.hidden ? 30000 : 5000); });
+  }
+  document.addEventListener('visibilitychange', function () { if (!document.hidden) poll(); });
+
+  function queued(r) {
+    if (!r.ok) throw new Error(r.status);
+    return r.json().then(function (d) { setTimeout(poll, 1500); return d; });
+  }
+
   function search(ids) {
     var p = new URLSearchParams();
     ids.forEach(function (id) { p.append('issueIds', id); });
     return fetch('forceSearch?' + p.toString(), { credentials: 'same-origin' })
-      .then(function (r) {
-        if (!r.ok) throw new Error(r.status);
-        I().toast('Searching for ' + plural(ids.length) + '. Anything found shows up in Downloads.');
-      })
+      .then(queued)
+      .then(function () { I().toast('Added ' + plural(ids.length) + ' to the search queue. Anything found shows up in Downloads.'); })
       .catch(function () { I().toast('That didn\'t work. Check the log.', false); });
   }
 
@@ -191,14 +241,16 @@
   $id('w-bulk-none').addEventListener('click', function () { st.sel = {}; render(); });
   $id('w-search-tier1').addEventListener('click', function () {
     fetch('forceSearch', { credentials: 'same-origin' })
-      .then(function (r) { if (!r.ok) throw new Error(r.status); I().toast('Searching every Tier 1 issue. Anything found shows up in Downloads.'); })
+      .then(queued)
+      .then(function () { I().toast('Adding every Tier 1 issue to the search queue. Progress shows under the heading.'); })
       .catch(function () { I().toast('That didn\'t work. Check the log.', false); });
   });
   $id('w-search-all').addEventListener('click', function () {
     var n = st.rows.length;
     if (n && !window.confirm('Search all ' + plural(n) + '? Providers are searched one page at a time, so a long list can take hours.')) return;
     fetch('forceSearch?tiers=all', { credentials: 'same-origin' })
-      .then(function (r) { if (!r.ok) throw new Error(r.status); I().toast('Searching every Wanted issue, Tier 2 included. Anything found shows up in Downloads.'); })
+      .then(queued)
+      .then(function () { I().toast('Adding every Wanted issue, Tier 2 included, to the search queue. Progress shows under the heading.'); })
       .catch(function () { I().toast('That didn\'t work. Check the log.', false); });
   });
   $id('w-export').addEventListener('click', function () {
@@ -216,5 +268,6 @@
   var refreshTimer = null;
   document.addEventListener('issuarr:refresh', function () { clearTimeout(refreshTimer); refreshTimer = setTimeout(load, 800); });
 
-  if (window.jQuery) window.jQuery(load); else document.addEventListener('DOMContentLoaded', load);
+  function start() { load(); poll(); }
+  if (window.jQuery) window.jQuery(start); else document.addEventListener('DOMContentLoaded', start);
 })();

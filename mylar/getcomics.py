@@ -22,6 +22,7 @@ import sys
 import traceback
 import errno
 import re
+import threading
 import time
 import datetime
 from bs4 import BeautifulSoup
@@ -35,6 +36,10 @@ from mylar.downloaders.jdownloader2 import JDownloader2
 
 FILE_CLEARANCE = {}
 
+
+
+# the search queue, the GetComics worker and the failover worker can all refresh the cookie
+_COOKIE_LOCK = threading.Lock()
 
 
 class DownloadCancelled(Exception):
@@ -73,8 +78,9 @@ class GC(object):
                     try:
                         gc_json = get_cookies.json()
                         gc_cookie = gc_json['solution']['cookies']
-                        with open(self.session_path, 'w') as f:
-                            json.dump(gc_cookie, f)
+                        with _COOKIE_LOCK:
+                            with open(self.session_path, 'w') as f:
+                                json.dump(gc_cookie, f)
                         self._save_ua(gc_json['solution'].get('userAgent'))
                     except Exception as e:
                         logger.warn('[GC_Cookie_Saver] Unable to save cookie to file - will try to recreate later.')
@@ -135,8 +141,9 @@ class GC(object):
             return
         self.headers['User-Agent'] = ua
         try:
-            with open(self.session_path + '.ua', 'w') as f:
-                f.write(ua)
+            with _COOKIE_LOCK:
+                with open(self.session_path + '.ua', 'w') as f:
+                    f.write(ua)
         except Exception:
             pass
 
@@ -1320,15 +1327,6 @@ class GC(object):
                "success": False,
                "link_type": link_type}
 
-        if mylar.DDL_LOCK is True:
-            logger.fdebug(
-                '[DDL] Another item is currently downloading via DDL. Only one item can'
-                ' be downloaded at a time using DDL. Patience.'
-            )
-            return
-        else:
-            mylar.DDL_LOCK = True
-
         myDB = db.DBConnection()
         mylar.DDL_QUEUED.add(id)
         filename = None
@@ -1358,7 +1356,6 @@ class GC(object):
                     if self.is_challenge(t):
                         t.close()
                         logger.warn('[DDL] Still blocked by GetComics/Cloudflare - giving up on this link.')
-                        mylar.DDL_LOCK = False
                         return {"success": False, "filename": None, "path": None, "link_type": link_type}
 
                 filename = os.path.basename(
@@ -1409,7 +1406,6 @@ class GC(object):
                                     ' invalid and will ignore this result.'
                                 )
                                 remote_filesize = 0
-                                mylar.DDL_LOCK = False
                                 return {
                                     "success": False,
                                     "filename": filename,
@@ -1428,7 +1424,6 @@ class GC(object):
                                 ' and will ignore this result.'
                             )
                             remote_filesize = 0
-                            mylar.DDL_LOCK = False
                             return {
                                 "success": False,
                                 "filename": filename,
@@ -1463,6 +1458,7 @@ class GC(object):
 
                 t.headers['Accept-encoding'] = 'gzip'
                 if resume is not None:
+                    myDB.upsert('ddl_info', {'tmp_filename': dst_path}, {'id': id})
                     with open(dst_path, 'ab') as f:
                         for chunk in t.iter_content(chunk_size=65536):
                             if str(id) in mylar.DDL_CANCEL:
@@ -1484,6 +1480,7 @@ class GC(object):
                                 ' Creating tmp file @%s so it can download.' % (e, filename)
                             )
 
+                    myDB.upsert('ddl_info', {'tmp_filename': dst_path}, {'id': id})
                     with open(dst_path, 'wb') as f:
                         for chunk in t.iter_content(chunk_size=65536):
                             if str(id) in mylar.DDL_CANCEL:
@@ -1493,7 +1490,6 @@ class GC(object):
 
         except DownloadCancelled:
             logger.info('[DDL-ABORT] Stopped downloading %s - it was aborted or removed from the queue.' % filename)
-            mylar.DDL_LOCK = False
             try:
                 os.remove(dst_path)
             except Exception:
@@ -1507,7 +1503,6 @@ class GC(object):
 
         except requests.exceptions.Timeout as e:
             logger.error('[ERROR] download has timed out due to inactivity...: %s', e)
-            mylar.DDL_LOCK = False
             return {
                "success": False,
                "filename": filename,
@@ -1516,14 +1511,12 @@ class GC(object):
 
         except Exception as e:
             logger.error('[ERROR] %s' % e)
-            mylar.DDL_LOCK = False
             return {
                "success": False,
                "filename": filename,
                "path": None,
                "link_type": link_type}
         else:
-            mylar.DDL_LOCK = False
             return self.zip_zip(id, dst_path, filename)
 
 
@@ -1559,7 +1552,6 @@ class GC(object):
                 new_path = dst_path
             return {"success": True, "filename": filename, "path": new_path}
 
-        mylar.DDL_LOCK = False
         return {"success": False, "filename": filename, "path": None}
 
     def check_for_pack(self, title, issue_in_pack=None):

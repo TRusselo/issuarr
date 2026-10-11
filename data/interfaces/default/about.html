@@ -1,0 +1,171 @@
+<%inherit file="base.html"/>
+<%!
+    import mylar
+%>
+
+<%def name="body()">
+    <input type="hidden" id="page_name" value="about" />
+    <%
+        a = about
+        ci = a['comicinfo']
+        repo = 'https://github.com/TRusselo/mylar3'
+        version = a['br_version_name'] or a['br_version'] or 'unknown'
+        short = version[:7] if (not a['br_version_name'] and len(version) == 40) else version
+        def n(x):
+            try:
+                return '{:,}'.format(int(x or 0))
+            except (TypeError, ValueError):
+                return x
+        top = max([c for _, c in a['dlstats']] or [1])
+    %>
+    <div class="page about">
+        <div class="about-hero">
+            <img class="about-logo" src="images/issuarr-logo-transparent.png" alt="" width="88" height="88" />
+            <div class="head-text">
+                <h1>Issuarr</h1>
+                <p class="page-sub">Version <span class="mono" title="${version | h}">${short | h}</span>
+                %if a['br_release_name']:
+                    (${a['br_release_name'] | h})
+                %endif
+                %if a['branch']:
+                    on the <span class="mono">${a['branch'] | h}</span> branch
+                %endif
+                </p>
+            </div>
+            <div class="btn-row">
+                <a class="btn" href="${repo}/issues" target="_blank" rel="noopener">Report a problem</a>
+                <a class="btn" href="carepackage" title="Logs and settings, with passwords and keys removed, to attach to a bug report">Care package</a>
+            </div>
+        </div>
+
+        <section class="section" aria-labelledby="ab-health">
+            <h2 id="ab-health" class="about-h2">Health</h2>
+            <ul class="about-checks" id="about-checks">
+                <li>
+                    <span class="status ${'is-have' if a['py_check_pass'] else 'is-failed'}">${'OK' if a['py_check_pass'] else 'Too old'}</span>
+                    <b>Python ${a['py_version'] | h}</b>
+                    <span class="muted">${'Issuarr needs %s or later.' % a['py_minimum'] if not a['py_check_pass'] else 'Meets the minimum of %s.' % a['py_minimum']}</span>
+                </li>
+                <li data-check="pip"><span class="status is-idle">Checking</span><b>Python packages</b><span class="muted" data-msg></span></li>
+                <li data-check="rar"><span class="status is-idle">Checking</span><b>unrar</b><span class="muted" data-msg>Needed to open .cbr files.</span></li>
+                <li data-check="config"><span class="status is-idle">Checking</span><b>Settings</b><span class="muted" data-msg></span></li>
+                <li data-check="release" hidden><span class="status is-snatched">Note</span><b>Release notes</b><span class="muted" data-msg></span></li>
+            </ul>
+        </section>
+
+        <section class="section" aria-labelledby="ab-lib">
+            <h2 id="ab-lib" class="about-h2">Your library</h2>
+            <div class="about-stats">
+                <div class="about-stat"><b>${n(ci['COUNT_COMICS'])}</b><span>series followed</span><small>${n(ci['CCONTCOUNT'])} still running</small></div>
+                <div class="about-stat"><b>${n(ci['COUNT_ISSUES'])}</b><span>issues tracked</span></div>
+                <div class="about-stat"><b>${n(ci['COUNT_HAVES'])}</b><span>issues on disk</span></div>
+                <div class="about-stat"><b>${ci['COUNT_SIZE'] | h}</b><span>disk space used</span></div>
+            </div>
+        </section>
+
+        <div class="about-cols">
+            <section class="panel" aria-labelledby="ab-install">
+                <h2 id="ab-install" class="panel-title">Install</h2>
+                <dl class="kv">
+                    <dt>Version</dt><dd class="mono">${version | h}</dd>
+                    <dt>Install type</dt><dd>${a['br_type'] or '-' | h}</dd>
+                    <dt>Branch</dt><dd class="mono">${a['branch'] or '-' | h}</dd>
+                    <dt>Python</dt><dd>${a['py_version'] | h}</dd>
+                    <dt>Language</dt><dd>${a['lang'] | h}</dd>
+                    <dt>Data folder</dt><dd class="mono">${a['data_dir'] | h}</dd>
+                    <dt>Program folder</dt><dd class="mono">${a['prog_dir'] | h}</dd>
+                    <dt>Cache folder</dt><dd class="mono">${a['cache_dir'] | h}</dd>
+                    <dt>Settings file</dt><dd class="mono">${a['config_file'] | h} <a href="config_dump" class="about-inline">View</a></dd>
+                </dl>
+            </section>
+
+            <section class="panel" aria-labelledby="ab-changes">
+                <h2 id="ab-changes" class="panel-title">Recent changes</h2>
+                %if a['history']:
+                <ol class="about-commits">
+                    %for c in a['history']:
+                    <li>
+                        <a class="mono" href="${repo}/commit/${c['hash'] | u}" target="_blank" rel="noopener">${c['hash'] | h}</a>
+                        <span class="about-commit-msg">${c['subject'] | h}</span>
+                        <small class="muted">${c['author'] | h}, ${c['when'] | h}</small>
+                    </li>
+                    %endfor
+                </ol>
+                %else:
+                <p class="muted">Only shown for installs run from a git checkout.</p>
+                %endif
+            </section>
+        </div>
+
+        <section class="panel" aria-labelledby="ab-prov">
+            <h2 id="ab-prov" class="panel-title">Downloads by provider <span class="muted">${n(a['dltotals'])} grabbed</span></h2>
+            %if a['dlstats']:
+            <ul class="about-prov">
+                %for name, count in a['dlstats']:
+                <li>
+                    <span class="about-prov-name">${name | h}</span>
+                    <span class="about-prov-bar"><span style="width: ${max(2, int(round(100.0 * count / top)))}%"></span></span>
+                    <span class="mono">${n(count)}</span>
+                </li>
+                %endfor
+            </ul>
+            %if any(name.lower() == 'newznab' for name, _ in a['dlstats']):
+            <small class="muted">Counts under "newznab" may be inaccurate.</small>
+            %endif
+            %else:
+            <p class="muted">Nothing grabbed yet.</p>
+            %endif
+        </section>
+
+        <section class="panel about-credits" aria-labelledby="ab-credits">
+            <h2 id="ab-credits" class="panel-title">History and credits</h2>
+            <p>Issuarr continues from Mylar. <b>evilhero</b> created Mylar and wrote most of it. It was rewritten for Python 3 as
+               <a href="https://github.com/mylar3/mylar3" target="_blank" rel="noopener">mylar3/mylar3</a> and carried on by the community as
+               <a href="https://github.com/MylarComics/mylar3" target="_blank" rel="noopener">MylarComics/mylar3</a>.</p>
+            <p>Issuarr is independent and not affiliated with or endorsed by the Mylar3 or MylarComics teams, so please bring Issuarr questions to
+               <a href="${repo}/issues" target="_blank" rel="noopener">Issuarr's issue tracker</a> rather than to them.</p>
+            <p>Thanks to everyone who contributed to Mylar, and to <a href="https://github.com/comictagger/comictagger" target="_blank" rel="noopener">ComicTagger</a>,
+               <a href="https://comicvine.gamespot.com/" target="_blank" rel="noopener">ComicVine</a> and <a href="https://www.linuxserver.io/" target="_blank" rel="noopener">linuxserver.io</a>.
+               Licensed under the GNU General Public License v3. <a href="${repo}" target="_blank" rel="noopener">Source code</a>.</p>
+        </section>
+    </div>
+</%def>
+
+<%def name="javascriptIncludes()">
+    <script>
+    (function () {
+        function esc(t) { var d = document.createElement('div'); d.textContent = t == null ? '' : String(t); return d.innerHTML; }
+        function set(key, state, label, html) {
+            var li = document.querySelector('#about-checks [data-check="' + key + '"]');
+            if (!li) return;
+            li.hidden = false;
+            var pill = li.querySelector('.status');
+            pill.className = 'status ' + state;
+            pill.textContent = label;
+            if (html != null) li.querySelector('[data-msg]').innerHTML = html;
+        }
+        fetch('return_checks', { credentials: 'same-origin' })
+            .then(function (r) { if (!r.ok) throw new Error(r.status); return r.json(); })
+            .then(function (o) {
+                var pip = o.pip || {};
+                if (pip.pip_failure) {
+                    set('pip', 'is-failed', 'Missing', (pip.pip_info || []).map(function (i) { return esc(i.module) + ': ' + esc(i.message); }).join('<br>'));
+                } else {
+                    set('pip', 'is-have', 'OK', 'Everything in requirements.txt is installed.');
+                }
+                var rar = o.rar || {};
+                set('rar', rar.rar_failure ? 'is-failed' : 'is-have', rar.rar_failure ? 'Not found' : 'OK',
+                    rar.rar_failure ? 'Not found, so .cbr files can\'t be opened for metadata or conversion.' : esc(rar.rar_message || ''));
+                var cfg = o.config || [];
+                if (cfg.length) set('config', 'is-wanted', cfg.length === 1 ? '1 to fix' : cfg.length + ' to fix',
+                    cfg.map(function (c) { return esc(c.error_message); }).join('<br>'));
+                else set('config', 'is-have', 'OK', 'No problems found.');
+                var rel = o.release_messages;
+                if (rel && rel.length) set('release', 'is-snatched', 'Note', rel.map(function (m) { return esc(m); }).join('<br>'));
+            })
+            .catch(function () {
+                ['pip', 'rar', 'config'].forEach(function (k) { set(k, 'is-idle', 'Unknown', 'The check didn\'t run. See the log.'); });
+            });
+    })();
+    </script>
+</%def>

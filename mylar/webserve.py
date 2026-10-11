@@ -7213,81 +7213,78 @@ class WebInterface(object):
 
     pretty_git.exposed = True
     #---
-    def config(self):
-        interface_dir = os.path.join(mylar.PROG_DIR, 'data', 'interfaces')
-        interface_list = [name for name in os.listdir(interface_dir) if os.path.isdir(os.path.join(interface_dir, name))]
-#----
-# to be implemented in the future.
-        br_hist = 'This would be a nice place to see revision history...'
+    def _about_info(self):
+        """Version, library counts, provider usage and recent commits for the About page."""
+        history = []
         if mylar.INSTALL_TYPE == 'git':
             try:
-                branch_history = mylar.versioncheck.runGit('log --encoding=UTF-8 --pretty=format:"%h - %cr - %an - %s" -n 5')
-                #here we pass the branch_history to the pretty_git module to break it down
-                if branch_history:
-                    br_hist = self.pretty_git(branch_history)
-                    try:
-                        br_hist = "" + br_hist.decode('utf-8')
-                    except:
-                        br_hist = br_hist
+                log = mylar.versioncheck.runGit('log --encoding=UTF-8 --pretty=format:"%h%x1f%cr%x1f%an%x1f%s" -n 8')
+                for line in (log or '').splitlines():
+                    parts = line.split('\x1f')
+                    if len(parts) == 4:
+                        history.append({'hash': parts[0], 'when': parts[1], 'author': parts[2], 'subject': parts[3]})
             except Exception as e:
                 logger.fdebug('[ERROR] Unable to retrieve git revision history for some reason: %s' % e)
-                br_hist = 'This would be a nice place to see revision history...'
-#----
+
         myDB = db.DBConnection()
         CCOMICS = myDB.select("SELECT COUNT(*) FROM comics")
         CHAVES = myDB.select("SELECT COUNT(*) FROM issues WHERE Status='Downloaded' OR Status='Archived'")
         CISSUES = myDB.select("SELECT COUNT(*) FROM issues")
         CSIZE = myDB.select("select SUM(ComicSize) from issues where Status='Downloaded' or Status='Archived'")
-        COUNT_COMICS = CCOMICS[0][0]
-        COUNT_HAVES = CHAVES[0][0]
-        COUNT_ISSUES = CISSUES[0][0]
-        COUNT_SIZE = helpers.human_size(CSIZE[0][0])
         CCONTCOUNT = 0
-        cti = helpers.havetotals()
-        for cchk in cti:
+        for cchk in helpers.havetotals():
             if cchk['recentstatus'] == 'Continuing':
                 CCONTCOUNT += 1
-        comicinfo = {"COUNT_COMICS": COUNT_COMICS,
-                      "COUNT_HAVES": COUNT_HAVES,
-                      "COUNT_ISSUES": COUNT_ISSUES,
-                      "COUNT_SIZE": COUNT_SIZE,
+        comicinfo = {"COUNT_COMICS": CCOMICS[0][0],
+                      "COUNT_HAVES": CHAVES[0][0],
+                      "COUNT_ISSUES": CISSUES[0][0],
+                      "COUNT_SIZE": helpers.human_size(CSIZE[0][0]),
                       "CCONTCOUNT": CCONTCOUNT}
+
         DLPROVSTATS = myDB.select("SELECT Provider, COUNT(Provider) AS Frequency FROM Snatched WHERE Status = 'Snatched' AND Provider is NOT NULL GROUP BY Provider ORDER BY Frequency DESC")
         freq = dict()
         freq_tot = 0
         for row in DLPROVSTATS:
             if any(['CBT' in row['Provider'], '32P' in row['Provider'], 'ComicBT' in row['Provider']]):
-                try:
-                    tmpval = freq['32P']
-                    freq.update({'32P': tmpval + row['Frequency']})
-                except:
-                    freq.update({'32P': row['Frequency']})
+                name = '32P'
             elif 'KAT' in row['Provider']:
-                try:
-                    tmpval = freq['KAT']
-                    freq.update({'KAT': tmpval + row['Frequency']})
-                except:
-                    freq.update({'KAT': row['Frequency']})
+                name = 'KAT'
             elif 'experimental' in row['Provider']:
-                try:
-                    tmpval = freq['Experimental']
-                    freq.update({'Experimental': tmpval + row['Frequency']})
-                except:
-                    freq.update({'Experimental': row['Frequency']})
-
-
-            elif [True for x in freq if re.sub(r"\(newznab\)", "", str(row['Provider'])).strip() in x]:
-                try:
-                    tmpval = freq[re.sub(r"\(newznab\)", "", row['Provider']).strip()]
-                    freq.update({re.sub(r"\(newznab\)", "", row['Provider']).strip(): tmpval + row['Frequency']})
-                except:
-                    freq.update({re.sub(r"\(newznab\)", "", row['Provider']).strip(): row['Frequency']})
+                name = 'Experimental'
             else:
-                freq.update({re.sub(r"\(newznab\)", "", row['Provider']).strip(): row['Frequency']})
-
+                name = re.sub(r"\(newznab\)", "", str(row['Provider'])).strip()
+            freq[name] = freq.get(name, 0) + row['Frequency']
             freq_tot += row['Frequency']
 
-        dlprovstats = sorted(iter(freq.items()), key=itemgetter(1), reverse=True)
+        chk_py_version = platform.python_version()
+        return {
+            "branch": mylar.CONFIG.GIT_BRANCH,
+            "git_user": mylar.CONFIG.GIT_USER,
+            "br_type": mylar.INSTALL_TYPE,
+            "br_version": mylar.CURRENT_VERSION,
+            "br_version_name": mylar.CURRENT_VERSION_NAME,
+            "br_release_name": mylar.CURRENT_RELEASE_NAME,
+            "py_version": chk_py_version,
+            "py_minimum": mylar.MINIMUM_PY_VERSION,
+            "py_check_pass": parse_version(chk_py_version) >= parse_version(mylar.MINIMUM_PY_VERSION),
+            "data_dir": mylar.DATA_DIR,
+            "prog_dir": mylar.PROG_DIR,
+            "cache_dir": mylar.CONFIG.CACHE_DIR,
+            "config_file": mylar.CONFIG_FILE,
+            "lang": '%s.%s' % (logger.LOG_LANG, logger.LOG_CHARSET),
+            "history": history,
+            "dlstats": sorted(freq.items(), key=itemgetter(1), reverse=True),
+            "dltotals": freq_tot,
+            "comicinfo": comicinfo,
+        }
+
+    def about(self):
+        return serve_template(templatename="about.html", title="About", about=self._about_info())
+    about.exposed = True
+
+    def config(self):
+        interface_dir = os.path.join(mylar.PROG_DIR, 'data', 'interfaces')
+        interface_list = [name for name in os.listdir(interface_dir) if os.path.isdir(os.path.join(interface_dir, name))]
 
         if mylar.SCHED_RSS_LAST is None:
             rss_sclast = 'Unknown'
@@ -7580,7 +7577,6 @@ class WebInterface(object):
                     "cache_dir": mylar.CONFIG.CACHE_DIR,
                     "config_file": mylar.CONFIG_FILE,
                     "lang": '%s.%s' % (logger.LOG_LANG,logger.LOG_CHARSET),
-                    "branch_history" : br_hist,
                     "log_dir": mylar.CONFIG.LOG_DIR,
                     "opds_enable": helpers.checked(mylar.CONFIG.OPDS_ENABLE),
                     "opds_endpoint": mylar.CONFIG.OPDS_ENDPOINT,
@@ -7589,12 +7585,10 @@ class WebInterface(object):
                     "opds_password": mylar.CONFIG.OPDS_PASSWORD,
                     "opds_metainfo": helpers.checked(mylar.CONFIG.OPDS_METAINFO),
                     "opds_pagesize": mylar.CONFIG.OPDS_PAGESIZE,
-                    "dlstats": dlprovstats,
-                    "dltotals": freq_tot,
                     "alphaindex": mylar.CONFIG.ALPHAINDEX,
                     "backup_on_start": helpers.checked(mylar.CONFIG.BACKUP_ON_START),
                }
-        return serve_template(templatename="config.html", title="Settings", config=config, comicinfo=comicinfo)
+        return serve_template(templatename="config.html", title="Settings", config=config)
     config.exposed = True
 
     def error_change(self, comicid, errorgcd, comicname, comicyear, imported=None, mogcname=None):

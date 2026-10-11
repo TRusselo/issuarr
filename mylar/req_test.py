@@ -255,7 +255,9 @@ class Req(object):
                 rarfile.UNRAR_TOOL = cmd
                 break
 
-        if output is None:
+        # A command that ran but never printed a version (e.g. "/bin/sh: unrar: not found" on stderr)
+        # leaves the CompletedProcess here, which can't be sent as JSON.
+        if output is None or not isinstance(output, str):
             output = 'Unable to locate unrar'
 
         rar_exe_path = output

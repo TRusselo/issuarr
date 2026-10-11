@@ -186,7 +186,7 @@ Issuarr marks the missing issues of new series *Wanted* and starts searching. Wa
 ## Getting help
 
 - [Issues](https://github.com/TRusselo/mylar3/issues): bug reports and feature requests.
-- **History > View Logs** shows the log. **Settings > Information** shows version details, and its **Care Package** button bundles logs and settings, with passwords and keys removed, to attach to a bug report.
+- **Tasks > Logs** shows the log. **About** shows version details and health checks, and its **Care package** button bundles logs and settings, with passwords and keys removed, to attach to a bug report.
 
 ## History and credits
 

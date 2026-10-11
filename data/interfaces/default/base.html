@@ -577,8 +577,14 @@
                 bed = lenc.length + 1;
                 url = url.substring(0,lenc)+url.substring(lenc+10);
             }
-            var tabId = $('.ui-tabs-panel:visible').attr("id");
-            $('.ui-tabs-panel:visible').load(url + " #"+ tabId, function() {
+            var panel = $('.ui-tabs-panel:visible');
+            // A table filled from the server (a series' issues) comes back from the page empty, and
+            // nothing fills it again. reload_table() already refreshed its rows, so keep it.
+            if (panel.find('table.dataTable').length) {
+                return;
+            }
+            var tabId = panel.attr("id");
+            panel.load(url + " #"+ tabId, function() {
                 $("#tabs").tabs({
                     cache: false,
                 });

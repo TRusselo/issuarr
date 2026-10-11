@@ -1,236 +1,150 @@
-<%inherit file="base.html" />
+<%inherit file="base.html"/>
 <%!
-        from mylar import db
-        import mylar
+    from urllib.parse import urlencode
 %>
 
-<%def name="headerIncludes()">
-	<div id="subhead_container">
-			&nbsp;
-	</div>	
-	<a href="manage" class="back">&laquo; Back to manage overview</a>
-</%def>
-
-
 <%def name="body()">
-        <input type="hidden" id="page_name" value="manage_issues" />
-	<div id="manageheader" class="title">
-		<h1 class="clearfix">Manage Issues</h1>
-	</div>
-
-        <form action="manageIssues" method="post">
-        <div>
-            <label>Manage Issues with Status&nbsp&nbsp</label><select name="status">
-                        %for curStatus in ['Wanted', 'Downloaded', 'Snatched', 'Skipped', 'Archived', 'Ignored', 'Failed']:
-                            <%
-                                     if curStatus == status:
-                                             selected = 'selected'
-                                     else:
-                                             selected = ''
-                             %>
-                             <option value="${curStatus}" ${selected}>${curStatus}</option> 
-                        %endfor
-                </select>
-                <input type="submit" class="btn" value="Show">
-        </div>
-        </form>
-	<form action="markissues" method="post" id="markissues" data-success="Updated issue status successfully." data-error="You didn't select any issues.">
-        <div id="markissues_container" style="top:0;">
-        <div class="action-buttons" aria-live="polite">
-            <span class="action-label">Choose what to do with your selected issues:</span>
-            <div class="action-button-group">
-                <div class="action-row">
-                    <input type="button" class="manage-action issue-action" data-action="Wanted" data-label="Mark as Wanted" value="Mark as Wanted">
-                    <input type="button" class="manage-action issue-action" data-action="Archived" data-label="Mark as Archived" value="Mark as Archived">
-                </div>
-                <div class="action-row">
-                    <input type="button" class="manage-action issue-action" data-action="Skipped" data-label="Mark as Skipped" value="Mark as Skipped">
-                    <input type="button" class="manage-action issue-action" data-action="Ignored" data-label="Mark as Ignored" value="Mark as Ignored">
-                </div>
+    <input type="hidden" id="page_name" value="manage_issues" />
+    <%
+        CLS = {'Wanted': 'is-wanted', 'Snatched': 'is-snatched', 'Failed': 'is-failed', 'Downloaded': 'is-have',
+               'Archived': 'is-have', 'Skipped': 'is-idle', 'Ignored': 'is-ignored'}
+        def link(**kw):
+            base = {'status': status, 'q': q, 'page': 1}
+            base.update(kw)
+            return 'manageIssues?' + urlencode({k: v for k, v in base.items() if v not in ('', None)})
+        first = (page - 1) * per_page + 1 if total else 0
+        last = min(page * per_page, total)
+    %>
+    <div class="page manage-issues">
+        <div class="page-head">
+            <div class="head-text">
+                <h1><span class="page-crumb">Library › </span>Manage issues</h1>
+                <p class="page-sub">Every issue in your library with a given status, to change many at once.</p>
             </div>
+            <form class="btn-row" action="manageIssues" method="get" role="search">
+                <input type="hidden" name="status" value="${status | h}" />
+                <label class="lib-search">
+                    <span class="sr-only">Filter by series</span>
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+                    <input type="search" name="q" value="${q | h}" data-ui placeholder="Filter by series" autocomplete="off" />
+                </label>
+            </form>
         </div>
-        <div id="issue-action-confirm" class="action-confirm hidden">
-            <span id="issue-action-confirm-message"></span>
-            <div class="action-confirm-buttons">
-                <input type="button" id="issue-action-confirm-yes" value="Yes">
-                <input type="button" id="issue-action-confirm-no" value="No">
+
+        <section class="section" aria-label="Issues" style="gap: 14px">
+            <nav class="filter-tabs" aria-label="Status">
+                %for st in statuses:
+                <a href="${link(status=st, q='') | h}" data-ui aria-current="${'page' if st == status else 'false'}" aria-pressed="${'true' if st == status else 'false'}">${st}<span class="count">${'{:,}'.format(counts.get(st, 0))}</span></a>
+                %endfor
+            </nav>
+
+            <div class="bulk-bar" id="mi-bulk" hidden>
+                <span class="bulk-count" id="mi-count"></span>
+                %for act, label in [('Wanted', 'Mark wanted'), ('Skipped', 'Skip'), ('Archived', 'Mark archived'), ('Ignored', 'Ignore')]:
+                    %if act != status:
+                <button type="button" class="btn btn-sm" data-mark="${act}">${label}</button>
+                    %endif
+                %endfor
+                <button type="button" class="btn btn-sm btn-ghost" id="mi-none">Clear selection</button>
             </div>
-        </div>
-        <div class="selected-counter">Selected issues: <span id="issue-selected-count">0</span></div>
-        <input type="hidden" name="action" id="manage_issue_action" value="">
-	</div>
-        
-	<div class="table_wrapper">
 
-	<table class="display" id="manage_issues">
-		<thead>
-			<tr>
-				<th id="select"><input type="checkbox" onClick="toggle(this);updateIssueSelectedCount();" class="checkbox" align="left" /></th>
-				<th id="name">Series</th>
-                                <th id="int_issue">Int_Issue</th>
-				<th id="issue">Issue</th>
-                                <th id="pubdate">Pub Date</th>
-                                <th id="releasedate">Store Date</th>
-				<th id="status">Status</th>
-				<th id="options">Options</th>
-			</tr>
-		</thead>
-		<tbody>
-		%for issue in issues:
-			<tr>
-				<td id="select"><input type="checkbox" name="${issue['IssueID']}" class="checkbox" onchange="updateIssueSelectedCount()" /></td>
-                                <% 
-                                     try:
-                                         if issue['ReleaseComicName']:
-                                             annual = True
-                                         else:
-                                             annual = False
-                                     except:
-                                         annual = False
-                                %>
-                                %if annual:
-                                    <td id="name"><span title="${issue['ReleaseComicName']}"></span><a href="comicDetails?ComicID=${issue['ComicID']}">${issue['ReleaseComicName']}</a></td>
-                                %else:
-	                            <td id="name"><span title="${issue['ComicName']}"></span><a href="comicDetails?ComicID=${issue['ComicID']}">${issue['ComicName']}</a></td>
-                                %endif
-                                <td id="int_issue">${issue['Int_IssueNumber']}</td>
-				<td id="issue">${issue['Issue_Number']}</td>
-				<td id="pubdate">${issue['IssueDate']}</td>
-				<td id="releasedate">${issue['ReleaseDate']}</td>
-				<td id="status">${issue['Status']}</td>	
-                                <td id="options">
-                                <%
-                                     try:
-                                         ahash = issue['hash']
-                                     except:
-                                         ahash = None
-                                 %>
-                                 %if ahash is not None and mylar.CONFIG.AUTO_SNATCH is True:
-                                     <a href="#" onclick="doAjaxCall('torrentit?torrent_hash=${ahash}&download=True',$(this),'table')" title="Auto-Snatch torrent file"><span class="ui-icon ui-icon-plus"></span>auto-snatch</a>
-                                 %endif
-                                </td>
-			</tr>
-		%endfor
-		</tbody>
-	</table>
-	</div>
-	</form>
-</%def>
+            <div class="dt-wrap">
+                <table class="dt" id="mi-table">
+                    <thead>
+                        <tr>
+                            <th scope="col" class="check"><input type="checkbox" id="mi-all" aria-label="Select every issue on this page" /></th>
+                            <th scope="col">Series</th>
+                            <th scope="col">Issue</th>
+                            <th scope="col">Cover date</th>
+                            <th scope="col">Store date</th>
+                            <th scope="col">Status</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                    %for i in issues:
+                        <tr>
+                            <td class="check"><input type="checkbox" data-id="${i['IssueID'] | h}" aria-label="Select ${i['ComicName'] | h} #${i['Issue_Number'] | h}" /></td>
+                            <td><a href="comicDetails?ComicID=${i['ComicID'] | u}">${i['ComicName'] | h}</a></td>
+                            <td class="mono nowrap">#${i['Issue_Number'] | h}</td>
+                            <td class="mono nowrap muted">${i['IssueDate'] or '-' | h}</td>
+                            <td class="mono nowrap muted">${i['ReleaseDate'] if i['ReleaseDate'] and not str(i['ReleaseDate']).startswith('0000') else '-' | h}</td>
+                            <td><span class="status ${CLS.get(i['Status'], 'is-idle')}">${i['Status'] | h}</span></td>
+                        </tr>
+                    %endfor
+                    %if not issues:
+                        <tr><td colspan="6" class="empty-state">${'No %s issues match "%s".' % (status.lower(), q) if q else 'No issues are %s.' % status.lower() | h}</td></tr>
+                    %endif
+                    </tbody>
+                </table>
+            </div>
 
-<%def name="headIncludes()">
-	<link rel="stylesheet" href="interfaces/${interface}/css/data_table.css">
-        <link rel="stylesheet" href="interfaces/${interface}/css/managecomics.css">
+            %if total:
+            <div class="mi-pager">
+                <span class="muted">${'{:,}'.format(first)}–${'{:,}'.format(last)} of ${'{:,}'.format(total)}</span>
+                %if pages > 1:
+                <div class="btn-row">
+                    %if page > 1:
+                    <a class="btn btn-sm" href="${link(page=page - 1) | h}">Previous</a>
+                    %endif
+                    <span class="muted">Page ${page} of ${'{:,}'.format(pages)}</span>
+                    %if page < pages:
+                    <a class="btn btn-sm" href="${link(page=page + 1) | h}">Next</a>
+                    %endif
+                </div>
+                %endif
+            </div>
+            %endif
+        </section>
+    </div>
 </%def>
 
 <%def name="javascriptIncludes()">
-	<script src="js/libs/jquery.dataTables.min.js"></script>
-	<script>
-
-        var lastChecked = null;
-        var issuePendingAction = null;
-
-        function updateIssueSelectedCount() {
-                var count = $("#manage_issues input.checkbox:checked").length;
-                $("#issue-selected-count").text(count);
-                return count;
+    <script>
+    (function () {
+        function boxes() { return Array.prototype.slice.call(document.querySelectorAll('#mi-table tbody [data-id]')); }
+        function picked() { return boxes().filter(function (b) { return b.checked; }); }
+        var last = null;
+        function render() {
+            var n = picked().length, all = document.getElementById('mi-all');
+            document.getElementById('mi-bulk').hidden = !n;
+            document.getElementById('mi-count').textContent = n + (n === 1 ? ' issue selected' : ' issues selected');
+            all.checked = n > 0 && n === boxes().length;
+            all.indeterminate = n > 0 && n < boxes().length;
         }
-
-        function showIssueConfirm(action, label) {
-                var count = updateIssueSelectedCount();
-                if (count === 0) {
-                        var errorMsg = $("#markissues .action-buttons").attr('data-error') || "Select at least one issue.";
-                        alert(errorMsg);
-                        issuePendingAction = null;
-                        return;
+        document.addEventListener('click', function (e) {
+            var box = e.target.closest('#mi-table tbody [data-id]');
+            if (box) {
+                // Shift-click ticks everything between this box and the last one clicked.
+                if (e.shiftKey && last) {
+                    var list = boxes(), a = list.indexOf(last), b = list.indexOf(box);
+                    list.slice(Math.min(a, b), Math.max(a, b) + 1).forEach(function (x) { x.checked = box.checked; });
                 }
-                issuePendingAction = action;
-                var msg = label + ' (' + count + (count === 1 ? ' issue selected)' : ' issues selected)');
-                $('#issue-action-confirm-message').text(msg);
-                $('#issue-action-confirm').removeClass('hidden');
-        }
-
-        function hideIssueConfirm() {
-                issuePendingAction = null;
-                $('#issue-action-confirm').addClass('hidden');
-        }
-
-        function submitIssueAction() {
-                if (!issuePendingAction) {
-                        return;
-                }
-                $('#manage_issue_action').val(issuePendingAction);
-                doAjaxCall('markissues',$('#markissues'),'table',true,'post');
-                hideIssueConfirm();
-        }
-        
-        function initThisPage() {
-                updateIssueSelectedCount();
-                $('#manage_issues').dataTable(
-                        {
-                                "bDestroy": true,
-                                "aoColumnDefs": [
-                                  { 'bSortable': false, 'aTargets': [ 0 , 2 ] },
-                                  { 'bVisible': false, 'aTargets': [2] },
-                                  { 'sType': 'numeric', 'aTargets': [2] },
-                                  { 'columns.orderData': [2], 'aTargets': [3] }
-                                ],
-                                "aLengthMenu": [[10, 25, 50, 100, 200, 500, -1], [10, 25, 50, 100, 200, 500, 'All' ]],
-                                "oLanguage": {
-                                        "sLengthMenu":"Show _MENU_ results per page",
-                                        "sEmptyTable": "No results",
-                                        "sInfo":"Showing _START_ to _END_ of _TOTAL_ results",
-                                        "sInfoEmpty":"Showing 0 to 0 of 0 results",
-                                        "sInfoFiltered":"(filtered from _MAX_ total results)",
-                                        "sSearch" : ""},
-                                "bStateSave": true,
-                                "iDisplayLength": 25,
-                                "sPaginationType": "full_numbers",
-                                "aaSorting": [[1, 'desc'],[2, 'desc']]
-                        });
-                        resetFilters("issue");
-                $('#manage_issues tbody').on('click', 'input[type="checkbox"]', function(e){
-                        var chkboxes = Array.from($(":checkbox"));
-                
-                        if (!lastChecked) {
-                                lastChecked = this;
-                        } else {
-                                if (e.shiftKey) {
-                                var start = chkboxes.indexOf(lastChecked);
-                                var end = chkboxes.indexOf(this);
-                
-                                var positive = start < end;
-                
-                                for (var i = (positive ? start: end );
-                                (positive ? i <= end : i <= start); i++) {
-                                        chkboxes[i].checked = lastChecked.checked;
-                                }
-                                lastChecked = null;
-                                }
-                                else {
-                                lastChecked = this;
-                                }
-                        }
-                        updateIssueSelectedCount();
-                        });
-                $('.issue-action').on('click', function(){
-                        var action = $(this).data('action');
-                        var label = $(this).data('label') || $(this).text();
-                        showIssueConfirm(action, label);
+                last = box;
+                render();
+                return;
+            }
+            if (e.target.closest('#mi-none')) { boxes().forEach(function (b) { b.checked = false; }); render(); return; }
+            var m = e.target.closest('#mi-bulk [data-mark]');
+            if (!m) return;
+            var ids = picked().map(function (b) { return b.getAttribute('data-id'); });
+            if (!ids.length) return;
+            var data = new URLSearchParams({ action: m.getAttribute('data-mark') });
+            ids.forEach(function (id) { data.append('issueids[]', id); });
+            document.querySelectorAll('#mi-bulk button').forEach(function (b) { b.disabled = true; });
+            fetch('markissues', { method: 'POST', credentials: 'same-origin', body: data })
+                .then(function (r) {
+                    if (!r.ok) throw new Error(r.status);
+                    Issuarr.toast('Updated ' + ids.length + (ids.length === 1 ? ' issue.' : ' issues.'));
+                    setTimeout(function () { location.reload(); }, 700);
+                })
+                .catch(function () {
+                    document.querySelectorAll('#mi-bulk button').forEach(function (b) { b.disabled = false; });
+                    Issuarr.toast('That didn\'t work. Check the log.', false);
                 });
-                $('#issue-action-confirm-yes').on('click', function(){
-                        submitIssueAction();
-                });
-                $('#issue-action-confirm-no').on('click', function(){
-                        hideIssueConfirm();
-                });
-        }
-
-        $(document).ready(function(){
-                initThisPage();
         });
-        $(window).load(function(){
-                initFancybox();
+        document.addEventListener('change', function (e) {
+            if (e.target.id === 'mi-all') { boxes().forEach(function (b) { b.checked = e.target.checked; }); render(); }
         });
-        </script>
-
+    })();
+    </script>
 </%def>

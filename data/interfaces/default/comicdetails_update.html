@@ -126,7 +126,7 @@
                         </summary>
                         <div class="menu-list">
                             % if mylar.CONFIG.RENAME_FILES:
-                            <button type="button" class="btn btn-ghost" title="Rename every downloaded file to match your folder and file format" onclick="manual_rename('${comic['ComicID'] | h}'); Issuarr.toast('Renaming the files of this series.');">Rename files</button>
+                            <a class="btn btn-ghost" href="previewRename?comicid=${comic['ComicID'] | u}" title="See the new file names, then rename">Rename files…</a>
                             % endif
                             % if any([mylar.CONFIG.ENABLE_META, mylar.CONFIG.CBR2CBZ_ONLY]):
                             <button type="button" class="btn btn-ghost" title="Write ComicInfo metadata into every downloaded issue" onclick="group_metatag('${comic['ComicID'] | h}'); Issuarr.toast('Writing metadata into the files of this series.');">Write metadata</button>
@@ -266,157 +266,107 @@
             %endif
 	</div>
         <div id="tabs-2">
-        <table class="comictable" summary="Edit Settings">
-            <tr>
-                <td id="mainimg">
-                   <fieldset>
-                       <div class="row" id="artistImg">
-                          <img src="${comicConfig['ComicImage']}" alt="" height="400" width="263" />
-                       </div>
-                   </fieldset>
-                 </td>
-                 <td width="100%" padding="10">
-                 %if comicConfig['publisher_image'] is not None:
-                     <img src="${comicConfig['publisher_image']}" align="right" alt="${comicConfig['publisher_image_alt']}" height="${comicConfig['publisher_imageH']}" width="${comicConfig['publisher_imageW']}" />
-                 %endif
-                 <form action="comic_config" method="GET">
-                    <input type="hidden" name="ComicID" id="ComicID" value=${comic['ComicID']} />
-                        <fieldset>
-                                <div class="row checkbox right clearfix">
-                                        <label>Age-Rating</label>
-                                        <select name="age_rating">
-                                        <%
-                                            ar_list = ['All Ages', '9+', '12+', '15+', '17+', 'Adult']
-                                        %>
-                                        %for arr in ar_list:
-                                                <%
-                                                        if comicConfig['age_rating'] == arr:
-                                                                outputselect = 'selected'
-                                                        else:
-                                                                outputselect = ''
-                                                %>
-                                                %if comicConfig['age_rating'] is None:
-                                                    %if arr == 'Select':
-                                                        <option value='' selected disabled hidden>Select...</option>
-                                                    %elif comic['AgeRating'] == arr:
-                                                        <option value=${arr} disabled>${arr}</option>
-                                                    %else:
-                                                        <option value=${arr} ${outputselect}>${arr}</option>
-                                                    %endif
-                                                %elif comicConfig['age_rating'] == arr:
-                                                    <option value=${arr} selected disabled>${arr}</option>
-                                                %else:
-                                                    <option value=${arr} ${outputselect}>${arr}</option>
-                                                %endif
-                                        %endfor
-                                        </select>
-                                </div>
-                                <div class="row checkbox right clearfix">
-                                   <label>Forcibly Mark as Continuing</label>
-                                   <input type="checkbox" style="vertical-align: bottom; margin: 3px; margin-top: -3px;" name="force_continuing" value="1" ${comicConfig['force_continuing']} />
-                                   <a href="#" title="Will forcibly mark this series as 'Continuing' regardless of actual status"><img src="images/info32.png" height="16" alt="" /></a>
-                                </div>
-                                <div class="row checkbox right clearfix">
-                                                <label>Force-Type (original:${comic['Type']})</label>
-                                                <select name="force_type">
-                                                <%
-                                                    ftt_list = ['Select', 'TPB', 'HC', 'GN', 'Digital', 'One-Shot', 'Print']
-                                                %>
-                                                %for ftt in ftt_list:
-                                                        <%
-                                                                if comicConfig['force_type'] == ftt:
-                                                                        outputselect = 'selected'
-                                                                else:
-                                                                        outputselect = ''
-                                                        %>
-                                                        %if comicConfig['force_type'] is None:
-                                                            %if ftt == 'Select':
-                                                                <option value='' selected disabled hidden>Select...</option>
-                                                            %elif comic['Type'] == ftt:
-                                                                <option value=${ftt} disabled>${ftt}</option>
-                                                            %else:
-                                                                <option value=${ftt} ${outputselect}>${ftt}</option>
-                                                            %endif
-                                                        %elif comicConfig['force_type'] == ftt:
-                                                            <option value=${ftt} selected disabled>${ftt}</option>
-                                                        %else:
-                                                            <option value=${ftt} ${outputselect}>${ftt}</option>
-                                                        %endif
-                                                %endfor
-                                                </select>
-                                                <a href="#" title="Will forcibly mark this series as selected in those instances where it assumes it's a ${comic['Type']}-based series"><img src="images/info32.png" height="16" alt="" /></a>
-                                </div>
-                                <div class="row checkbox right clearfix">
-                                   %if all([comic['Type'] != 'TPB', comic['Type'] != 'HC', comic['Type'] != 'GN']):
-                                       <label>Accept all booktype search matches</label>
-                                       <input type="checkbox" style="vertical-align: bottom; margin: 3px; margin-top: -3px;" name="ignore_type" value="1" ${comicConfig['ignore_type']} />
-                                       <a href="#" title="Will not restrict search matches to just being a matching Edition type (ie. One-Shots/Digitals will match against normal Issues."><img src="images/info32.png" height="16" alt="" /></a>
-                                   %endif
-                                </div>
-                                %if any([comic['ComicYear'] == '2099',comic['ComicYear'] == '0000', comic['ComicYear'] == '', comic['Corrected_SeriesYear']]):
-                                    <div class="row">
-                                        <label>Series Year</label>
-                                        <input type="text" title="The series year currently is probably incorrect. This option allows it to be manually changed." name="corrected_seriesyear" value="${comic['ComicYear']}" size="10">
-                                    </div>
+        <%
+            def _blank(v):
+                return '' if v in (None, 'None') else v
+            _orig_type = comic['Type'] or 'Print'
+        %>
+        <form action="comic_config" method="GET" class="settings series-settings">
+            <input type="hidden" name="ComicID" id="ComicID" value="${comic['ComicID'] | h}" />
+
+            <section class="set-group" aria-labelledby="ss-search">
+                <div class="set-group-head"><h2 id="ss-search">Searching</h2></div>
+                <div class="set-row">
+                    <label class="set-label" for="ss-type"><b>Treat this series as</b><span>ComicVine lists it as ${_orig_type | h}. Change it when that's wrong, for example a trade listed as a regular series.</span></label>
+                    <div class="set-ctl">
+                        <select name="force_type" id="ss-type">
+                            <option value="" ${'selected' if not comicConfig['force_type'] else ''}>As ComicVine lists it (${_orig_type | h})</option>
+                            %for ftt in ['TPB', 'HC', 'GN', 'Digital', 'One-Shot', 'Print']:
+                                %if ftt != comic['Type']:
+                            <option value="${ftt}" ${'selected' if comicConfig['force_type'] == ftt else ''}>${{'TPB': 'Trade paperback', 'HC': 'Hardcover', 'GN': 'Graphic novel'}.get(ftt, ftt)}</option>
                                 %endif
-                                <div class="row">
-                                    <label>Volume Number</label>
-                                    <input type="text" name="comic_version" placeholder="${comic['ComicVersion']}" onfocus="if(this.value==this.defaultValue) this.value='';" value="${comic['ComicVersion']}" size="20">
-				    <small>Format: vN where N is a number 0-infinity</small>
-                                </div>
+                            %endfor
+                        </select>
+                    </div>
+                </div>
+                %if all([comic['Type'] != 'TPB', comic['Type'] != 'HC', comic['Type'] != 'GN']):
+                <div class="set-row set-tog">
+                    <label class="set-label" for="ss-ignore-type"><b>Accept any edition in search results</b><span>Lets one-shots and digital releases match as regular issues.</span></label>
+                    <input type="checkbox" class="switch" name="ignore_type" id="ss-ignore-type" value="1" ${comicConfig['ignore_type']} />
+                </div>
+                %endif
+                <div class="set-row">
+                    <label class="set-label" for="ss-alt-search"><b>Other names to search for</b><span>For releases named differently from ComicVine. Separate several with ##.</span></label>
+                    <div class="set-ctl"><input type="text" name="alt_search" id="ss-alt-search" value="${_blank(comic['AlternateSearch']) | h}" class="set-wide" /></div>
+                </div>
+                <div class="set-row">
+                    <div class="set-label"><b>Issue year in searches</b><span>Leaving the year out finds more, but also more wrong matches.</span></div>
+                    <div class="seg" role="radiogroup" aria-label="Issue year in searches">
+                        <label><input type="radio" name="fuzzy_year" value="0" ${comicConfig['fuzzy_year0']} /><span>Exact</span></label>
+                        <label><input type="radio" name="fuzzy_year" value="2" ${comicConfig['fuzzy_year2']} /><span>Give or take a year</span></label>
+                        <label><input type="radio" name="fuzzy_year" value="1" ${comicConfig['fuzzy_year1']} /><span>Leave out</span></label>
+                    </div>
+                </div>
+                <div class="set-row set-tog">
+                    <label class="set-label" for="ss-continuing"><b>Always treat as continuing</b><span>Keep checking for new issues even when ComicVine says the series has ended.</span></label>
+                    <input type="checkbox" class="switch" name="force_continuing" id="ss-continuing" value="1" ${comicConfig['force_continuing']} />
+                </div>
+                %if all([mylar.CONFIG.ENABLE_32P is True, mylar.CONFIG.ENABLE_TORRENT_SEARCH is True, mylar.CONFIG.MODE_32P == 1]):
+                <div class="set-row set-tog">
+                    <label class="set-label" for="ss-packs"><b>Allow pack downloads</b><span>Several issues in one file. Single issues are still searched first.</span></label>
+                    <input type="checkbox" class="switch" name="allow_packs" id="ss-packs" value="1" ${comicConfig['allow_packs']} />
+                </div>
+                <div class="set-row">
+                    <label class="set-label" for="ss-32p"><b>32P series ID</b></label>
+                    <div class="set-ctl"><input type="text" name="torrentid_32p" id="ss-32p" value="${_blank(comicConfig['torrentid_32p']) | h}" /></div>
+                </div>
+                %endif
+            </section>
 
-                                   <div class="row">
-                                       <label>Directory Location</label>
-                                       <input type="text" id="com_location" name="com_location" value="${comic['ComicLocation']}" size="90">
-                                       <small>Directory where all the comics are located for this series</small>
-                                   </div>
+            <section class="set-group" aria-labelledby="ss-files">
+                <div class="set-group-head"><h2 id="ss-files">Folder and file names</h2></div>
+                <div class="set-row">
+                    <label class="set-label" for="com_location"><b>Series folder</b><span>Changing it moves the existing folder.</span></label>
+                    <div class="set-ctl"><input type="text" id="com_location" name="com_location" value="${comic['ComicLocation'] or '' | h}" class="set-wide mono" /></div>
+                </div>
+                <div class="set-row">
+                    <label class="set-label" for="ss-alt-file"><b>Name used in file names</b><span>Used instead of the ComicVine name when filing and renaming.</span></label>
+                    <div class="set-ctl"><input type="text" name="alt_filename" id="ss-alt-file" value="${_blank(comic['AlternateFileName']) | h}" placeholder="${comic['ComicName'] | h}" class="set-wide" /></div>
+                </div>
+                <div class="set-row">
+                    <label class="set-label" for="ss-volume"><b>Volume</b><span>As v plus a number, e.g. v2. Leave empty for none.</span></label>
+                    <div class="set-ctl"><input type="text" name="comic_version" id="ss-volume" value="${_blank(comic['ComicVersion']) | h}" class="set-num" placeholder="v1" /></div>
+                </div>
+                <div class="set-row">
+                    <label class="set-label" for="ss-imprint"><b>Imprint</b><span>Used for $Imprint in folder names.</span></label>
+                    <div class="set-ctl"><input type="text" name="publisher_imprint" id="ss-imprint" value="${_blank(comic['PublisherImprint']) | h}" /></div>
+                </div>
+                %if any([comic['ComicYear'] == '2099', comic['ComicYear'] == '0000', comic['ComicYear'] == '', comic['Corrected_SeriesYear']]):
+                <div class="set-row">
+                    <label class="set-label" for="ss-year"><b>Series year</b><span>ComicVine's year for this series looks wrong; set the right one here.</span></label>
+                    <div class="set-ctl"><input type="text" name="corrected_seriesyear" id="ss-year" value="${comic['ComicYear'] or '' | h}" class="set-num" inputmode="numeric" /></div>
+                </div>
+                %endif
+                <div class="set-row">
+                    <label class="set-label" for="ss-age"><b>Age rating</b><span>Written into the files' metadata.</span></label>
+                    <div class="set-ctl">
+                        <select name="age_rating" id="ss-age">
+                            %if not comicConfig['age_rating']:
+                            <option value="" selected disabled hidden>Not set</option>
+                            %endif
+                            %for arr in ['All Ages', '9+', '12+', '15+', '17+', 'Adult']:
+                            <option value="${arr}" ${'selected' if comicConfig['age_rating'] == arr else ''}>${arr}</option>
+                            %endfor
+                        </select>
+                    </div>
+                </div>
+            </section>
 
-                                   <div class="row">
-                                       <label>Alternate Search Names</label>
-                                       <input type="text" name="alt_search" placeholder="${comic['AlternateSearch']}" onfocus="if(this.value==this.defaultValue) this.value='';" value="${comic['AlternateSearch']}" size="90" />
-                                       <a href="#" title="Seperate multiple entries with ##"><img src="images/info32.png" height="16" alt=""></a>
-                                       <small>Alternate comic names to be searched in case naming is different<small>
-                                   </div>
+            <div class="btn-row"><button type="submit" class="btn btn-primary">Save series settings</button></div>
+        </form>
+        </div>
 
-                                   <div class="row">
-                                       <label>Alternate File-Naming</label>
-                                       <input type="text" name="alt_filename" placeholder="${comic['AlternateFileName']}" onfocus="if(this.value==this.defaultValue) this.value='';" value="${comic['AlternateFileName']}" size="90">
-                                       <a href="#" title="Alternate File Naming"><img src="images/info32.png" height="16" alt=""></a>
-                                       <small>Use this instead of CV name during post-processing / renaming</small>
-                                   </div>
-
-                                   <div class="row">
-                                       <label>Publication Imprint</label>
-                                       <input type="text" name="publisher_imprint" placeholder="${comic['PublisherImprint']}" onfocus="if(this.value==this.defaultValue) this.value='';" value="${comic['PublisherImprint']}" size="90">
-                                   </div>
-
-                                   <div class="row">
-                                        <%
-                                             year_options = "Default - Keep the Year as is\nYear Removal - Remove issue publication year from searches (dangerous)\nFuzzy the Year - Increase & Decrease the issue publication year by one"
-                                        %>
-                                        <label>Year Options</label>
-                                        <input type="radio" style="vertical-align: middle; margin: 3px; margin-top: -3px;" name="fuzzy_year" value="0" ${comicConfig['fuzzy_year0']} /> Default&nbsp;<input type="radio" style="vertical-align: middle; margin: 3px; margin-top: -3px;" name="fuzzy_year" value="1" ${comicConfig['fuzzy_year1']} /> Year Removal&nbsp;<input type="radio" style="vertical-align: middle; margin: 3px; margin-top: -3px;" name="fuzzy_year" value="2" ${comicConfig['fuzzy_year2']} /> Fuzzy the Year&nbsp;&nbsp;
-                                        <a href="#" title="${year_options}"><img src="images/info32.png" valign="bottom" height="16" alt="" /></a>
-                                   </div>
-
-                                   %if all([mylar.CONFIG.ENABLE_32P is True, mylar.CONFIG.ENABLE_TORRENT_SEARCH is True, mylar.CONFIG.MODE_32P == 1]):
-                                   <div class="row checkbox right clearfix">
-                                       <input type="checkbox" style="vertical-align: bottom; margin: 3px; margin-top: -3px;" name="allow_packs" value="1" ${comicConfig['allow_packs']} /><label>Enable Pack Downloads<a href="#" title="Will allow downloading of multiple issues in one file (packs), but will search individual issues first"><img src="images/info32.png" height="16" alt="" /></a></label>
-                                   </div>
-                                   <div class="row">
-                                       <label>Manual specify series ID for 32p</label>
-                                       <input type="text" name="torrentid_32p" placeholder="torrent id #" value="${comicConfig['torrentid_32p']}" size="40">
-                                   </div>
-                                   %endif
-                             <span style="position:absolute;float:right;right:30px;bottom:25px;"><input type="submit" class="btn btn-primary" value="Save series settings"/></span>
-                        </fieldset>
-                </form>
-               </td>
-             </tr>
-            </table>
-           </div>
-
-  <div id="tabs-issues">
+        <div id="tabs-issues">
    <div class="issues-toolbar">
     <div id="checkboxControls" name="checkboxControls">
      <div class="issue-filters" role="group" aria-label="Show issues with status">

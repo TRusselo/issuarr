@@ -236,7 +236,7 @@ class WebInterface(object):
 
     def index(self):
         if mylar.SAFESTART:
-            raise cherrypy.HTTPRedirect("manageComics")
+            raise cherrypy.HTTPRedirect("home?select=1")
         else:
             raise cherrypy.HTTPRedirect("home")
     index.exposed=True
@@ -1199,7 +1199,8 @@ class WebInterface(object):
                                 'type': rt['type'],
                                 'description': rt['description'],
                                 'haveit': 'Yes' if rt['haveit'] == 'Adding' and rt['library_status'] == 'Active' else rt['haveit'],
-                                'query_id': rt['query_id']})
+                                'query_id': rt['query_id'],
+                                'thumb': rt['thumbimage']})
 
         if not results:
             return json.dumps({
@@ -1280,7 +1281,8 @@ class WebInterface(object):
         # -1 is used for "All" in DataTables filters
         if iDisplayLength > 0:
             filtered = filtered[iDisplayStart:(iDisplayStart + iDisplayLength)]
-        rows = [[row['comicid'], row['comicname'], row['publisher'], row['comicyear'], row['issues'], row['deck'], row['url'], row['type'], row['description'], row['haveit'], row['query_id']] for row in filtered]
+        rows = [[row['comicid'], row['comicname'], row['publisher'], row['comicyear'], row['issues'], row['deck'], row['url'], row['type'], row['description'], row['haveit'], row['query_id'],
+                 row.get('thumb') or row.get('comicthumb'), row.get('volume')] for row in filtered]
 
         return json.dumps({
             'iTotalDisplayRecords': total_display_records,
@@ -4186,6 +4188,8 @@ class WebInterface(object):
         file_format = mylar.CONFIG.FILE_FORMAT
         myDB = db.DBConnection()
         resultlist = []
+        comicid = None
+        comicidlist = []
         for k,v in list(args.items()):
             if any([k == 'x', k == 'y']):
                 continue
@@ -4223,7 +4227,9 @@ class WebInterface(object):
                                        'new':        renameiss['nfilename']})
 
             logger.info('resultlist: %s' % resultlist)
-        return serve_template(templatename="previewrename.html", title="Preview Renamer", resultlist=resultlist, file_format=file_format, comicid=comicidlist)
+        first = myDB.selectone("SELECT ComicID, ComicName, ComicYear FROM comics WHERE ComicID=?", [comicidlist[0]]).fetchone() if comicidlist else None
+        return serve_template(templatename="previewrename.html", title="Rename files", resultlist=resultlist, file_format=file_format,
+                              saved_format=mylar.CONFIG.FILE_FORMAT, comicid=comicidlist, comic=first)
     previewRename.exposed = True
 
     def manualRename(self, comicid):
@@ -4503,27 +4509,49 @@ class WebInterface(object):
     schedulerForceCheck.exposed = True
 
     def manageComics(self):
-        # rows come from manageComicsData; rendering thousands of rows into the html crashes the browser tab
-        return serve_template(templatename="managecomics.html", title="Manage Comics")
+        # The Library's Select mode has every action this page had.
+        raise cherrypy.HTTPRedirect("home?select=1")
     manageComics.exposed = True
 
-    def manageComicsData(self, **kwargs):
-        keys = ('ComicID', 'ComicName', 'ComicYear', 'ComicSortName', 'ComicImage', 'recentstatus', 'Status',
-                'LatestIssue', 'LatestDate', 'ComicPublisher', 'percent', 'haveissues', 'totalissues', 'DateAdded')
-        rows = [{k: c[k] for k in keys} for c in helpers.havetotals()]
-        cherrypy.response.headers['Content-Type'] = 'application/json'
-        return json.dumps({'data': rows})
-    manageComicsData.exposed = True
-
-    def manageIssues(self, **kwargs):
-        status = kwargs['status']
+    def manageIssues(self, status='Wanted', q='', page=1, **kwargs):
+        """Issues with one status, a page at a time: a library can hold tens of thousands."""
+        STATUSES = ['Wanted', 'Snatched', 'Failed', 'Downloaded', 'Archived', 'Skipped', 'Ignored']
+        if status not in STATUSES:
+            status = 'Wanted'
+        try:
+            page = max(int(page), 1)
+        except (TypeError, ValueError):
+            page = 1
+        per_page = 100
+        q = (q or '').strip()
         myDB = db.DBConnection()
+
+        counts = {x: 0 for x in STATUSES}
+        for r in myDB.select("SELECT Status, COUNT(*) AS n FROM issues%s GROUP BY Status" % (" WHERE ComicName NOT LIKE '%Annual%'" if mylar.CONFIG.ANNUALS_ON else '')):
+            if r['Status'] in counts:
+                counts[r['Status']] += r['n']
         if mylar.CONFIG.ANNUALS_ON:
-            issues = myDB.select("SELECT * from issues WHERE Status=? AND ComicName NOT LIKE '%Annual%'", [status])
-            issues += myDB.select("SELECT * from annuals WHERE Status=? AND NOT Deleted", [status])
-        else:
-            issues = myDB.select("SELECT * from issues WHERE Status=?", [status])
-        return serve_template(templatename="manageissues.html", title="Manage " + str(status) + " Issues", issues=issues, status=status)
+            for r in myDB.select("SELECT Status, COUNT(*) AS n FROM annuals WHERE NOT Deleted GROUP BY Status"):
+                if r['Status'] in counts:
+                    counts[r['Status']] += r['n']
+
+        parts, params = [], []
+        like = '%%%s%%' % q
+        parts.append("SELECT IssueID, ComicID, ComicName, Issue_Number, Int_IssueNumber, IssueDate, ReleaseDate, Status FROM issues WHERE Status=?"
+                     + (" AND ComicName NOT LIKE '%Annual%'" if mylar.CONFIG.ANNUALS_ON else '') + (" AND ComicName LIKE ?" if q else ''))
+        params += [status] + ([like] if q else [])
+        if mylar.CONFIG.ANNUALS_ON:
+            parts.append("SELECT IssueID, ComicID, ReleaseComicName AS ComicName, Issue_Number, Int_IssueNumber, IssueDate, ReleaseDate, Status FROM annuals WHERE Status=? AND NOT Deleted"
+                         + (" AND ReleaseComicName LIKE ?" if q else ''))
+            params += [status] + ([like] if q else [])
+        union = ' UNION ALL '.join(parts)
+        total = myDB.selectone('SELECT COUNT(*) FROM (%s)' % union, params).fetchone()[0]
+        pages = max((total + per_page - 1) // per_page, 1)
+        page = min(page, pages)
+        issues = myDB.select('SELECT * FROM (%s) ORDER BY ComicName COLLATE NOCASE, Int_IssueNumber LIMIT ? OFFSET ?' % union,
+                             params + [per_page, (page - 1) * per_page])
+        return serve_template(templatename="manageissues.html", title="Manage issues", issues=issues, status=status, statuses=STATUSES,
+                              counts=counts, q=q, page=page, pages=pages, total=total, per_page=per_page)
     manageIssues.exposed = True
 
     def manageFailed(self):
@@ -6158,8 +6186,20 @@ class WebInterface(object):
         return serve_template(templatename="logs.html", title="Log", lineList=mylar.LOGLIST, log_level=mylar.LOG_LEVEL)
     logs.exposed = True
 
+    # Settings whose values are secrets: shown as set / not set, never in full.
+    SECRET_KEY = re.compile(r'(pass|passwd|password|apikey|api_key|_api$|token|userkey|_keys$|passkey|webhook|^extra_(newznabs|torznabs)$)', re.I)
+
+    def config_rows(self):
+        rows = []
+        for section in mylar.config.config.sections():
+            for k, v in mylar.config.config.items(section):
+                if self.SECRET_KEY.search(k) and v not in ('', 'None', None):
+                    v = '(set, hidden)'
+                rows.append((section, k, v))
+        return rows
+
     def config_dump(self):
-        return serve_template(templatename="config_dump.html", title="Config Listing", lineList=mylar.CONFIG)
+        return serve_template(templatename="config_dump.html", title="Settings file", rows=self.config_rows(), config_file=mylar.CONFIG_FILE)
     config_dump.exposed = True
 
     def clearLogs(self):
@@ -6227,10 +6267,7 @@ class WebInterface(object):
     def getConfig(self, iDisplayStart=0, iDisplayLength=100, iSortCol_0=0, sSortDir_0="desc", sSearch="", **kwargs):
         iDisplayStart = int(iDisplayStart)
         iDisplayLength = int(iDisplayLength)
-        unfiltered = []
-        for each_section in mylar.config.config.sections():
-            for k,v in mylar.config.config.items(each_section):
-                unfiltered.insert( 0, (k, v) )
+        unfiltered = [(k, v) for _, k, v in reversed(self.config_rows())]
 
         if sSearch == "" or sSearch == None:
             logger.info('getConfig: No search terms.')

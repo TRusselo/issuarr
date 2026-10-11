@@ -483,7 +483,7 @@ class FileHandlers(object):
 
             unicodeissue = issuenum
 
-            _, prettycomiss, _ = helpers.issue_number_parser(issuenum, issue_id = issueid)
+            prettycomiss = helpers.issue_number_parser(issuenum, issue_id=issueid, pretty_string=True).asString
             
             logger.fdebug('Pretty Comic Issue is : ' + str(prettycomiss))
             if mylar.CONFIG.UNICODE_ISSUENUMBER:

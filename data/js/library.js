@@ -24,7 +24,7 @@
     delete: { done: 'Removed', confirm: 'Remove {n} from Issuarr? The series, its issue list and statuses are removed. Files on disk stay where they are.' }
   };
 
-  var st = { all: [], tab: 'all', q: '', pub: '', sort: 'title', view: 'covers', limit: CHUNK, selecting: false, sel: {}, loaded: false, noArt: {} };
+  var st = { all: [], tab: 'all', q: '', pub: '', sort: 'title', view: 'covers', limit: CHUNK, selecting: /[?&]select=1\b/.test(location.search), sel: {}, loaded: false, noArt: {} };
   try {
     var saved = JSON.parse(localStorage.getItem(STORE) || 'null');
     if (saved) { st.view = saved.view || st.view; st.sort = saved.sort || st.sort; }

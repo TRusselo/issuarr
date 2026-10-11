@@ -1,45 +1,84 @@
 <%inherit file="base.html"/>
-<%
-        import mylar
-%>
-
-<%def name="headIncludes()">
-</%def>
 
 <%def name="body()">
-        <div id="paddingheader">
-                <h1 class="clearfix">${title}</h1></br>
+    <input type="hidden" id="page_name" value="preview_rename" />
+    <%
+        import os
+        cid = comicid[0] if comicid else ''
+        changed = [r for r in resultlist if r['original'] != r['new']]
+        is_saved = (file_format or '') == (saved_format or '')
+    %>
+    <div class="page preview-rename">
+        <div class="page-head">
+            <div class="head-text">
+                <h1>
+                    %if comic:
+                    <span class="page-crumb"><a href="comicDetails?ComicID=${comic['ComicID'] | u}">${comic['ComicName'] | h} (${comic['ComicYear'] | h})</a> › </span>
+                    %endif
+                    Rename files</h1>
+                <p class="page-sub">
+                    %if not resultlist:
+                    No downloaded files to rename.
+                    %elif changed:
+                    ${len(changed)} of ${len(resultlist)} files would get a new name.
+                    %else:
+                    Every file already matches this pattern.
+                    %endif
+                </p>
+            </div>
+            %if changed and is_saved:
+            <div class="btn-row">
+                <button type="button" class="btn btn-primary" id="pr-go" data-cid="${cid | h}">Rename ${len(changed)} files</button>
+            </div>
+            %endif
         </div>
-            <div style="position:relative; width:960px; height:0px; margin:10px auto;">
-                <% 
-                    format_len = len(file_format)
-                %>
-                <form action="previewRename" type="GET">
-                    <div style="position:absolute; top:-20px; right:0px;">
-                       <label>File Format (Applied):</label>
-                       <input type="text" name="file_format" value="${file_format}" size="${format_len}"><input type="image" src="images/submit.png" height="25" width="25" class="highqual" />
-                       <input type="hidden" name="comicid" value="${comicid}" />
-                    </div>
-                </form>
-            </div>
-            <div>
-            <table cellpadding="5" cellspacing="5">
-            <thead>
-             <tr>
-              <th id="issueid">IssueID</th>
-              <th id="originalname" width="500" style="text-align:center">Original Name</th>
-              <th id="renamed" width="500" style="text-align:center">Renamed</th>
-             </tr>
-            </thead>
-            <tbody>
-            %for ti in resultlist:
-              <tr>
-                <td id="issueid">${ti['issueid']}</td>
-                <td id="originalname" width="500" style="text-align:center">${ti['original']}</td>
-                <td id="renamed" width="500" style="text-align:center">${ti['new']}</td>
-              </tr>
-            %endfor
-            </tbody>
+
+        <form class="panel pr-format" action="previewRename" method="get">
+            <input type="hidden" name="comicid" value="${cid | h}" />
+            <label class="field" style="flex: 1">
+                <span class="field-label">File name pattern</span>
+                <input type="text" name="file_format" value="${file_format or '' | h}" class="mono" spellcheck="false" />
+                <small>Try a different pattern here to see what it would do. Renaming always uses the pattern saved in
+                    <a href="config#tabs-6">Settings › Notifications &amp; advanced</a>${'' if is_saved else ': ' + (saved_format or '(none)') | h}.</small>
+            </label>
+            <div class="btn-row"><button type="submit" class="btn">Preview</button></div>
+        </form>
+
+        %if resultlist:
+        <div class="dt-wrap">
+            <table class="dt">
+                <thead>
+                    <tr><th scope="col">Now</th><th scope="col">After renaming</th></tr>
+                </thead>
+                <tbody>
+                %for r in resultlist:
+                    <tr class="${'' if r['original'] != r['new'] else 'pr-same'}">
+                        <td class="mono">${r['original'] | h}</td>
+                        <td class="mono">${r['new'] if r['original'] != r['new'] else 'No change' | h}</td>
+                    </tr>
+                %endfor
+                </tbody>
             </table>
-            </div>
+        </div>
+        %endif
+    </div>
+</%def>
+
+<%def name="javascriptIncludes()">
+    <script>
+    (function () {
+        var go = document.getElementById('pr-go');
+        if (!go) return;
+        go.addEventListener('click', function () {
+            go.disabled = true;
+            fetch('manualRename?comicid=' + encodeURIComponent(go.getAttribute('data-cid')), { credentials: 'same-origin' })
+                .then(function (r) {
+                    if (!r.ok) throw new Error(r.status);
+                    Issuarr.toast('Renaming the files. This page will reload when it\'s done.');
+                    setTimeout(function () { location.reload(); }, 1500);
+                })
+                .catch(function () { go.disabled = false; Issuarr.toast('That didn\'t work. Check the log.', false); });
+        });
+    })();
+    </script>
 </%def>

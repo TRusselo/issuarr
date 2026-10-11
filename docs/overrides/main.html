@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+
+{% block htmltitle %}
+  <title>{{ page.meta.title if page.meta and page.meta.title else page.title }}{% if not page.is_homepage %} - {{ config.site_name }}{% endif %}</title>
+{% endblock %}
+
+{% block extrahead %}
+  {% set title = page.meta.title if page.meta and page.meta.title else page.title %}
+  {% set description = page.meta.description if page.meta and page.meta.description else config.site_description %}
+  {% set image = config.site_url ~ "assets/social.png" %}
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="{{ config.site_name }}">
+  <meta property="og:title" content="{{ title }}">
+  <meta property="og:description" content="{{ description }}">
+  <meta property="og:url" content="{{ page.canonical_url }}">
+  <meta property="og:image" content="{{ image }}">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="{{ title }}">
+  <meta name="twitter:description" content="{{ description }}">
+  <meta name="twitter:image" content="{{ image }}">
+  {% if page.is_homepage %}
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "SoftwareApplication",
+    "name": "Issuarr",
+    "alternateName": "Issuarr Comic Manager",
+    "description": {{ description | tojson }},
+    "url": "{{ config.site_url }}",
+    "image": "{{ image }}",
+    "applicationCategory": "MultimediaApplication",
+    "operatingSystem": "Linux, Windows, macOS, Docker",
+    "license": "https://www.gnu.org/licenses/gpl-3.0.html",
+    "codeRepository": "https://github.com/issuarr/issuarr",
+    "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" }
+  }
+  </script>
+  {% endif %}
+{% endblock %}

@@ -1,0 +1,60 @@
+# Issuarr website, published to GitHub Pages by .github/workflows/docs_site.yml
+# Build it locally with: pip install -r docs/requirements.txt && sh docs/build.sh && mkdocs serve
+# Pages are staged from README.md and docs/ by docs/build.sh; edit them there.
+site_name: Issuarr
+site_description: Issuarr is a free, self-hosted comic book manager that finds, downloads, renames and tags your comics. The successor to Mylar3.
+site_url: https://issuarr.github.io/issuarr/
+repo_url: https://github.com/issuarr/issuarr
+repo_name: issuarr/issuarr
+copyright: Issuarr is free software under the GNU GPL v3.
+
+docs_dir: build/site-src
+
+nav:
+  - Home: index.md
+  - Moving from Mylar3: MIGRATING.md
+  - JDownloader 2: JDOWNLOADER2.md
+  - Web API: API.md
+  - Troubleshooting: TROUBLESHOOTING.md
+
+theme:
+  name: material
+  custom_dir: docs/overrides
+  logo: assets/logo.png
+  favicon: assets/favicon.ico
+  features:
+    - navigation.instant
+    - navigation.top
+    - search.suggest
+    - content.code.copy
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: black
+      accent: light blue
+      toggle:
+        icon: material/weather-night
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: black
+      accent: light blue
+      toggle:
+        icon: material/weather-sunny
+        name: Switch to light mode
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - md_in_html
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.highlight
+  - pymdownx.superfences
+  - pymdownx.details
+
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/issuarr/issuarr

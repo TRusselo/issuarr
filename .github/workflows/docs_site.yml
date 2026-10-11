@@ -1,0 +1,56 @@
+# Build the website (MkDocs) from README.md and docs/ and publish it to GitHub Pages
+name: Publish Website
+
+on:
+    push:
+        branches:
+            - 'main'
+        paths:
+            - 'README.md'
+            - 'docs/**'
+            - 'mkdocs.yml'
+            - '.github/workflows/docs_site.yml'
+    workflow_dispatch:
+
+permissions:
+    contents: read
+    pages: write
+    id-token: write
+
+concurrency:
+    group: pages
+    cancel-in-progress: false
+
+jobs:
+    build:
+        runs-on: ubuntu-latest
+        steps:
+          - name: Checkout
+            uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+
+          - name: Set up Python
+            uses: actions/setup-python@v5
+            with:
+              python-version: '3.12'
+
+          - name: Build site
+            run: |
+              pip install -r docs/requirements.txt
+              sh docs/build.sh
+              mkdocs build --strict
+
+          - name: Upload site
+            uses: actions/upload-pages-artifact@v3
+            with:
+              path: site
+
+    deploy:
+        needs: build
+        runs-on: ubuntu-latest
+        environment:
+          name: github-pages
+          url: ${{ steps.deployment.outputs.page_url }}
+        steps:
+          - name: Deploy to GitHub Pages
+            id: deployment
+            uses: actions/deploy-pages@v4

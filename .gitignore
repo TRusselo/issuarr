@@ -29,3 +29,7 @@ __pycache__
 .devcontainer/config
 .devcontainer/comics
 .devcontainer/downloads
+
+# Docs site: generated from README.md at build time, and the build output
+build/
+site/

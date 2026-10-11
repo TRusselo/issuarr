@@ -196,7 +196,7 @@ Issuarr marks the missing issues of new series *Wanted* and starts searching. Wa
 - [Troubleshooting](docs/TROUBLESHOOTING.md): database locking, tagging failures, moved libraries.
 - [docs/API.md](docs/API.md) for the web API.
 
-This README and the `docs` folder are Issuarr's documentation. Mylar's old documentation website is no longer run by the Mylar team, so don't rely on it or follow its links.
+This README and the `docs` folder are Issuarr's documentation, also published as the website at [issuarr.github.io/issuarr](https://issuarr.github.io/issuarr/). Mylar's old documentation website is no longer run by the Mylar team, so don't rely on it or follow its links.
 
 ## Getting help
 

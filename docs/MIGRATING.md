@@ -84,7 +84,7 @@ python3 Mylar.py --datadir /path/to/old/mylar-data
 
 or copy `config.ini`, `mylar.db` (plus `mylar.db-wal` and `mylar.db-shm` if present) and the `cache` folder into the new `issuarr` folder and start it with `python3 Mylar.py`.
 
-If your service file or init script (systemd, init.d) runs Mylar, change its path to the new folder. The examples in [init-scripts](../init-scripts) still use Mylar's names and paths, so adjust them to match yours.
+If your service file or init script (systemd, init.d) runs Mylar, change its path to the new folder. The examples in [init-scripts](https://github.com/issuarr/issuarr/tree/main/init-scripts) still use Mylar's names and paths, so adjust them to match yours.
 
 **Update checks.** Mylar's update check follows the repository named in the `[Git]` section of `config.ini`, which on most installs says `MylarComics`. On its first start Issuarr changes that to `git_user = issuarr` and `git_branch = main`, so it compares you against Issuarr (`git_repo` defaults to `Issuarr`). If it pointed at your own fork, it is left alone.
 

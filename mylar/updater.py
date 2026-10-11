@@ -1114,6 +1114,17 @@ def foundsearch(ComicID, IssueID, mode=None, down=None, provider=None, SARC=None
         logger.info('%s Updating Status (%s) now completed for %s issue: %s' % (module, downstatus, ComicName, IssueNum))
     return
 
+def numberless_issue(booktype, reissues, annualcomicid=None):
+    # Issue number to assume for a file whose name has no issue number ("7174 Annual.cbz").
+    # TPB/GN/HC/One-Shot editions count it as issue 1. A series with exactly one issue
+    # (ComicVine may list a one-issue series as a regular print series) takes that issue.
+    # Anything else stays unmatched.
+    if any([booktype == 'TPB', booktype == 'GN', booktype == 'HC', booktype == 'One-Shot']):
+        return '1'
+    if annualcomicid is None and len(reissues) == 1:
+        return reissues[0]['Issue_Number'] or '1'
+    return None
+
 def forceRescan(ComicID, archive=None, module=None, recheck=False):
     if module is None:
         module = ''
@@ -1315,11 +1326,8 @@ def forceRescan(ComicID, archive=None, module=None, recheck=False):
                 temploc = re.sub(r'[\#\']', '', temploc)
             logger.fdebug('temploc: %s' % temploc)
         else:
-            #assume 1 if not given
-            if any([booktype == 'TPB', booktype == 'GN', booktype == 'HC', booktype == 'One-Shot']):
-                temploc = '1'
-            else:
-                temploc = None
+            temploc = numberless_issue(booktype, reissues, tmpfc['AnnualComicID'])
+            if temploc is None:
                 logger.warn('The filename [%s] does not have a valid issue number, and the Edition of the series is %s. You might need to Forcibly Mark the Series as TPB/GN and try this again.' % (tmpfc['ComicFilename'], rescan['Type']))
                 fn += 1
                 continue

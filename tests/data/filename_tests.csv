@@ -56,3 +56,7 @@ Haunted Horror 029(2017)(Digital)(TLK-EMPIRE-HD).cbr,Haunted Horror,029,2017,Non
 "Excalibur, 2019-11-20 (02) (digital) (Glorith-HD).cbr",Excalibur,02,2019,None,False,
 Weapon Zero T-2.cbz,Weapon Zero,T-2,None,None,True,Prefix string issues not yet supported
 God Is Dead The Book of Acts Alpha.cbz,God Is Dead The Book of Acts,Alpha,None,None,True,Pure string issue not yet covered
+Cyberpunk 2077 001.cbz,Cyberpunk 2077,001,None,None,False,Numeric title (#2)
+Cyberpunk 2077 001 (2020).cbz,Cyberpunk 2077,001,2020,None,False,Numeric title (#2)
+7174 Annual.cbz,7174 Annual,None,None,None,False,Numeric title with no issue number (#2)
+100 Bullets 012.cbz,100 Bullets,012,None,None,False,Numeric title (#2)

@@ -109,3 +109,27 @@ def test_launch_year_still_dropped_when_not_in_title(monkeypatch):
     parsed = fc_obj.parseit(path='/dummypath/', filename=filename)
     assert parsed['series_name'] == "Batman"
     assert parsed['issue_number'] == "001"
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("watchcomic,filename,issue", [
+    ("Cyberpunk 2077", "Cyberpunk 2077 001.cbz", "001"),
+    ("Cyberpunk 2077", "Cyberpunk 2077 001 (2020).cbz", "001"),
+    ("7174 Annual", "7174 Annual 001.cbz", "001"),
+    ("7174 Annual", "7174 Annual.cbz", None),
+    ("100 Bullets", "100 Bullets 012.cbz", "012"),
+])
+def test_numeric_series_title_matches_known_series(monkeypatch, watchcomic, filename, issue):
+    # Titles that are or contain a number (#2): the number stays in the series name and the
+    # file still matches the series on rescan. A file with no issue number matches too; the
+    # rescan decides which issue it is (updater.numberless_issue).
+    monkeypatch.setattr(mylar, "LOG_LEVEL", 0, raising=False)
+    monkeypatch.setattr(mylar, "CONFIG", mylar.config.Config("./nothing"))
+    monkeypatch.setattr(mylar.CONFIG, "IGNORE_SEARCH_WORDS", [], raising=False)
+    monkeypatch.setattr(mylar.CONFIG, "CUSTOM_ISSUE_EXCEPTIONS", [], raising=False)
+    monkeypatch.setattr(mylar.CONFIG, "ANNUALS_ON", False, raising=False)
+    fc_obj = filechecker.FileChecker(dir='/dummypath/', watchcomic=watchcomic)
+    parsed = fc_obj.parseit('/dummypath/', filename)
+    assert parsed['process_status'] == 'match'
+    assert parsed['series_name'] == watchcomic
+    assert parsed['justthedigits'] == issue

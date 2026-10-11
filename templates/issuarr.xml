@@ -14,7 +14,7 @@
 For the best database performance keep Appdata on a pool or disk path (for example /mnt/cache/appdata/issuarr) rather than /mnt/user, unless the appdata share is exclusive to a pool. See https://issuarr.github.io/issuarr/UNRAID/</Overview>
   <Changes>Initial release</Changes>
   <Category>Downloaders: MediaApp:Books</Category>
-  <ExtraSearchTerms>mylar mylar3 comics comic cbz cbr comicvine getcomics</ExtraSearchTerms>
+  <ExtraSearchTerms>mylar mylar3 kapowarr comics comic manga cbz cbr comicvine getcomics</ExtraSearchTerms>
   <License>GPLv3</License>
   <ReadMe>https://raw.githubusercontent.com/issuarr/issuarr/main/docs/UNRAID.md</ReadMe>
   <WebUI>http://[IP]:[PORT:8090]/</WebUI>

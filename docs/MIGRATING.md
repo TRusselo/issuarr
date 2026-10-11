@@ -37,7 +37,7 @@ Change the image and keep everything else:
 -    image: lscr.io/linuxserver/mylar3:latest
 -    container_name: mylar3
 +  issuarr:
-+    image: ghcr.io/trusselo/mylar3:latest
++    image: ghcr.io/trusselo/issuarr:latest
 +    container_name: issuarr
      environment:
        - PUID=1000
@@ -61,9 +61,9 @@ docker compose pull issuarr
 docker compose up -d issuarr
 ```
 
-With `docker run`, stop and remove the old container and start a new one with the same `-v` and `-e` options and the image `ghcr.io/trusselo/mylar3:latest`.
+With `docker run`, stop and remove the old container and start a new one with the same `-v` and `-e` options and the image `ghcr.io/trusselo/issuarr:latest`.
 
-> The image is still called `ghcr.io/trusselo/mylar3` and the data folder is still `/config/mylar`. Both keep their names so existing installs switch without moving anything.
+> Issuarr's data folder is still `/config/mylar`, as in Mylar3, so nothing needs moving.
 
 ## 2b. Switch a source install
 

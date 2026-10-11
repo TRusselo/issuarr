@@ -13,7 +13,7 @@ concurrency:
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_NAME: trusselo/mylar3
+  IMAGE_NAME: trusselo/issuarr
 
 jobs:
     build_and_push:
@@ -52,7 +52,7 @@ jobs:
               context: .
               platforms: linux/amd64
               load: true
-              tags: mylar3:test
+              tags: issuarr:test
               build-args: |
                 BUILD_DATE=${{ github.event.head_commit.timestamp }}
                 VERSION=${{ github.sha }}
@@ -65,19 +65,19 @@ jobs:
             shell: bash
             run: |
               set -euo pipefail
-              docker run --rm --entrypoint /lsiopy/bin/python3 mylar3:test -c "from PIL import features, Image; print('Pillow', Image.__version__); assert features.check('webp'), 'Pillow lacks WebP support'"
-              docker run --rm --entrypoint /usr/bin/unrar mylar3:test > /tmp/unrar.txt || true
+              docker run --rm --entrypoint /lsiopy/bin/python3 issuarr:test -c "from PIL import features, Image; print('Pillow', Image.__version__); assert features.check('webp'), 'Pillow lacks WebP support'"
+              docker run --rm --entrypoint /usr/bin/unrar issuarr:test > /tmp/unrar.txt || true
               grep -i "^UNRAR [0-9]" /tmp/unrar.txt
               mkdir -p /tmp/cfg && sudo chown 1000:1000 /tmp/cfg
-              docker run -d --name mylar -e PUID=1000 -e PGID=1000 -e TZ=America/Denver -p 8090:8090 -v /tmp/cfg:/config mylar3:test
-              if ! curl -sS -o /dev/null --retry 30 --retry-delay 5 --retry-all-errors --fail http://127.0.0.1:8090/home; then docker logs mylar; exit 1; fi
+              docker run -d --name issuarr -e PUID=1000 -e PGID=1000 -e TZ=America/Denver -p 8090:8090 -v /tmp/cfg:/config issuarr:test
+              if ! curl -sS -o /dev/null --retry 30 --retry-delay 5 --retry-all-errors --fail http://127.0.0.1:8090/home; then docker logs issuarr; exit 1; fi
               for page in manage config importResults import_progress; do curl -sS -o /dev/null --fail http://127.0.0.1:8090/$page; done
               curl -sS --fail http://127.0.0.1:8090/import_progress | python3 -c "import json,sys; d=json.load(sys.stdin); assert d['phase'] == 'idle', d"
               test -f /tmp/cfg/mylar/config.ini
               test -f /tmp/cfg/scripts/autoProcessComics.py
-              docker exec mylar cat /app/mylar3/.LAST_RELEASE
-              docker logs mylar 2>&1 | tail -n 40
-              docker rm -f mylar
+              docker exec issuarr cat /app/mylar3/.LAST_RELEASE
+              docker logs issuarr 2>&1 | tail -n 40
+              docker rm -f issuarr
 
           - name: Push image
             uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83 # v6.18.0

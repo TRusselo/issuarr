@@ -92,7 +92,7 @@ New issues of the series you follow arrive the same way, week after week.
 
 ## Installation
 
-> **A note on the name.** Issuarr is newly renamed. The Docker image (`ghcr.io/trusselo/mylar3`) and the data folder (`/config/mylar`) keep Mylar's names so existing installs can switch without moving anything, and old links to `TRusselo/mylar3` lead here. The commands below are correct as written.
+> Issuarr keeps its data in `/config/mylar`, the same folder Mylar3 uses, so Mylar3 installs can switch without moving anything.
 
 **Coming from Mylar3?** Your settings and database carry over. Follow [Moving from Mylar3 to Issuarr](docs/MIGRATING.md).
 
@@ -106,7 +106,7 @@ docker run -d --name issuarr \
   -v /path/to/comics:/comics \
   -v /path/to/downloads:/downloads \
   --restart unless-stopped \
-  ghcr.io/trusselo/mylar3:latest
+  ghcr.io/trusselo/issuarr:latest
 ```
 
 Or with Docker Compose:
@@ -114,7 +114,7 @@ Or with Docker Compose:
 ```yaml
 services:
   issuarr:
-    image: ghcr.io/trusselo/mylar3:latest
+    image: ghcr.io/trusselo/issuarr:latest
     container_name: issuarr
     environment:
       - PUID=1000

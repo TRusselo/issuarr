@@ -589,3 +589,14 @@ def test_issue_exception_list_pattern(monkeypatch):
 # stupidchk
 # ThreadWithReturnValue class appears unused
 # date_conversion
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("name,expected", [
+    ("Spider-Man *", "Spider-Man -"),
+    ("Who | What", "Who - What"),
+    ("<Angle> Brackets", "Angle Brackets"),
+    ("Batman: Year One", "Batman Year One"),
+])
+def test_filesafe_strips_unsafe_characters(name, expected):
+    assert helpers.filesafe(name) == expected

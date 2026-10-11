@@ -384,6 +384,10 @@ class PostProcessor(object):
                 PP_LOCK.release()
         finally:
             archives.RUNS[0] -= 1
+            # Early returns and exceptions skip the unlocks inside the run; a lock left on would
+            # stop the post-processing queue and folder monitor for good.
+            if self.apicall:
+                mylar.APILOCK = False
 
     def _locked_process(self):
         self.extracted = []

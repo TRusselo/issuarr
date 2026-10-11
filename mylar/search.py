@@ -1939,7 +1939,9 @@ def searchforissue(issueid=None, new=False, rsschecker=None, manual=False):
                                 'comicname': comicname,
                                 'seriesyear': SeriesYear,
                                 'issuenumber': result['Issue_Number'],
-                                'issueid': result['IssueID'],
+                                # Story-arc issues are looked up by their arc id (the queue spots the "_");
+                                # the plain IssueID isn't found when the series isn't on the watchlist.
+                                'issueid': result['IssueArcID'] if result['mode'] == 'story_arc' and result.get('IssueArcID') else result['IssueID'],
                                 'comicid': result['ComicID'],
                                 'booktype': booktype,
                             }

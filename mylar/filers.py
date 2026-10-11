@@ -586,10 +586,10 @@ class FileHandlers(object):
                     logger.fdebug('Annual detected within series title of ' + series + '. Not auto-correcting issue #')
 
             seriesfilename = seriesfilename #.encode('ascii', 'ignore').strip()
-            filebad = [':', ',', '/', '?', '!', '\'', '\"', r'\*'] #in u_comicname or '/' in u_comicname or ',' in u_comicname or '?' in u_comicname:
+            filebad = [':', ',', '/', '?', '!', '\'', '\"', '*', '<', '>', '|'] #in u_comicname or '/' in u_comicname or ',' in u_comicname or '?' in u_comicname:
             for dbd in filebad:
                 if dbd in seriesfilename:
-                    if any([dbd == '/', dbd == '*']): 
+                    if any([dbd == '/', dbd == '*', dbd == '|']): 
                         repthechar = '-'
                     else:
                         repthechar = ''

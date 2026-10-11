@@ -6126,7 +6126,14 @@ class WebInterface(object):
                 if st['IssueID']:
                     ctrlVal = {'IssueID': st['IssueID']}
                     myDB.upsert("issues", newVal, ctrlVal)
-        mylar.SEARCH_QUEUE.put((passinfo))
+        # Queue a search for every wanted issue, once each (the two loops above can both add one).
+        queued = set()
+        for passinfo in add_to_search_queue:
+            if passinfo['issueid'] in queued:
+                continue
+            queued.add(passinfo['issueid'])
+            mylar.SEARCH_QUEUE.put(passinfo)
+        logger.info('[STORY-ARC] Queued %s searches for the arc.' % len(queued))
 
     ReadGetWanted.exposed = True
 

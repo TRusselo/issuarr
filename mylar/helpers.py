@@ -508,10 +508,10 @@ def rename_param(comicid, comicname, issue, ofilename, comicyear=None, issueid=N
                     logger.fdebug('Annual detected within series title of ' + series + '. Not auto-correcting issue #')
 
             seriesfilename = seriesfilename #.encode('ascii', 'ignore').strip()
-            filebad = [':', ',', '/', '?', '!', '\'', '\"', r'\*'] #in u_comicname or '/' in u_comicname or ',' in u_comicname or '?' in u_comicname:
+            filebad = [':', ',', '/', '?', '!', '\'', '\"', '*', '<', '>', '|'] #in u_comicname or '/' in u_comicname or ',' in u_comicname or '?' in u_comicname:
             for dbd in filebad:
                 if dbd in seriesfilename:
-                    if any([dbd == '/', dbd == '*']): 
+                    if any([dbd == '/', dbd == '*', dbd == '|']): 
                         repthechar = '-'
                     else:
                         repthechar = ''
@@ -1218,11 +1218,11 @@ def filesafe(comic):
     #logger.info('comic-type: %s' % type(u_comic))
 
     if type(u_comic) != bytes:
-        comicname_filesafe = re.sub(r'[\:\'\"\,\?\!\\]', '', u_comic)
-        comicname_filesafe = re.sub(r'[\/\*]', '-', comicname_filesafe)
+        comicname_filesafe = re.sub(r'[\:\'\"\,\?\!\\\<\>]', '', u_comic)
+        comicname_filesafe = re.sub(r'[\/\*\|]', '-', comicname_filesafe)
     else:
-        comicname_filesafe = re.sub(r'[\:\'\"\,\?\!\\]', '', u_comic.decode('utf-8'))
-        comicname_filesafe = re.sub(r'[\/\*]', '-', comicname_filesafe)
+        comicname_filesafe = re.sub(r'[\:\'\"\,\?\!\\\<\>]', '', u_comic.decode('utf-8'))
+        comicname_filesafe = re.sub(r'[\/\*\|]', '-', comicname_filesafe)
 
     return comicname_filesafe
 

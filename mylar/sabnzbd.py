@@ -99,9 +99,12 @@ class SABnzbd(object):
             queueresponse = h.json()
             logger.fdebug('successfully queried the queue for status')
             try:
-                if queueresponse['noofslots'] == 1: # 1 means it matched to one instance
+                # noofslots sits under "queue" in SABnzbd's reply; 1 means it matched one download.
+                if queueresponse['queue']['noofslots'] == 1:
                     queueinfo = queueresponse['queue']['slots'][0]
                     logger.info('monitoring ... detected download - %s [%s]' % (queueinfo['filename'], queueinfo['status']))
+                else:
+                    queueinfo = queueresponse['queue']
             except Exception as e:
                 logger.warn('Unable to locate item within sabnzbd active queue - it could be finished already?')
                 queueinfo = queueresponse['queue']
@@ -263,12 +266,14 @@ class SABnzbd(object):
                     stage = hq['stage_log']
                     logger.fdebug('stage: %s' % (stage,))
                     for x in stage:
-                        if 'Failed' in x['actions'] and any([x['name'] == 'Unpack', x['name'] == 'Repair']):
-                            if 'moving' in x['actions']:
+                        # actions is a list of messages, e.g. "RAR-based verification failed: ..."
+                        actions = [str(a).lower() for a in (x.get('actions') or [])]
+                        if any('failed' in a for a in actions) and any([x['name'] == 'Unpack', x['name'] == 'Repair']):
+                            if any('moving' in a for a in actions):
                                 logger.warn('There was a failure in SABnzbd during the unpack/repair phase that caused a failure: %s' % x['actions'])
                             else:
                                 logger.warn('Failure occured during the Unpack/Repair phase of SABnzbd. This is probably a bad file: %s' % x['actions'])
-                                if mylar.FAILED_DOWNLOAD_HANDLING is True:
+                                if mylar.CONFIG.FAILED_DOWNLOAD_HANDLING is True:
                                     found = {'status':   True,
                                              'name':     re.sub('.nzb', '', hq['nzb_name']).strip(),
                                              'location': os.path.abspath(os.path.join(hq['storage'], os.pardir)),

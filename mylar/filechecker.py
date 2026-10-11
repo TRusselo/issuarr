@@ -1246,7 +1246,14 @@ class FileChecker(object):
         if yearposition != 0:
             if yearposition is not None and yearposition < highest_series_pos:
                 if yearposition+1 == highest_series_pos:
-                    highest_series_pos = yearposition
+                    # A year right before the issue number is normally a launch year, not part of the title
+                    # ('Batman 2016 001.cbz'), but some titles really end in one ('American Vampire 1976').
+                    # Keep it when the known series title (watchcomic) says it belongs there.
+                    year_inclusive_name = ' '.join(split_file[:highest_series_pos])
+                    if self.watchcomic is not None and self.watchcomic.strip().lower() == year_inclusive_name.strip().lower():
+                        logger.fdebug('year (%s) matches the known series title (%s) - retaining as part of series title.' % (split_file[yearposition], self.watchcomic))
+                    else:
+                        highest_series_pos = yearposition
                 else:
                     if split_file[yearposition+1] == '-' and yearposition+2 == highest_series_pos:
                         highest_series_pos = yearposition
@@ -1288,6 +1295,10 @@ class FileChecker(object):
             series_name = series_name[:-1].strip()
         if '?' in series_name:
             series_name = re.sub(r'\?', '', series_name).strip()
+        # A volume label already read as the volume ("... 1976 v1 001") shouldn't stay on the end of the title.
+        if issue_volume is not None and series_name.lower().endswith(' ' + issue_volume.lower()) and not (
+                self.watchcomic is not None and self.watchcomic.strip().lower().endswith(issue_volume.lower())):
+            series_name = series_name[:-len(issue_volume)].strip()
 
         logger.fdebug('series title possibly: %s' % series_name)
         if splitvalue is not None:

@@ -179,7 +179,7 @@
                             <td><span class="status ${r['cls']}" data-pill title="${item['Location'] or '' | h}">${r['status'] | h}</span></td>
                             <td class="actions">
                                 %if r['status'] in ('Skipped', 'Not Watched'):
-                                <button type="button" class="btn btn-sm" data-act="queueit?${r['grab'] | h}" data-done="Searching for ${r['name'] | h} #${item['IssueNumber'] | h}." data-after="Searching">Grab</button>
+                                <button type="button" class="btn btn-sm" data-act="queueit?${r['grab'] | h}" data-done="Searching for ${r['name'] | h} #${item['IssueNumber'] | h}." data-after="Searching">Search now</button>
                                 %elif r['status'] == 'Snatched':
                                 <button type="button" class="btn btn-sm" data-act="queueit?${r['grab'] | h}" data-done="Searching again for ${r['name'] | h} #${item['IssueNumber'] | h}." data-after="Searching">Retry</button>
                                 %elif r['status'] == 'Downloaded' and r['haveit'] and item['IssueID']:

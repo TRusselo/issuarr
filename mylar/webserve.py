@@ -851,9 +851,26 @@ class WebInterface(object):
             comicConfig['wanted'] = myDB.selectone("SELECT COUNT(*) AS cnt FROM issues WHERE ComicID=? AND Status='Wanted'", [ComicID]).fetchone()['cnt']
         except Exception:
             comicConfig['wanted'] = 0
+        try:
+            comicConfig['runs'] = ledger.series_runs(ComicID, myDB)
+        except Exception as e:
+            logger.fdebug('Unable to build the issue runs for %s: %s' % (ComicID, e))
+            comicConfig['runs'] = []
 
         return serve_template(templatename="comicdetails_update.html", title=comicname, comic=comic, comicConfig=comicConfig, series=series, default_dates=default_dates)
     comicDetails.exposed = True
+
+    def series_counts(self, ComicID):
+        """The numbers in the series page header, so it can refresh after an issue changes status."""
+        cherrypy.response.headers['Content-Type'] = 'application/json'
+        myDB = db.DBConnection()
+        c = myDB.selectone('SELECT Have, Total FROM comics WHERE ComicID=?', [ComicID]).fetchone()
+        if c is None:
+            return json.dumps({'error': 'not found'})
+        wanted = myDB.selectone("SELECT COUNT(*) AS cnt FROM issues WHERE ComicID=? AND Status='Wanted'", [ComicID]).fetchone()['cnt']
+        return json.dumps({'have': int(c['Have'] or 0), 'total': int(c['Total'] or 0), 'wanted': int(wanted or 0),
+                           'runs': ledger.series_runs(ComicID, myDB)})
+    series_counts.exposed = True
 
     def update_series_filters(self, comicid):
         isCounts = {}

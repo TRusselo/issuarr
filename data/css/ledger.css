@@ -112,3 +112,13 @@
 .lg-table tbody tr:focus-within td { background: color-mix(in srgb, var(--text) 5%, var(--surface)); }
 .lg-table tbody tr:focus-within td:first-child { box-shadow: inset 3px 0 0 var(--text); }
 .lg-table tbody tr.lg-on:focus-within td { background: color-mix(in srgb, var(--text) 12%, var(--surface)); }
+
+/* Missing, as before / in gaps / after the issues you own */
+.lg-miss { display: inline-grid; grid-template-columns: 3ch auto 3ch auto 3ch; gap: 0 4px; justify-items: end; font-variant-numeric: tabular-nums; }
+.lg-miss i { font-style: normal; color: var(--faint); }
+.lg-miss .lg-strong { color: var(--text); font-weight: 700; }
+th small.lg-dim { display: block; font-weight: 500; font-size: 11px; }
+/* Runs bar: every gap stays visible, however long the series */
+.collection-bar.is-runs { gap: 1px; }
+.collection-bar.is-runs > span { min-width: 2px; border-radius: 1px; }
+.collection-bar.is-runs > .seg-have { min-width: 1px; }

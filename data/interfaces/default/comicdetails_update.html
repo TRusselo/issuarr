@@ -42,9 +42,6 @@
             except (TypeError, ValueError):
                 _have = 0
             _wanted = comicConfig.get('wanted') or 0
-            _bar_have = min(_have, _total)
-            _bar_wanted = min(_wanted, max(_total - _bar_have, 0))
-            _bar_rest = max(_total - _bar_have - _bar_wanted, 0)
             _missing = max(_total - _have, 0)
 
             _status = comic['Status'] or 'Unknown'
@@ -98,17 +95,16 @@
                 </p>
                 <p class="notice" id="series_status" style="display:none"></p>
                 <span id="loading_spinner" hidden></span>
-                <div class="series-collection">
-                    <div class="collection-bar" title="${_bar_title | h}">
-                        % if _bar_have:
-                        <span class="seg-have" style="flex: ${_bar_have} 1 0"></span>
-                        % endif
-                        % if _bar_wanted:
-                        <span class="seg-wanted" style="flex: ${_bar_wanted} 1 0"></span>
-                        % endif
-                        % if _bar_rest:
-                        <span class="seg-missing" style="flex: ${_bar_rest} 1 0"></span>
-                        % endif
+                <div class="series-collection" id="series-collection">
+                    <%
+                        _RUN = {'h': ('seg-have', 'on disk'), 'w': ('seg-wanted', 'wanted'), 's': ('seg-snatched', 'snatched'),
+                                'f': ('seg-failed', 'failed'), 'i': ('seg-ignored', 'ignored'), 'm': ('seg-missing', 'missing')}
+                        _runs = comicConfig.get('runs') or []
+                    %>
+                    <div class="collection-bar is-runs" role="img" aria-label="${_bar_title | h}">
+                        % for _r in _runs:
+                        <span class="${_RUN.get(_r[0], _RUN['m'])[0]}" style="flex: ${_r[1]} 1 0" title="${('#%s' % _r[2] if _r[1] == 1 else '#%s–#%s' % (_r[2], _r[3])) + ' ' + _RUN.get(_r[0], _RUN['m'])[1] | h}"></span>
+                        % endfor
                     </div>
                     <p class="series-counts">
                         <span><b>${'{:,}'.format(_have)}</b> of ${'{:,}'.format(_total)} on disk</span>
@@ -412,7 +408,7 @@
                                        <input type="text" name="torrentid_32p" placeholder="torrent id #" value="${comicConfig['torrentid_32p']}" size="40">
                                    </div>
                                    %endif
-                             <span style="position:absolute;float:right;right:30px;bottom:25px;"><input type="submit" value="Update"/></span>
+                             <span style="position:absolute;float:right;right:30px;bottom:25px;"><input type="submit" class="btn btn-primary" value="Save series settings"/></span>
                         </fieldset>
                 </form>
                </td>
@@ -590,15 +586,15 @@
             } else if (st == 'Snatched') {
                 first = main('retryit', 'Retry', 'Try the same download again');
                 more.push(item('queueit', 'Mark wanted', 'Mark as Wanted'), item('manqueueit', 'Search again', 'Search for a different download'),
-                          item('unqueueit', 'Skip', 'Mark as Skipped'), item('failit', 'Mark failed', 'Mark the download as failed'));
+                          item('unqueueit', 'Skip', 'Mark as Skipped'), item('failit', 'Mark download failed', 'Mark the download as failed'));
             } else if (st == 'Archived') {
                 first = main('queueit', 'Want', 'Mark as Wanted');
                 more.push(item('manqueueit', 'Search now', 'Mark as Wanted and search right away'), item('unqueueit', 'Skip', 'Mark as Skipped'));
             } else if (st == 'Downloaded') {
-                if (!p) first = '<a class="btn btn-sm" href="downloadthis?issueid=' + encodeURIComponent(full[4]) + '" title="Download the file">Download</a>';
+                if (!p) more.push('<a class="btn btn-ghost" href="downloadthis?issueid=' + encodeURIComponent(full[4]) + '" title="Copy the file to this computer or phone">Save to device</a>');
                 if (!p) more.push(item('readlistadd', 'Add to reading list', 'Add to the reading list'));
                 if (meta) more.push(item('metatag', 'Write metadata', 'Write ComicInfo metadata into the file'));
-                more.push(item('manqueueit', 'Search again', 'Search for a new copy'), item('unqueueit', 'Skip', 'Mark as Skipped'), item('failit', 'Mark failed', 'Mark the download as failed'));
+                more.push(item('manqueueit', 'Find another copy', 'Mark as Wanted and search for a different copy'), item('unqueueit', 'Skip', 'Mark as Skipped'), item('failit', 'Mark download failed', 'Mark the download as failed'));
             } else {
                 first = main('manqueueit', 'Search now', 'Search for this issue now');
             }
@@ -1546,8 +1542,31 @@
             return JSON.stringify(filters);
         }
 
+        // The header bar and counts, redrawn from the server after an issue changes status.
+        function refreshSeriesCounts() {
+            $.getJSON('series_counts', { ComicID: retrieve_comicid() }, function (c) {
+                if (!c || c.error) return;
+                var n = function (x) { return Number(x).toLocaleString('en-US'); };
+                var total = c.total, have = c.have, wanted = c.wanted;
+                var missing = Math.max(total - have, 0);
+                var RUN = { h: ['seg-have', 'on disk'], w: ['seg-wanted', 'wanted'], s: ['seg-snatched', 'snatched'], f: ['seg-failed', 'failed'],
+                            i: ['seg-ignored', 'ignored'], m: ['seg-missing', 'missing'] };
+                var spans = (c.runs || []).map(function (r) {
+                    var k = RUN[r[0]] || RUN.m, which = r[1] === 1 ? '#' + r[2] : '#' + r[2] + '–#' + r[3];
+                    return '<span class="' + k[0] + '" style="flex: ' + r[1] + ' 1 0" title="' + escHtml(which + ' ' + k[1]) + '"></span>';
+                }).join('');
+                var title = have + ' of ' + total + ' on disk' + (wanted ? ', ' + wanted + ' wanted' : '');
+                document.getElementById('series-collection').innerHTML =
+                    '<div class="collection-bar is-runs" role="img" aria-label="' + title + '">' + spans + '</div>' +
+                    '<p class="series-counts"><span><b>' + n(have) + '</b> of ' + n(total) + ' on disk</span>' +
+                    (wanted ? '<span class="is-wanted"><b>' + n(wanted) + '</b> wanted</span>' : '') +
+                    (missing ? '<span><b>' + n(missing) + '</b> missing</span>' : '') + '</p>';
+            });
+        }
+
         function update_filters() {
             var comicid = retrieve_comicid();
+            refreshSeriesCounts();
             $.when($.ajax({
                  type: "GET",
                  url: "update_series_filters",

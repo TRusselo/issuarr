@@ -137,7 +137,7 @@
     return fetch('forceSearch?' + p.toString(), { credentials: 'same-origin' })
       .then(function (r) {
         if (!r.ok) throw new Error(r.status);
-        I().toast('Searching for ' + plural(ids.length) + '. Follow it in Tasks › Jobs or the log.');
+        I().toast('Searching for ' + plural(ids.length) + '. Anything found shows up in Downloads.');
       })
       .catch(function () { I().toast('That didn\'t work. Check the log.', false); });
   }
@@ -191,7 +191,7 @@
   $id('w-bulk-none').addEventListener('click', function () { st.sel = {}; render(); });
   $id('w-search-tier1').addEventListener('click', function () {
     fetch('forceSearch', { credentials: 'same-origin' })
-      .then(function (r) { if (!r.ok) throw new Error(r.status); I().toast('Searching every Tier 1 issue. Follow it in Tasks › Jobs.'); })
+      .then(function (r) { if (!r.ok) throw new Error(r.status); I().toast('Searching every Tier 1 issue. Anything found shows up in Downloads.'); })
       .catch(function () { I().toast('That didn\'t work. Check the log.', false); });
   });
   $id('w-export').addEventListener('click', function () {

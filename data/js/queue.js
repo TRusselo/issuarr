@@ -104,13 +104,13 @@
         '<div class="btn-row" style="justify-content: space-between"><span class="mono muted" style="overflow-wrap: anywhere">' + esc(d.a_filename || '') + '</span>' +
         '<span class="muted">' + detail + '</span></div>' +
         '<div class="btn-row"><button type="button" class="btn btn-sm" data-act="resume" data-id="' + esc(id) + '">Resume</button>' +
-        '<button type="button" class="btn btn-sm" data-act="restart" data-id="' + esc(id) + '">Restart</button>' +
-        '<button type="button" class="btn btn-sm btn-danger" data-act="abort" data-id="' + esc(id) + '" data-name="' + esc(d.a_series || 'this download') + '">Abort</button></div></div>';
+        '<button type="button" class="btn btn-sm" data-act="restart" data-id="' + esc(id) + '" title="Try this download again">Retry</button>' +
+        '<button type="button" class="btn btn-sm btn-danger" data-act="abort" data-id="' + esc(id) + '" data-name="' + esc(d.a_series || 'this download') + '" title="Stop the download and mark it Failed">Stop</button></div></div>';
     } else if (id != null) {
       body.className = '';
       body.innerHTML = '<p style="margin: 0 0 10px">' + esc(String(d.status || '').replace(/<\/?br\s*\/?>/gi, ' ')) + '</p>' +
-        '<div class="btn-row"><button type="button" class="btn btn-sm" data-act="restart" data-id="' + esc(id) + '">Restart</button>' +
-        '<button type="button" class="btn btn-sm btn-danger" data-act="abort" data-id="' + esc(id) + '" data-name="this download">Abort</button></div>';
+        '<div class="btn-row"><button type="button" class="btn btn-sm" data-act="restart" data-id="' + esc(id) + '" title="Try this download again">Retry</button>' +
+        '<button type="button" class="btn btn-sm btn-danger" data-act="abort" data-id="' + esc(id) + '" data-name="this download" title="Stop the download and mark it Failed">Stop</button></div>';
     } else {
       body.className = 'muted';
       body.textContent = 'Nothing is downloading right now.';

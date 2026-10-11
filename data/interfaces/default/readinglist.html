@@ -78,7 +78,7 @@
                                 <button type="button" class="btn btn-sm" data-act="markasRead?${urlencode({'IssueID': i['IssueID']}) | h}" data-done="Marked as read." data-after="Read">Mark read</button>
                                 %endif
                                 %if i['Location']:
-                                <a class="btn btn-sm btn-ghost" href="downloadthis?${urlencode({'issueid': i['IssueID']}) | h}">Download</a>
+                                <a class="btn btn-sm btn-ghost" href="downloadthis?${urlencode({'issueid': i['IssueID']}) | h}" title="Copy the file to this computer or phone">Save to device</a>
                                 %endif
                                 <button type="button" class="btn btn-sm btn-ghost" data-drop="removefromreadlist?${urlencode({'IssueID': i['IssueID']}) | h}">Remove</button>
                             </td>

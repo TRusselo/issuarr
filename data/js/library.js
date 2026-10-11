@@ -179,7 +179,7 @@
     }
     var more = $id('lib-more-rows');
     more.hidden = list.length <= st.limit;
-    more.textContent = 'Show more (' + fmt(list.length - st.limit) + ' left)';
+    more.textContent = 'Show more (' + fmt(Math.max(list.length - st.limit, 0)) + ' left)';
     document.querySelectorAll('.library [data-view]').forEach(function (b) { b.setAttribute('aria-pressed', String(b.getAttribute('data-view') === st.view)); });
     $id('lib-sort').value = st.sort;
     renderBulk();

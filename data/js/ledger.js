@@ -51,6 +51,22 @@
       return c[x[0]] ? '<span class="' + x[1] + '" style="flex: ' + c[x[0]] + ' 1 0"></span>' : '';
     }).join('') + '</div>';
   }
+  // A series' issues in number order as runs: on disk, wanted, missing and so on, so each gap shows where it is.
+  var RUN = { h: ['seg-have', 'on disk'], w: ['seg-wanted', 'wanted'], s: ['seg-snatched', 'snatched'], f: ['seg-failed', 'failed'],
+              i: ['seg-ignored', 'ignored'], m: ['seg-missing', 'missing'] };
+  function runsBar(runs) {
+    if (!runs || !runs.length) return '<div class="collection-bar"></div>';
+    var tot = {}, n = 0;
+    var spans = runs.map(function (r) {
+      var k = RUN[r[0]] || RUN.m;
+      tot[k[1]] = (tot[k[1]] || 0) + r[1]; n += r[1];
+      var which = r[1] === 1 ? '#' + r[2] : '#' + r[2] + '–#' + r[3];
+      return '<span class="' + k[0] + '" style="flex: ' + r[1] + ' 1 0" title="' + esc(which + ' ' + k[1]) + '"></span>';
+    }).join('');
+    var label = n + ' issues: ' + Object.keys(tot).map(function (k) { return tot[k] + ' ' + k; }).join(', ');
+    return '<div class="collection-bar is-runs" role="img" aria-label="' + esc(label) + '">' + spans + '</div>';
+  }
+
   function renderSum() {
     var box = $id('lg-sum');
     box.hidden = st.tab !== 'missing' || !M;
@@ -122,7 +138,7 @@
     });
   });
 
-  // The sidebar opens this page as Ledger (no hash) or Tools > Trades (#trades).
+  // The sidebar opens this page as Ledger (no hash) or Library > Trades (#trades).
   function tabFromHash() { return location.hash === '#trades' ? 'collected' : 'missing'; }
   function setTab(t) {
     st.tab = t; st.sel = {}; st.limit = 300; st.sort = null; save();
@@ -130,7 +146,7 @@
     $id('lg-tab-collected').setAttribute('aria-selected', t === 'collected');
     if (tabFromHash() !== t) history.replaceState(null, '', t === 'collected' ? '#trades' : location.pathname + location.search);
     if (window.issuarrMarkNav) window.issuarrMarkNav();
-    $('.lg-title').html(t === 'collected' ? '<span class="page-crumb">Tools › </span>Trades' : 'Ledger');
+    $('.lg-title').html(t === 'collected' ? '<span class="page-crumb">Library › </span>Trades' : 'Ledger');
     document.title = document.title.replace(/ - [^-]*$/, ' - ' + (t === 'collected' ? 'Trades' : 'Ledger'));
     $id('lg-sub').textContent = t === 'collected'
       ? 'Trade paperbacks in your library, and how they overlap the single issues you own.'
@@ -154,7 +170,7 @@
   }
   $('#lg-table').on('click', 'th[data-key]', function () {
     var k = this.getAttribute('data-key'); if (k === 'mix' || k === 'lack') return;
-    st.sort = st.sort && st.sort.key === k ? { key: k, dir: -st.sort.dir } : { key: k, dir: ['gap', 'other', 'own', 'found', 'lacking'].indexOf(k) >= 0 ? -1 : 1 };
+    st.sort = st.sort && st.sort.key === k ? { key: k, dir: -st.sort.dir } : { key: k, dir: ['miss', 'own', 'w', 'found', 'lacking'].indexOf(k) >= 0 ? -1 : 1 };
     render();
   });
   $('#lg-table').on('keydown', 'th[data-key]', function (e) { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); $(this).click(); } });
@@ -246,30 +262,45 @@
 
   function renderSeries() {
     var sf = statusFilter(missingRows()), f = sf.rows, g = {};
-    f.forEach(function (r) { var x = g[r[1]] || (g[r[1]] = { s: r[1], c: [0, 0, 0, 0, 0], ids: [], w: 0 }); x.c[r[0]]++; x.ids.push(r[6]); if (r[7] === 'Wanted') x.w++; });
-    var s = st.sort || { key: 'gap', dir: -1 };
+    f.forEach(function (r) {
+      var x = g[r[1]] || (g[r[1]] = { s: r[1], p: [0, 0, 0], none: 0, ids: [], w: 0 });
+      if (r[9] < 0) x.none++; else x.p[r[9]]++;
+      x.ids.push(r[6]); if (r[7] === 'Wanted') x.w++;
+    });
+    var s = st.sort || { key: 'miss', dir: -1 };
     if (st.kinds.missing.indexOf(COMPLETE) >= 0) M.complete.forEach(function (si) {
       var S = M.series[si];
       if (g[si] || (st.pub && M.pubs[S[4]] !== st.pub) || (st.q && S[0].toLowerCase().indexOf(st.q) < 0)) return;
-      g[si] = { s: si, c: [0, 0, 0, 0, 0], ids: [], w: 0, done: true };
+      g[si] = { s: si, p: [0, 0, 0], none: 0, ids: [], w: 0, done: true };
     });
-    var list = Object.keys(g).map(function (k) { var x = g[k], S = M.series[x.s]; x.series = S[0].toLowerCase(); x.pub = M.pubs[S[4]]; x.own = S[2] / (S[3] || 1); x.gap = x.c[0]; x.other = x.c[1] + x.c[2] + x.c[3] + x.c[4]; x.tr = -(S[6] || []).length; return x; });
+    var list = Object.keys(g).map(function (k) { var x = g[k], S = M.series[x.s]; x.series = S[0].toLowerCase(); x.pub = M.pubs[S[4]]; x.own = S[2] / (S[3] || 1); x.total = x.p[0] + x.p[1] + x.p[2] + x.none; x.miss = x.p[1] * 1e6 + x.total; x.tr = -(S[6] || []).length; return x; });
     list.sort(function (a, b) { return s.dir * cmp(a[s.key], b[s.key]) || cmp(a.series, b.series); });
-    head([['series', 'Series'], ['mix', 'Collection'], ['own', 'Owned', 'num'], ['gap', 'Gaps', 'num'], ['other', 'Other missing', 'num'], ['w', 'Wanted', 'num'], ['tr', 'Trades']], true);
+    head([['series', 'Series'], ['mix', 'Collection'], ['own', 'Owned', 'num'], ['miss', 'Missing <small class="lg-dim">before / gap / after</small>', 'num'], ['w', 'Wanted', 'num'], ['tr', 'Trades']], true);
     var page = list.slice(0, st.limit);
     $('#lg-table tbody').html(page.length ? page.map(function (x) {
       var S = M.series[x.s], all = x.ids.every(function (i) { return st.sel[i]; });
       if (x.done) all = false;
       return '<tr class="' + (all ? 'lg-on' : '') + (x.done ? ' lg-complete' : '') + '"><td class="lg-chk">' + (x.done ? '' : '<input type="checkbox" data-ids="' + x.ids.join(',') + '"' + (all ? ' checked' : '') + ' aria-label="Select all missing issues in this series">') + '</td>' +
         '<td><a href="comicDetails?ComicID=' + S[5] + '">' + esc(S[0]) + '</a> <span class="lg-dim">(' + esc(S[1]) + ')</span><br><small class="lg-dim">' + esc(M.pubs[S[4]]) + '</small></td>' +
-        '<td class="lg-cbar-cell">' + bar(counts(x.s)) + '</td>' +
-        '<td class="num lg-mono">' + S[2] + ' / ' + S[3] + '</td><td class="num lg-mono lg-strong">' + (x.gap || '') + '</td><td class="num lg-mono">' + (x.done ? '<span class="lg-pill" style="--c:var(--lg-done)">Complete</span>' : (x.other || '')) + '</td>' +
+        '<td class="lg-cbar-cell">' + runsBar(S[7]) + '</td>' +
+        '<td class="num lg-mono">' + S[2] + ' / ' + S[3] + '</td><td class="num lg-mono">' + missCell(x) + '</td>' +
         '<td class="num lg-mono is-wanted">' + (x.w || '') + '</td>' +
         '<td class="lg-trades">' + seriesTrades(S[6]) + '</td></tr>';
     }).join('') : '<tr><td class="lg-empty" colspan="9">No series match these filters.</td></tr>');
     countLine(Math.min(st.limit, list.length), list.length, 'series', sf.wanted);
     $id('lg-more').hidden = list.length <= st.limit;
     $id('lg-note').textContent = KEYS + ' Selecting a series selects all of its missing issues that match the filters.';
+  }
+
+  function missCell(x) {
+    if (x.done) return '<span class="lg-pill" style="--c:var(--lg-done)">Complete</span>';
+    if (x.none && !x.total) return '';
+    if (x.none === x.total) return M.series[x.s][2] > 0
+      ? '<span class="lg-dim" title="This series has files, but none are matched to an issue, so gaps can\'t be placed">files not matched</span> ' + x.none
+      : '<span class="lg-dim" title="No issues of this series are on disk">none on disk</span> ' + x.none;
+    var v = function (n, cls, t) { return '<span class="' + cls + '" title="' + t + '">' + (n || '—') + '</span>'; };
+    return '<span class="lg-miss">' + v(x.p[0], '', 'Before your first owned issue') + '<i>/</i>' + v(x.p[1], 'lg-strong', 'In gaps between issues you own') +
+      '<i>/</i>' + v(x.p[2], '', 'After your last owned issue') + '</span>';
   }
 
   function renderTrades() {

@@ -16,6 +16,9 @@
 
 import mylar
 from mylar import db, mb, importer, search, process, versioncheck, logger, webserve, helpers, encrypted, series_metadata
+import hmac
+import inspect
+import io
 import threading
 import json
 import cherrypy
@@ -41,6 +44,15 @@ cmd_list = ['getIndex', 'getComic', 'getUpcoming', 'getWanted', 'getHistory',
             'refreshSeriesjson', 'seriesjsonListing', 'checkGlobalMessages',
             'listProviders', 'changeProvider', 'addProvider', 'delProvider',
             'downloadNZB', 'getReadList', 'getStoryArc', 'addStoryArc', 'listAnnualSeries', 'setComicLocation']
+
+# Commands the web UI's SSE key may run. Every other command needs the real API key.
+SSE_CMDS = ['checkGlobalMessages']
+
+
+def _keys_match(submitted, expected):
+    if not expected:
+        return False
+    return hmac.compare_digest(str(submitted).encode('utf-8'), str(expected).encode('utf-8'))
 
 class Api(object):
 
@@ -132,9 +144,9 @@ class Api(object):
         cherrypy.response.headers['Content-Type'] = self.headers
         return json.dumps(response)
 
-    def _resultsFromQuery(self, query):
+    def _resultsFromQuery(self, query, args=None):
         myDB = db.DBConnection()
-        rows = myDB.select(query)
+        rows = myDB.select(query, args)
 
         results = []
 
@@ -149,44 +161,49 @@ class Api(object):
             self.data = self._failureResponse('Missing parameter: cmd')
             return
 
-        if 'apikey' not in kwargs and ('apikey' not in kwargs and kwargs['cmd'] != 'getAPI'):
+        # The key can also be sent as a header, which keeps it out of URLs and access logs.
+        if 'apikey' not in kwargs:
+            header_key = cherrypy.request.headers.get('X-Api-Key') or cherrypy.request.headers.get('Api-Key')
+            if header_key:
+                kwargs['apikey'] = header_key
+
+        if 'apikey' not in kwargs and kwargs['cmd'] != 'getAPI':
             self.data = self._failureResponse('Missing API key')
             return
         elif kwargs['cmd'] == 'getAPI':
+            kwargs.pop('apikey', None)
             self.apitype = 'normal'
         else:
-            if not mylar.CONFIG.API_ENABLED:
-                if kwargs['apikey'] != mylar.SSE_KEY:
-                    self.data = self._failureResponse('API not enabled')
-                    return
+            submitted = str(kwargs.pop('apikey'))
+            is_api_key = _keys_match(submitted, mylar.CONFIG.API_KEY)
+            is_sse_key = _keys_match(submitted, mylar.SSE_KEY)
 
-            if kwargs['apikey'] != mylar.CONFIG.API_KEY and kwargs['apikey'] != mylar.SSE_KEY:
+            if not mylar.CONFIG.API_ENABLED and not is_sse_key:
+                self.data = self._failureResponse('API not enabled')
+                return
+
+            if not is_api_key and not is_sse_key:
                 self.data = self._failureResponse('Incorrect API key')
                 return
-            else:
-                if kwargs['apikey'] == mylar.CONFIG.API_KEY:
-                    self.apitype = 'normal'
-                elif kwargs['apikey'] == mylar.SSE_KEY:
-                    self.apitype = 'sse'
-                self.apikey = kwargs.pop('apikey')
 
-            if not([mylar.CONFIG.API_KEY, mylar.SSE_KEY]):
-                self.data = self._failureResponse('API key not generated')
-                return
-
-            if self.apitype:
-                if self.apitype == 'normal' and len(mylar.CONFIG.API_KEY) != 32:
+            if is_api_key:
+                self.apitype = 'normal'
+                if len(mylar.CONFIG.API_KEY) != 32:
                     self.data = self._failureResponse('API key not generated correctly')
                     return
-                if self.apitype == 'sse' and len(mylar.SSE_KEY) != 32:
+            else:
+                self.apitype = 'sse'
+                if len(mylar.SSE_KEY) != 32:
                     self.data = self._failureResponse('SSE-API key not generated correctly')
                     return
+                # The SSE key is embedded in every web page so the UI can poll for
+                # messages. It must not unlock anything else.
+                if kwargs['cmd'] not in SSE_CMDS:
+                    self.data = self._failureResponse('This key can only be used for: %s' % ', '.join(SSE_CMDS))
+                    return
+            self.apikey = submitted
 
-            else:
-                self.data = self._failureResponse('API key not generated correctly')
-                return
-
-        if kwargs['cmd'] not in cmd_list or (kwargs['cmd'] == 'checkGlobalMessags' and all([kwargs['apikey'] != mylar.SSE_KEY, self.apiktype != 'sse'])):
+        if kwargs['cmd'] not in cmd_list or not hasattr(self, '_' + kwargs['cmd']):
             self.data = self._failureResponse('Unknown command: %s' % kwargs['cmd'])
             return
         else:
@@ -201,7 +218,19 @@ class Api(object):
             if self.cmd != 'checkGlobalMessages':
                 logger.fdebug('Received API command: ' + self.cmd)
             methodToCall = getattr(self, "_" + self.cmd)
-            result = methodToCall(**self.kwargs)
+            try:
+                inspect.signature(methodToCall).bind(**self.kwargs)
+            except TypeError as e:
+                return self._failureResponse('Bad parameters for %s: %s' % (self.cmd, e))
+            try:
+                result = methodToCall(**self.kwargs)
+            except Exception as e:
+                logger.error('[API] %s failed: %s' % (self.cmd, e))
+                return self._failureResponse('%s failed: %s' % (self.cmd, e), code=500)
+            if isinstance(self.data, Exception):
+                self.data = self._failureResponse('%s failed: %s' % (self.cmd, self.data), code=500)
+            if 'callback' in self.kwargs and not re.match(r'^[A-Za-z_$][\w$.]*$', str(self.kwargs['callback'])):
+                return self._failureResponse('Invalid callback name')
             if 'callback' not in self.kwargs:
                 if self.img:
                     return serve_file(path=self.img, content_type='image/jpeg')
@@ -340,24 +369,21 @@ class Api(object):
         else:
             self.id = kwargs['id']
 
-        comicQuery = "{select} WHERE ComicID='{id}' ORDER BY ComicSortName COLLATE NOCASE".format(
-            select = self._selectForComics(),
-            id = self.id
+        comicQuery = "{select} WHERE ComicID=? ORDER BY ComicSortName COLLATE NOCASE".format(
+            select = self._selectForComics()
         )
-        comic = self._resultsFromQuery(comicQuery)
+        comic = self._resultsFromQuery(comicQuery, [self.id])
 
-        issuesQuery = "{select} WHERE ComicID='{id}' ORDER BY Int_IssueNumber DESC".format(
-            select = self._selectForIssues(),
-            id = self.id
+        issuesQuery = "{select} WHERE ComicID=? ORDER BY Int_IssueNumber DESC".format(
+            select = self._selectForIssues()
         )
-        issues = self._resultsFromQuery(issuesQuery)
+        issues = self._resultsFromQuery(issuesQuery, [self.id])
 
         if mylar.CONFIG.ANNUALS_ON:
-            annualsQuery = "{select} WHERE ComicID='{id}'".format(
-                select = self._selectForAnnuals(),
-                id = self.id
+            annualsQuery = "{select} WHERE ComicID=?".format(
+                select = self._selectForAnnuals()
             )
-            annuals = self._resultsFromQuery(annualsQuery)
+            annuals = self._resultsFromQuery(annualsQuery, [self.id])
         else:
             annuals = []
 
@@ -388,7 +414,7 @@ class Api(object):
         self.data = self._resultsFromQuery(
             "SELECT w.COMIC AS ComicName, w.ISSUE AS IssueNumber, w.ComicID, w.IssueID, w.SHIPDATE AS IssueDate, w.STATUS AS Status, c.ComicName AS DisplayComicName \
             FROM weekly w JOIN comics c ON w.ComicID = c.ComicID WHERE w.COMIC IS NOT NULL AND w.ISSUE IS NOT NULL AND \
-            SUBSTR('0' || w.weeknumber, -2) = '" + week + "' AND w.year = '" + year + "' AND " + select_status_clause + " ORDER BY c.ComicSortName")
+            SUBSTR('0' || w.weeknumber, -2) = ? AND w.year = ? AND " + select_status_clause + " ORDER BY c.ComicSortName", [week, year])
         return
 
     def _getWanted(self, **kwargs):
@@ -445,15 +471,15 @@ class Api(object):
 
         try:
             myDB = db.DBConnection()
-            delchk = myDB.selectone(f"SELECT ComicName, ComicYear, ComicLocation FROM comics where ComicID='{self.id}'").fetchone()
+            delchk = myDB.selectone("SELECT ComicName, ComicYear, ComicLocation FROM comics where ComicID=?", [self.id]).fetchone()
             if not delchk:
                 logger.error('ComicID %s not found in watchlist.' %  self.id)
                 self.data = self._failureResponse('ComicID %s not found in watchlist.' % self.id)
                 return
             logger.fdebug('Deletion request received for %s (%s) [%s]' % (delchk['ComicName'], delchk['ComicYear'], self.id))
-            myDB.action(f"DELETE from comics WHERE ComicID='{self.id}'")
-            myDB.action(f"DELETE from issues WHERE ComicID='{self.id}'")
-            myDB.action(f"DELETE from upcoming WHERE ComicID='{self.id}'")
+            myDB.action("DELETE from comics WHERE ComicID=?", [self.id])
+            myDB.action("DELETE from issues WHERE ComicID=?", [self.id])
+            myDB.action("DELETE from upcoming WHERE ComicID=?", [self.id])
             if directory_del is True:
                 if os.path.exists(delchk['ComicLocation']):
                     shutil.rmtree(delchk['ComicLocation'])
@@ -610,7 +636,7 @@ class Api(object):
         if len(already_added) == 1:
             self.data = self._successResponse('[%s] %s has already been queued for refresh in a queue of %s items.' % (already_added[0]['comicid'], already_added[0]['comicname'], mylar.REFRESH_QUEUE.qsize()))
         elif len(already_added) > 1:
-            self.data = self._successResponse('%s items (%s) have already been queued for refresh in a queue of % items.' % (len(already_added), already_added, mylar.REFRESH_QUEUE.qsize()))
+            self.data = self._successResponse('%s items (%s) have already been queued for refresh in a queue of %s items.' % (len(already_added), already_added, mylar.REFRESH_QUEUE.qsize()))
 
         if len(watch) == 1:
             logger.info('[SHIZZLE-WHIZZLE] Now queueing to refresh %s %s' % (chkdb['ComicName'], chkdb['ComicYear']))
@@ -631,7 +657,7 @@ class Api(object):
                 ref_line = 'for %s items (%s)' % (len(watch), watch)
 
             logger.warn('[API-refreshComic] Successfully background submitted refresh %s' % (ref_line))
-            self.data = self._successResponse('Refresh successfully submitted %s.' % (self.id, ref_line))
+            self.data = self._successResponse('Refresh successfully submitted %s.' % (ref_line,))
 
         return
 
@@ -656,7 +682,7 @@ class Api(object):
             booktype = booktype.lower()
 
         myDB = db.DBConnection()
-        btresp = myDB.selectone(f"SELECT ComicName, ComicYear, Type, Corrected_Type FROM Comics WHERE ComicID='{self.id}'").fetchone()
+        btresp = myDB.selectone("SELECT ComicName, ComicYear, Type, Corrected_Type FROM Comics WHERE ComicID=?", [self.id]).fetchone()
         if not btresp:
             self.data = self._failureResponse('Unable to locate ComicID %s within watchlist' % self.id)
             return
@@ -679,7 +705,7 @@ class Api(object):
                 newWrite = {'ComicID': self.id}
                 myDB.upsert("comics", newValue, newWrite)
             except Exception as e:
-                self.data = self._failureResponse('[%s] Unable to update Booktype for ComicID: %s. Error returned: %s' % (self.id, e))
+                self.data = self._failureResponse('[%s] Unable to update Booktype. Error returned: %s' % (self.id, e))
                 return
             else:
                 self.data = self._successResponse('[%s] Updated Booktype to %s.' % (self.id, booktype))
@@ -689,8 +715,8 @@ class Api(object):
         #change status_from of every issue in series to specified status_to
         #if no comicid specified will mark ALL issues in EVERY series from status_from to specific status_to
         #required fields: status_to, status_from. Optional: id  (which is the ComicID if applicable)
-        if all(['status_to' not in kwargs, 'status_from' not in kwargs]):
-            self.data = self._failureResponse('Missing Status')
+        if any(['status_to' not in kwargs, 'status_from' not in kwargs]):
+            self.data = self._failureResponse('Missing Status (fields: status_to, status_from)')
             return
         else:
             self.status_to = kwargs['status_to']
@@ -716,7 +742,7 @@ class Api(object):
             le_data = helpers.statusChange(self.status_from, self.status_to, self.id, bulk=bulk, api=True)
         except Exception as e:
             logger.error('[ERROR] %s' % e)
-            self.data = e
+            self.data = self._failureResponse(str(e))
         else:
             self.data = self._successResponse(le_data)
         return
@@ -741,7 +767,7 @@ class Api(object):
             fc = webserve.WebInterface()
             self.data = fc.forceRescan(ComicID=self.id, bulk=bulk, api=True)
         except Exception as e:
-            self.data = e
+            self.data = self._failureResponse(str(e))
 
         return
 
@@ -776,7 +802,7 @@ class Api(object):
             ac.addbyid(self.id, calledby=True, nothread=False)
             #importer.addComictoDB(self.id)
         except Exception as e:
-            self.data = e
+            self.data = self._failureResponse(str(e))
         else:
             self.data = self._successResponse("Successfully queued up addding id: %s" % self.id)
         return
@@ -862,7 +888,7 @@ class Api(object):
             sm.update_metadata_thread()
         except Exception as e:
             logger.error('[ERROR] %s' % e)
-            self.data = e
+            self.data = self._failureResponse(str(e))
 
         return
 
@@ -1003,11 +1029,10 @@ class Api(object):
         else:
             self.id = kwargs['id']
 
-        query = '{select} WHERE ComicID = {comic_id}'.format(
-            select=self._selectForComics(),
-            comic_id=self.id
+        query = '{select} WHERE ComicID = ?'.format(
+            select=self._selectForComics()
         )
-        results = self._resultsFromQuery(query)
+        results = self._resultsFromQuery(query, [self.id])
         if len(results) == 1:
             self.data = self._successResponse(
                 results
@@ -1022,11 +1047,10 @@ class Api(object):
         else:
             self.id = kwargs['id']
 
-        query = '{select} WHERE IssueID = {issue_id}'.format(
-            select=self._selectForIssues(),
-            issue_id=self.id
+        query = '{select} WHERE IssueID = ?'.format(
+            select=self._selectForIssues()
         )
-        results = self._resultsFromQuery(query)
+        results = self._resultsFromQuery(query, [self.id])
         if len(results) == 1:
             self.data = self._successResponse(
                 results
@@ -1042,6 +1066,9 @@ class Api(object):
             self.id = kwargs['id']
 
         img = None
+        if os.path.basename(str(self.id)) != str(self.id):
+            self.data = self._failureResponse('id must be a ComicID')
+            return
         image_path = os.path.join(mylar.CONFIG.CACHE_DIR, str(self.id) + '.jpg')
 
         # Checks if its a valid path and file
@@ -1053,7 +1080,7 @@ class Api(object):
                 return
         else:
             # If we cant find the image, lets check the db for a url.
-            comic = self._resultsFromQuery(f"SELECT * from comics WHERE ComicID='{self.id}'")
+            comic = self._resultsFromQuery("SELECT * from comics WHERE ComicID=?", [self.id])
 
             # Try every img url in the db
             try:
@@ -1066,7 +1093,7 @@ class Api(object):
 
             if img:
                 # verify the img stream
-                imghdr = Image.open(img)
+                imghdr = Image.open(io.BytesIO(img))
                 if imghdr.get_format_mimetype():
                     with open(image_path, 'wb') as f:
                         f.write(img)
@@ -1077,7 +1104,7 @@ class Api(object):
             else:
                 self.data = self._failureResponse('Failed to return a image')
 
-    def _findComic(self, name, issue=None, type_=None, mode=None, serinfo=None, page=None, pageSize=None):
+    def _findComic(self, name=None, issue=None, type_=None, mode=None, serinfo=None, page=None, pageSize=None, **kwargs):
         # set defaults
         if type_ is None:
             type_ = 'comic'
@@ -1095,7 +1122,7 @@ class Api(object):
                 pageSize = None
 
         # Dont do shit if name is missing
-        if len(name) == 0:
+        if not name:
             self.data = self._failureResponse('Missing a Comic name')
             return
 
@@ -1107,18 +1134,21 @@ class Api(object):
             searchresults = mb.findComic(name, mode, issue=issue, page=page, pageSize=pageSize)
         elif type_ == 'story_arc':
             searchresults = mb.findComic(name, mode, issue=None, search_type='story_arc', page=page, pageSize=pageSize)
+        else:
+            self.data = self._failureResponse('Unknown type_/mode combination (type_: comic or story_arc; mode: series, pullseries or want)')
+            return
 
         searchresults = sorted(searchresults, key=itemgetter('comicyear', 'issues'), reverse=True)
         self.data = searchresults
 
-    def _downloadIssue(self, id):
+    def _downloadIssue(self, id=None, **kwargs):
         if not id:
             self.data = self._failureResponse('You need to provide a issueid')
             return
 
         self.id = id
         # Fetch a list of dicts from issues table
-        i = self._resultsFromQuery(f"SELECT * from issues WHERE issueID='{self.id}'")
+        i = self._resultsFromQuery("SELECT * from issues WHERE issueID=?", [self.id])
 
         if not len(i):
             self.data = self._failureResponse('Couldnt find a issue with issueID %s' % self.id)
@@ -1132,7 +1162,7 @@ class Api(object):
         # Check the issue is downloaded
         if issuelocation is not None:
             # Find the comic location
-            comic = self._resultsFromQuery(f"SELECT * from comics WHERE comicID='{issue['ComicID']}'")[0]
+            comic = self._resultsFromQuery("SELECT * from comics WHERE comicID=?", [issue['ComicID']])[0]
             comiclocation = comic.get('ComicLocation')
             f = os.path.join(comiclocation, issuelocation)
             if not os.path.isfile(f):
@@ -1157,12 +1187,15 @@ class Api(object):
             self.data = self._failureResponse('You need to download that issue first')
             return
 
-    def _downloadNZB(self, nzbname):
+    def _downloadNZB(self, nzbname=None, **kwargs):
         if not nzbname:
             self.data = self._failureResponse('You need to provide a nzbname')
             return
 
         self.nzbname = nzbname
+        if os.path.basename(nzbname) != nzbname:
+            self.data = self._failureResponse('nzbname must be a file name, not a path')
+            return
         f = os.path.join(mylar.CONFIG.CACHE_DIR, nzbname)
         if os.path.isfile(f):
             self.file = f
@@ -1179,8 +1212,8 @@ class Api(object):
                 self.data = self._resultsFromQuery("SELECT StoryArcID, StoryArc, MAX(ReadingOrder) AS HighestOrder from storyarcs GROUP BY StoryArcID ORDER BY StoryArc")
         else:
             self.id = kwargs['id']
-            self.data = self._resultsFromQuery(f"SELECT StoryArc, ReadingOrder, ComicID, ComicName, IssueNumber, IssueID, \
-                                               IssueDate, IssueName, IssuePublisher from storyarcs WHERE StoryArcID='{self.id}' ORDER BY ReadingOrder")
+            self.data = self._resultsFromQuery("SELECT StoryArc, ReadingOrder, ComicID, ComicName, IssueNumber, IssueID, \
+                                               IssueDate, IssueName, IssuePublisher from storyarcs WHERE StoryArcID=? ORDER BY ReadingOrder", [self.id])
         return
 
     def _addStoryArc(self, **kwargs):
@@ -1194,7 +1227,7 @@ class Api(object):
                 storyarcname = kwargs.pop('storyarcname')
         else:
             self.id = kwargs.pop('id')
-            arc = self._resultsFromQuery(f"SELECT * from storyarcs WHERE StoryArcID='{self.id}' ORDER by ReadingOrder")
+            arc = self._resultsFromQuery("SELECT * from storyarcs WHERE StoryArcID=? ORDER by ReadingOrder", [self.id])
             storyarcname = arc[0]['StoryArc']
             issuecount = len(arc)
         if not 'issues' in kwargs and not 'arclist' in kwargs:
@@ -1368,7 +1401,7 @@ class Api(object):
 
             providers = {'newznabs': newznabs, 'torznabs': torznabs}
         except Exception as e:
-            self.data = self._failureResponse(e)
+            self.data = self._failureResponse(str(e))
         else:
             self.data = self._successResponse(providers)
         return
@@ -1409,7 +1442,7 @@ class Api(object):
             if 'host' in kwargs:
                 newznab_host = kwargs['host']
                 if not newznab_host.startswith('http'):
-                    self.data = self._failureResponse('protocol is required for % host entry' % providertype)
+                    self.data = self._failureResponse('protocol is required for %s host entry' % providertype)
                     logger.fdebug('[API][addProvider] %s' % (self.data,))
                     return
                 if newznab_host.startswith('https'):
@@ -1441,7 +1474,7 @@ class Api(object):
             if prov_line not in mylar.CONFIG.EXTRA_NEWZNABS:
                 mylar.CONFIG.EXTRA_NEWZNABS.append(prov_line)
             else:
-                self.data = self._failureResponse('exact details belong to another provider id already [%]. Maybe you should be using changeProvider' % prov_id)
+                self.data = self._failureResponse('exact details belong to another provider id already [%s]. Maybe you should be using changeProvider' % prov_id)
                 logger.fdebug('[API][addProvider] %s' % (self.data,))
                 return
 
@@ -1463,7 +1496,7 @@ class Api(object):
             if 'host' in kwargs:
                 torznab_host = kwargs['host']
                 if not torznab_host.startswith('http'):
-                    self.data = self._failureResponse('protocol is required for % host entry' % providertype)
+                    self.data = self._failureResponse('protocol is required for %s host entry' % providertype)
                     logger.fdebug('[API][addProvider] %s' % (self.data,))
                     return
                 if torznab_host.startswith('https'):
@@ -1488,7 +1521,7 @@ class Api(object):
             if prov_line not in mylar.CONFIG.EXTRA_TORZNABS:
                 mylar.CONFIG.EXTRA_TORZNABS.append(prov_line)
             else:
-                self.data = self._failureResponse('exact details belong to another provider id already [%]. Maybe you should be using changeProvider' % prov_id)
+                self.data = self._failureResponse('exact details belong to another provider id already [%s]. Maybe you should be using changeProvider' % prov_id)
                 logger.fdebug('[API][addProvider] %s' % (self.data,))
                 return
 
@@ -1645,7 +1678,7 @@ class Api(object):
                 else:
                     prov_verify = '0'
             else:
-                self.data = self._failureResponse('protocol is required for % host entry' % providertype)
+                self.data = self._failureResponse('protocol is required for %s host entry' % providertype)
                 logger.fdebug('[API][changeProvider] %s' % (self.data,))
                 return
         else:
@@ -1844,14 +1877,10 @@ class REST(object):
             pass
 
         def validate(self):
-            logger.info('attempting to validate...')
             req = cherrypy.request.headers
-            logger.info('thekey: %s' % req)
-            logger.info('url: %s' % cherrypy.url())
-            logger.info('mylar.apikey: %s [%s]' % (mylar.CONFIG.API_KEY, type(mylar.CONFIG.API_KEY)))
-            logger.info('submitted.apikey: %s [%s]' % (req['Api-Key'], type(req['Api-Key'])))
-            if 'Api-Key' not in req or req['Api-Key'] != str(mylar.CONFIG.API_KEY): #str(mylar.API_KEY) or mylar.API_KEY not in cherrypy.url():
-                logger.info('wrong APIKEY')
+            submitted = req.get('Api-Key') or req.get('X-Api-Key')
+            if submitted is None or not _keys_match(submitted, mylar.CONFIG.API_KEY):
+                logger.info('[REST] Rejected request to %s: api-key missing or incorrect' % cherrypy.request.path_info)
                 return 'api-key provided was either not present in auth header, or was incorrect.'
             else:
                 return True
@@ -1881,9 +1910,9 @@ class REST(object):
         def __init__(self):
             pass
 
-        def _dic_from_query(self, query):
+        def _dic_from_query(self, query, args=None):
             myDB = db.DBConnection()
-            rows = myDB.select(query)
+            rows = myDB.select(query, args)
 
             rows_as_dic = []
 
@@ -1914,9 +1943,9 @@ class REST(object):
         def __init__(self):
             pass
 
-        def _dic_from_query(self, query):
+        def _dic_from_query(self, query, args=None):
             myDB = db.DBConnection()
-            rows = myDB.select(query)
+            rows = myDB.select(query, args)
 
             rows_as_dic = []
 
@@ -1950,10 +1979,10 @@ class REST(object):
                     else:
                         return('No Comic with the ID %s :-(' % comic_id)
                 elif issuemode == 'issues':
-                    self.issues = self._dic_from_query(f"SELECT * from issues where comicid='{comic_id}'")
+                    self.issues = self._dic_from_query("SELECT * from issues where comicid=?", [comic_id])
                     return json.dumps(self.issues, ensure_ascii=False)
                 elif issuemode == 'issue' and issue_id is not None:
-                    self.issues = self._dic_from_query(f"SELECT * from issues where comicid='{comic_id}' and issueid='{issue_id}'")
+                    self.issues = self._dic_from_query("SELECT * from issues where comicid=? and issueid=?", [comic_id, issue_id])
                     return json.dumps(self.issues, ensure_ascii=False)
                 else:
                     return('Nothing to do.')

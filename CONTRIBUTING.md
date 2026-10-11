@@ -5,6 +5,11 @@
 - `main` holds releases. A release is a pull request from `dev` into `main`, merged with a merge commit (not squash or rebase) so the two branches keep the same history. Each push to `main` builds `ghcr.io/issuarr/issuarr:latest`, and a `vX.Y.Z` tag on `main` also builds `X.Y.Z` and `X.Y` image tags.
 - Hotfixes that cannot wait for a release go to `main` and are then merged back into `dev`.
 
+## Changelog
+[CHANGELOG.md](CHANGELOG.md) lists every change in plain English, newest first, each line ending with the commit id that made it. It is also a page on the website, which is published from `main`, so it updates when a release is merged.
+
+When preparing a release, on `dev` run `python3 .github/changelog.py` to list the commits since the last release that the changelog doesn't mention yet. Rewrite each line so a user understands it, merge related lines, and add them under **Unreleased (on dev)**. In the release PR, rename that heading to the version and date (for example `## 1.0.0 (2026-11-01)`) and start a new empty **Unreleased (on dev)** section above it.
+
 ## Pull Requests
 - Make pull requests against the `dev` branch.
 - You're probably going to get some comments or questions from us.  They will be to ensure consistency and maintainability

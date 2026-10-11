@@ -35,6 +35,9 @@ page docs/JDOWNLOADER2.md JDOWNLOADER2.md \
 page docs/API.md API.md \
     "Issuarr web API" \
     "The Issuarr web API, compatible with Mylar3 scripts and apps: keys, commands and responses."
+page CHANGELOG.md CHANGELOG.md \
+    "Issuarr changelog" \
+    "What changed in each Issuarr release and on the dev branch, with the commit behind every change."
 page docs/TROUBLESHOOTING.md TROUBLESHOOTING.md \
     "Troubleshooting Issuarr" \
     "Fixes for common Issuarr problems, including database is locked errors, moved paths and direct-download issues."

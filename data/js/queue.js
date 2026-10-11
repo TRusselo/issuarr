@@ -1,13 +1,19 @@
-/* Downloads > Queue: grabs waiting at the download client, the direct-download queue and the active download. */
+/* Downloads > Queue: one list of everything on its way, from every source.
+   Direct downloads (GetComics, JDownloader 2) and grabs at SABnzbd, NZBGet or a torrent client
+   all come from downloadQueue, with live progress where the client can be reached. */
 (function () {
   'use strict';
 
-  var STATUSES = ['Downloading', 'Queued', 'Incomplete', 'Failed', 'Completed'];
-  var HOSTS = { 'GC-Main': 'GetComics', 'GC-Mirror': 'GetComics mirror', 'GC-Pixel': 'Pixeldrain',
-                'GC-Mega': 'Mega', 'GC-Media': 'Mediafire', 'DDL-Ext': 'External' };
-  var CLASS = { Completed: 'is-have', Downloading: 'is-snatched is-running', Queued: 'is-idle',
+  // Tab order. "Active" is everything not finished; Completed only applies to direct downloads.
+  var TABS = [['active', 'Active'], ['Downloading', 'Downloading'], ['Queued', 'Queued'], ['Processing', 'Processing'],
+              ['Sent', 'Sent'], ['Paused', 'Paused'], ['Incomplete', 'Incomplete'], ['Failed', 'Failed'], ['Completed', 'Finished'], ['', 'All']];
+  var CLASS = { Completed: 'is-have', Downloading: 'is-snatched is-running', Processing: 'is-snatched is-running',
+                Checking: 'is-snatched', Queued: 'is-idle', Sent: 'is-idle', Paused: 'is-idle',
                 Incomplete: 'is-snatched', Failed: 'is-failed' };
-  var st = { status: '', q: '', start: 0, len: 50, total: 0, counts: {}, active: null, key: '' };
+  var LABEL = { Completed: 'Finished', Sent: 'Waiting on client', Processing: 'Processing' };
+  var HELP = { Sent: 'Sent to the download client. Its progress shows here when the client can be reached.',
+               Processing: 'Downloaded. Waiting for the client to unpack it or for Issuarr to file it.' };
+  var st = { tab: 'active', q: '', start: 0, len: 50, items: [], waiting: 0, loaded: false };
 
   function $id(id) { return document.getElementById(id); }
   function I() { return window.Issuarr; }
@@ -25,151 +31,118 @@
     call('ddl_requeue?mode=' + encodeURIComponent(mode) + (id != null ? '&id=' + encodeURIComponent(id) : ''))
       .then(function (r) { I().toast(r.message || 'Done'); })
       .catch(function () { I().toast('That didn\'t work. Check the log.', false); })
-      .then(function () { pollActive(true); loadTable(); });
+      .then(function () { load(true); });
+  }
+
+  function inTab(it, tab) {
+    if (tab === '') return true;
+    if (tab === 'active') return it.status !== 'Completed';
+    if (tab === 'Downloading') return it.status === 'Downloading' || it.status === 'Checking';
+    return it.status === tab;
   }
 
   /* ---- filter tabs ---- */
   function renderTabs() {
-    var c = st.counts;
-    var all = STATUSES.reduce(function (n, s) { return n + (c[s] || 0); }, 0);
-    var tabs = [['', 'All', all]].concat(STATUSES.filter(function (s) { return c[s] || st.status === s; })
-      .map(function (s) { return [s, s, c[s] || 0]; }));
+    var tabs = TABS.filter(function (t) {
+      return t[0] === 'active' || t[0] === '' || t[0] === st.tab || st.items.some(function (it) { return inTab(it, t[0]); });
+    });
     $id('q-tabs').innerHTML = tabs.map(function (t) {
-      return '<button type="button" data-ui data-status="' + esc(t[0]) + '" aria-pressed="' + (st.status === t[0]) + '">' +
-        esc(t[1]) + '<span class="count">' + t[2] + '</span></button>';
+      var n = st.items.filter(function (it) { return inTab(it, t[0]); }).length;
+      return '<button type="button" data-ui data-tab="' + esc(t[0]) + '" aria-pressed="' + (st.tab === t[0]) + '">' +
+        esc(t[1]) + '<span class="count">' + n + '</span></button>';
     }).join('');
   }
 
-  /* ---- table ---- */
-  function actionsFor(row) {
-    var id = row[5], status = row[3], name = row[0], out = [];
-    var label = { Queued: 'Start', Downloading: 'Restart', Incomplete: 'Restart', Failed: 'Retry', Completed: 'Download again' }[status];
-    if (status === 'Incomplete') out.push('<button type="button" class="btn btn-sm" data-act="resume" data-id="' + esc(id) + '">Resume</button>');
+  /* ---- rows ---- */
+  function actionsFor(it) {
+    if (it.kind !== 'ddl') return '';
+    var id = it.queueid, out = [];
+    var label = { Queued: 'Start', Downloading: 'Restart', Incomplete: 'Restart', Failed: 'Retry', Completed: 'Download again' }[it.status];
+    if (it.status === 'Incomplete' || it.status === 'Downloading') out.push('<button type="button" class="btn btn-sm" data-act="resume" data-id="' + esc(id) + '">Resume</button>');
     if (label) out.push('<button type="button" class="btn btn-sm" data-act="restart" data-id="' + esc(id) + '">' + label + '</button>');
-    out.push('<button type="button" class="btn btn-sm btn-ghost" data-act="remove" data-id="' + esc(id) + '" data-name="' + esc(name) + '">Remove</button>');
+    if (it.status === 'Downloading') {
+      out.push('<button type="button" class="btn btn-sm btn-danger" data-act="abort" data-id="' + esc(id) + '" data-name="' + esc(it.title) + '" title="Stop the download and mark it Failed">Stop</button>');
+    } else {
+      out.push('<button type="button" class="btn btn-sm btn-ghost" data-act="remove" data-id="' + esc(id) + '" data-name="' + esc(it.title) + '">Remove</button>');
+    }
     return out.join('');
   }
 
-  function renderRows(rows) {
+  function progressCell(it) {
+    if (it.percent == null) {
+      return it.size ? '<span class="muted">' + esc(it.size) + '</span>' : '<span class="muted">-</span>';
+    }
+    var left = it.progress || (it.size ? it.size : '');
+    var right = [it.speed, it.eta].filter(Boolean).join(' · ');
+    return '<div class="progress' + (it.percent >= 100 ? ' is-done' : '') + '" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="' + esc(it.percent) + '">' +
+      '<span style="width: ' + esc(it.percent) + '%"></span></div>' +
+      '<div class="q-meta"><span>' + esc(it.percent) + '%' + (left ? ' · ' + esc(left) : '') + '</span><span>' + esc(right) + '</span></div>';
+  }
+
+  function sourceCell(it) {
+    return '<span class="q-src"><b>' + esc(it.source || '-') + '</b>' + (it.via && it.via !== it.source ? esc(it.via) : '') + '</span>';
+  }
+
+  function renderRows() {
     var tb = $id('q-table').tBodies[0];
+    var q = st.q.toLowerCase();
+    var rows = st.items.filter(function (it) { return inTab(it, st.tab) && (!q || String(it.title || '').toLowerCase().indexOf(q) > -1); });
+    st.total = rows.length;
+    if (st.start >= rows.length) st.start = Math.max(0, Math.floor((rows.length - 1) / st.len) * st.len);
+    renderRange();
     if (!rows.length) {
-      var msg = st.q || st.status ? 'Nothing matches.' : 'No direct downloads yet. Grabs from GetComics and other direct sources show here.';
+      var msg = q ? 'Nothing matches.' : st.tab === 'active' ? 'Nothing is downloading. Grabs from every source show here until they\'re filed.' : 'Nothing here.';
       tb.innerHTML = '<tr><td colspan="6" class="empty-state">' + msg + '</td></tr>';
       return;
     }
-    tb.innerHTML = rows.map(function (r) {
-      var series = r[7] ? '<a href="comicDetails?ComicID=' + encodeURIComponent(r[7]) + '">' + esc(r[0]) + '</a>' : esc(r[0]);
-      var status = r[3] || 'Unknown';
-      var pct = status === 'Downloading' && st.active && String(st.active.a_id) === String(r[5]) ? ' ' + esc(st.active.percent) : '';
-      return '<tr data-row="' + esc(r[5]) + '"><td>' + series + '</td>' +
-        '<td class="num mono nowrap">' + esc(r[1] || '-') + '</td>' +
-        '<td class="nowrap">' + esc(HOSTS[r[8]] || r[8] || '-') + '</td>' +
-        '<td><span class="status ' + (CLASS[status] || 'is-idle') + '">' + esc(status) + pct + '</span></td>' +
-        '<td class="mono muted nowrap">' + esc((r[4] || '').slice(0, 16)) + '</td>' +
-        '<td class="actions">' + actionsFor(r) + '</td></tr>';
+    tb.innerHTML = rows.slice(st.start, st.start + st.len).map(function (it) {
+      var title = it.comicid ? '<a href="comicDetails?ComicID=' + encodeURIComponent(it.comicid) + '">' + esc(it.title) + '</a>' : esc(it.title);
+      var detail = it.message || (it.detail && it.detail !== it.title ? it.detail : '');
+      var status = it.status || 'Unknown';
+      return '<tr data-row="' + esc(it.key) + '"><td class="q-title"><b>' + title + '</b>' + (detail ? '<p>' + esc(detail) + '</p>' : '') + '</td>' +
+        '<td class="q-prog">' + progressCell(it) + '</td>' +
+        '<td>' + sourceCell(it) + '</td>' +
+        '<td><span class="status ' + (CLASS[status] || 'is-idle') + '"' + (HELP[status] ? ' title="' + esc(HELP[status]) + '"' : '') + '>' + esc(LABEL[status] || status) + '</span></td>' +
+        '<td class="mono muted nowrap">' + esc((it.updated || '').slice(0, 16)) + '</td>' +
+        '<td class="actions">' + actionsFor(it) + '</td></tr>';
     }).join('');
   }
 
   function renderRange() {
     var from = st.total ? st.start + 1 : 0;
     var to = Math.min(st.start + st.len, st.total);
-    $id('q-range').textContent = st.total ? 'Showing ' + from + '–' + to + ' of ' + st.total : '';
+    $id('q-range').textContent = st.total > st.len ? 'Showing ' + from + '–' + to + ' of ' + st.total : '';
     $id('q-prev').disabled = st.start === 0;
     $id('q-next').disabled = st.start + st.len >= st.total;
   }
 
-  function loadTable() {
-    var p = new URLSearchParams({ iDisplayStart: st.start, iDisplayLength: st.len, iSortCol_0: '5', sSortDir_0: 'desc', sSearch: st.q });
-    if (st.status) p.set('status', st.status);
-    fetch('queueManageIt?' + p.toString(), { credentials: 'same-origin', cache: 'no-store' })
-      .then(function (r) { if (!r.ok) throw new Error(r.status); return r.json(); })
-      .then(function (d) { st.total = d.iTotalDisplayRecords || 0; renderRows(d.aaData || []); renderRange(); })
-      .catch(function () {
-        $id('q-table').tBodies[0].innerHTML = '<tr><td colspan="6" class="empty-state">Couldn\'t load the queue. Check the log.</td></tr>';
-      });
+  function renderStalled() {
+    var queued = st.items.filter(function (it) { return it.kind === 'ddl' && it.status === 'Queued'; }).length;
+    var busy = st.items.some(function (it) { return it.kind === 'ddl' && it.status === 'Downloading'; });
+    var stalled = queued && !st.waiting && !busy;
+    $id('q-stalled').hidden = !stalled;
+    if (stalled) $id('q-stalled-text').textContent = queued + ' queued and nothing downloading.';
   }
 
-  /* ---- usenet and torrent grabs ---- */
-  function loadClients() {
-    fetch('queueClients', { credentials: 'same-origin', cache: 'no-store' })
-      .then(function (r) { if (!r.ok) throw new Error(r.status); return r.json(); })
-      .then(function (d) { renderClients(d.items || []); })
-      .catch(function () {
-        var body = $id('q-clients-body');
-        body.className = 'muted';
-        body.textContent = 'Couldn\'t check what\'s at your download client. Check the log.';
-      });
-  }
-
-  function renderClients(items) {
-    var body = $id('q-clients-body');
-    $id('q-clients-count').textContent = items.length ? items.length + ' waiting' : '';
-    if (!items.length) {
-      body.className = 'muted';
-      body.textContent = 'Nothing is waiting at SABnzbd, NZBGet or your torrent client.';
-      return;
-    }
-    body.className = 'dt-wrap';
-    body.innerHTML = '<table class="dt"><thead><tr><th scope="col">Issue</th><th scope="col">From</th><th scope="col">Sent</th>' +
-      '<th scope="col">Status</th></tr></thead><tbody>' + items.map(function (it) {
-        var name = esc(it.series || '') + (it.issue ? ' ' + esc(/^\d/.test(it.issue) ? '#' + it.issue : it.issue) : '');
-        var cell = it.comicid && String(it.issueid).indexOf('_') === -1
-          ? '<a href="comicDetails?ComicID=' + encodeURIComponent(it.comicid) + '">' + name + '</a>' : name;
-        return '<tr><td>' + cell + '</td><td class="nowrap">' + esc(it.provider || '-') + '</td>' +
-          '<td class="mono muted nowrap">' + esc((it.sent || '').slice(0, 16)) + '</td>' +
-          '<td><span class="status is-snatched" title="Sent to the download client. It moves to History once it\'s been processed.">Waiting on client</span></td></tr>';
-      }).join('') + '</tbody></table>';
-  }
-
-  /* ---- active download ---- */
-  function renderActive(d) {
-    var body = $id('q-active-body');
-    var id = d.a_id;
-    if (d.status === 'Downloading') {
-      var detail = [d.a_progress || d.a_size, d.a_speed, d.a_eta].filter(Boolean).map(esc).join(' · ');
-      body.className = '';
-      body.innerHTML =
-        '<div style="display: flex; flex-direction: column; gap: 8px">' +
-        '<div class="btn-row" style="justify-content: space-between"><b>' + esc(d.a_series || '') + (d.a_year ? ' (' + esc(d.a_year) + ')' : '') + '</b>' +
-        '<span class="mono">' + esc(d.percent) + '</span></div>' +
-        '<div class="progress"><span style="width: ' + esc(d.percent) + '"></span></div>' +
-        '<div class="btn-row" style="justify-content: space-between"><span class="mono muted" style="overflow-wrap: anywhere">' + esc(d.a_filename || '') + '</span>' +
-        '<span class="muted">' + detail + '</span></div>' +
-        '<div class="btn-row"><button type="button" class="btn btn-sm" data-act="resume" data-id="' + esc(id) + '">Resume</button>' +
-        '<button type="button" class="btn btn-sm" data-act="restart" data-id="' + esc(id) + '" title="Try this download again">Retry</button>' +
-        '<button type="button" class="btn btn-sm btn-danger" data-act="abort" data-id="' + esc(id) + '" data-name="' + esc(d.a_series || 'this download') + '" title="Stop the download and mark it Failed">Stop</button></div></div>';
-    } else if (id != null) {
-      body.className = '';
-      body.innerHTML = '<p style="margin: 0 0 10px">' + esc(String(d.status || '').replace(/<\/?br\s*\/?>/gi, ' ')) + '</p>' +
-        '<div class="btn-row"><button type="button" class="btn btn-sm" data-act="restart" data-id="' + esc(id) + '" title="Try this download again">Retry</button>' +
-        '<button type="button" class="btn btn-sm btn-danger" data-act="abort" data-id="' + esc(id) + '" data-name="this download" title="Stop the download and mark it Failed">Stop</button></div>';
-    } else {
-      body.className = 'muted';
-      body.textContent = 'Nothing is downloading right now.';
-    }
-  }
-
-  function pollActive(force) {
-    if (document.hidden && force !== true) return;
-    fetch('check_ActiveDDL', { credentials: 'same-origin', cache: 'no-store' })
+  /* ---- loading ---- */
+  var loading = false;
+  function load(force) {
+    if ((document.hidden && force !== true) || loading) return;
+    loading = true;
+    fetch('downloadQueue', { credentials: 'same-origin', cache: 'no-store' })
       .then(function (r) { if (!r.ok) throw new Error(r.status); return r.json(); })
       .then(function (d) {
-        st.active = d.status === 'Downloading' ? d : null;
-        st.counts = d.counts || {};
+        st.items = d.items || [];
+        st.waiting = d.waiting || 0;
+        st.loaded = true;
         renderTabs();
-        renderActive(d);
-        var queued = st.counts.Queued || 0;
-        var stalled = queued && !d.waiting && d.status !== 'Downloading';
-        $id('q-stalled').hidden = !stalled;
-        if (stalled) $id('q-stalled-text').textContent = queued + ' queued and nothing downloading.';
-        var key = JSON.stringify(st.counts) + '|' + d.a_id;
-        if (key !== st.key) { st.key = key; loadTable(); }
-        else if (st.active) {
-          var cell = document.querySelector('#q-table tr[data-row="' + CSS.escape(String(st.active.a_id)) + '"] .status');
-          if (cell) cell.textContent = 'Downloading ' + st.active.percent;
-        }
+        renderRows();
+        renderStalled();
       })
-      .catch(function () {});
+      .catch(function () {
+        if (!st.loaded) $id('q-table').tBodies[0].innerHTML = '<tr><td colspan="6" class="empty-state">Couldn\'t load the queue. Check the log.</td></tr>';
+      })
+      .then(function () { loading = false; });
   }
 
   function pixeldrain() {
@@ -180,7 +153,7 @@
         if (!r || !r.ok || !r.limit) return;
         var gb = function (n) { return (n / 1e9).toFixed(n < 1e10 ? 1 : 0); };
         var el = $id('q-pixeldrain');
-        el.textContent = 'Pixeldrain: ' + gb(r.used) + ' of ' + gb(r.limit) + ' GB used in the last day' + (r.user ? ' (' + r.user + ')' : '');
+        el.textContent = 'Pixeldrain: ' + gb(r.used) + ' of ' + gb(r.limit) + ' GB used in the last day' + (r.user ? ' (' + r.user + ')' : '') + '.';
         el.hidden = false;
       })
       .catch(function () {});
@@ -188,8 +161,8 @@
 
   /* ---- events ---- */
   document.addEventListener('click', function (e) {
-    var tab = e.target.closest('#q-tabs [data-status]');
-    if (tab) { st.status = tab.getAttribute('data-status'); st.start = 0; renderTabs(); loadTable(); return; }
+    var tab = e.target.closest('#q-tabs [data-tab]');
+    if (tab) { st.tab = tab.getAttribute('data-tab'); st.start = 0; renderTabs(); renderRows(); return; }
     var b = e.target.closest('#main [data-act]');
     if (!b) return;
     var act = b.getAttribute('data-act'), id = b.getAttribute('data-id'), name = b.getAttribute('data-name');
@@ -200,25 +173,23 @@
   $id('q-restart-queue').addEventListener('click', function () { requeue('restart_queue'); });
   document.addEventListener('click', function (e) { if (e.target.closest('[data-queue-restart]')) requeue('restart_queue'); });
   $id('q-clear-queue').addEventListener('click', function () {
-    requeue('clear_queue', null, 'Remove every queued download? Anything downloading now, and finished downloads, stay.');
+    requeue('clear_queue', null, 'Remove every queued direct download? Anything downloading now, finished downloads and grabs at your download client stay.');
   });
-  $id('q-prev').addEventListener('click', function () { st.start = Math.max(0, st.start - st.len); loadTable(); });
-  $id('q-next').addEventListener('click', function () { st.start += st.len; loadTable(); });
+  $id('q-prev').addEventListener('click', function () { st.start = Math.max(0, st.start - st.len); renderRows(); });
+  $id('q-next').addEventListener('click', function () { st.start += st.len; renderRows(); });
   var searchTimer = null;
   $id('q-search').addEventListener('input', function (e) {
     clearTimeout(searchTimer);
-    searchTimer = setTimeout(function () { st.q = e.target.value.trim(); st.start = 0; loadTable(); }, 250);
+    searchTimer = setTimeout(function () { st.q = e.target.value.trim(); st.start = 0; renderRows(); }, 200);
   });
 
   function start() {
     renderTabs();
-    pollActive(true);
-    loadClients();
+    load(true);
     pixeldrain();
-    setInterval(pollActive, 5000);
-    setInterval(function () { if (!document.hidden) loadClients(); }, 15000);
-    document.addEventListener('visibilitychange', function () { if (!document.hidden) { pollActive(true); loadClients(); } });
-    document.addEventListener('issuarr:refresh', function () { pollActive(true); loadTable(); loadClients(); });
+    setInterval(load, 5000);
+    document.addEventListener('visibilitychange', function () { if (!document.hidden) load(true); });
+    document.addEventListener('issuarr:refresh', function () { load(true); });
   }
   if (window.jQuery) window.jQuery(start); else document.addEventListener('DOMContentLoaded', start);
 })();

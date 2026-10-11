@@ -19,6 +19,7 @@ from mylar import (
     logger,
     db,
     updater,
+    downloadqueue,
     helpers,
     findcomicfeed,
     notifiers,
@@ -3411,6 +3412,7 @@ def searcher(
             """
             t_hash = rcheck['hash']
             rcheck.update({'torrent_filename': nzbname})
+            downloadqueue.record_job(IssueID, IssueArcID, ComicID, rcheck.get('clientmode'), t_hash, nzbname)
 
             if any([mylar.USE_RTORRENT, mylar.USE_DELUGE]) and mylar.CONFIG.AUTO_SNATCH:
                 mylar.SNATCHED_QUEUE.put(
@@ -3523,6 +3525,7 @@ def searcher(
 
             if send_to_nzbget['status'] is True:
                 logger.info("Successfully sent nzb to NZBGet!")
+                downloadqueue.record_job(IssueID, IssueArcID, ComicID, 'nzbget', send_to_nzbget.get('NZBID'), nzbname)
             else:
                 logger.info("Unable to send nzb to NZBGet - check your configs.")
                 return "nzbget-fail"
@@ -3600,6 +3603,7 @@ def searcher(
                     return 'sab-fail'
 
             sent_to = 'has sent it to your SABnzbd+'
+            downloadqueue.record_job(IssueID, IssueArcID, ComicID, 'sabnzbd', sendtosab.get('nzo_id'), nzbname)
             logger.info('Successfully sent nzb file to SABnzbd')
 
         if mylar.CONFIG.ENABLE_SNATCH_SCRIPT:

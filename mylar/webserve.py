@@ -66,6 +66,7 @@ from mylar import (
     importer,
     importstatus,
     ddlsources,
+    downloadqueue,
     ledger,
     librarysync,
     logger,
@@ -205,126 +206,6 @@ def _human_bytes(n):
         if n < 1024 or unit == 'GB':
             return ('%.0f %s' if unit in ('B', 'KB') else '%.1f %s') % (n, unit)
         n /= 1024.0
-
-
-def ddl_queue_rows(myDB):
-    """Every row of the direct-download queue, named from the library where possible.
-
-    Starts from ddl_info so nothing is dropped: annuals, story-arc issues, packs and
-    one-offs used to vanish because the old query needed a matching row in issues.
-    """
-    def lookup(sql, ids):
-        out = {}
-        ids = [i for i in ids if i is not None]
-        for n in range(0, len(ids), 500):
-            chunk = ids[n:n + 500]
-            try:
-                for r in myDB.select(sql % ','.join('?' * len(chunk)), chunk):
-                    out.setdefault(str(r['id']), r)
-            except Exception:
-                pass
-        return out
-
-    rows = myDB.select("SELECT id, series, year, size, status, issueid, comicid, updated_date, issues, pack, link_type FROM ddl_info")
-    issueids = list({str(r['issueid']) for r in rows if r['issueid'] is not None})
-    comicids = list({str(r['comicid']) for r in rows if r['comicid'] is not None})
-    comics = lookup("SELECT ComicID AS id, ComicName, ComicVersion, ComicYear FROM comics WHERE ComicID IN (%s)", comicids)
-    issues = lookup("SELECT IssueID AS id, ComicID, Issue_Number FROM issues WHERE IssueID IN (%s)", issueids)
-    annuals = lookup("SELECT IssueID AS id, ComicID, Issue_Number FROM annuals WHERE IssueID IN (%s)", issueids)
-    oneoffs = lookup("SELECT IssueID AS id, ComicID, ComicName, IssueNumber AS Issue_Number FROM oneoffhistory WHERE IssueID IN (%s)", issueids)
-
-    resultlist = []
-    for r in rows:
-        iid = None if r['issueid'] is None else str(r['issueid'])
-        iss = issues.get(iid) or annuals.get(iid)
-        oneoff = oneoffs.get(iid) if iss is None else None
-        comicid = r['comicid'] or (iss['ComicID'] if iss else None) or (oneoff['ComicID'] if oneoff else None)
-        comic = comics.get(str(comicid)) if comicid is not None else None
-        name = comic['ComicName'] if comic else (oneoff['ComicName'] if oneoff else None)
-        volume = comic['ComicVersion'] if comic else None
-
-        if r['issues'] is not None:
-            issue = '#%s' % r['issues']
-            year = r['year']
-        else:
-            number = iss['Issue_Number'] if iss else (oneoff['Issue_Number'] if oneoff else None)
-            issue = '#%s' % number if number is not None else None
-            year = (comic['ComicYear'] if comic else None) or r['year']
-
-        filename = r['series'] or ''
-        if r['pack'] or name is None:
-            if year is not None and str(year) not in filename:
-                series = '%s (%s)' % (filename, year)
-            else:
-                series = filename
-            if name is None and not r['pack'] and issue is not None and issue not in series:
-                series = '%s %s' % (series, issue)
-        else:
-            parts = [name] + ([volume] if volume else []) + ([issue] if issue else [])
-            series = '%s (%s)' % (' '.join(parts), year) if year else ' '.join(parts)
-
-        resultlist.append({'series':       series,
-                           'issue':        issue,
-                           'queueid':      r['id'],
-                           'linktype':     r['link_type'],
-                           'volume':       volume,
-                           'year':         year,
-                           'size':         (r['size'] or '').strip(),
-                           'comicid':      comicid if comic else None,
-                           'issueid':      r['issueid'],
-                           'status':       r['status'],
-                           'updated_date': r['updated_date'],
-                           'progress':     '100%' if r['status'] == 'Completed' else ''})
-    return resultlist
-
-
-def client_snatches(myDB):
-    """Grabs handed to SABnzbd, NZBGet or a torrent client that haven't been processed yet.
-
-    Direct downloads are left out because the DDL queue already lists them. A grab counts
-    as waiting while its issue (or arc issue, or one-off) is still marked Snatched; that
-    status changes when the file is post-processed, fails, or is reset by hand.
-    """
-    current = {}
-    for table, key in (('issues', 'IssueID'), ('annuals', 'IssueID'), ('storyarcs', 'IssueArcID'), ('oneoffhistory', 'IssueID')):
-        try:
-            for r in myDB.select('SELECT %s AS id, Status FROM %s WHERE Status IS NOT NULL' % (key, table)):
-                if r['id'] is not None:
-                    current.setdefault(str(r['id']), set()).add(r['Status'])
-        except Exception:
-            continue
-
-    rows = myDB.select("SELECT IssueID, ComicID, ComicName, Issue_Number, Provider, DateAdded, Status FROM snatched "
-                       "WHERE Status IN ('Snatched', 'Downloaded', 'Post-Processed') ORDER BY DateAdded DESC")
-    done = {}
-    for r in rows:
-        if r['Status'] != 'Snatched':
-            prev = done.get(r['IssueID'])
-            done[r['IssueID']] = max(prev, r['DateAdded'] or '') if prev else (r['DateAdded'] or '')
-
-    out = []
-    seen = set()
-    for r in rows:
-        iid = r['IssueID']
-        if r['Status'] != 'Snatched' or iid is None or iid in seen:
-            continue
-        provider = r['Provider'] or ''
-        if provider.upper().startswith('DDL'):
-            continue
-        statuses = current.get(str(iid))
-        if statuses is not None:
-            if 'Snatched' not in statuses:
-                continue
-        elif done.get(iid, '') >= (r['DateAdded'] or ''):
-            continue
-        seen.add(iid)
-        out.append({'issueid': iid,
-                    'comicid': r['ComicID'],
-                    'series': r['ComicName'],
-                    'issue': r['Issue_Number'],
-                    'provider': provider or None,
-                    'sent': r['DateAdded']})
-    return out
 
 
 def _download_rate(did, done, total):
@@ -4143,7 +4024,7 @@ class WebInterface(object):
         filtered = []
 
         myDB = db.DBConnection()
-        resultlist = ddl_queue_rows(myDB)
+        resultlist = downloadqueue.ddl_queue_rows(myDB)
 
         if isinstance(resultlist, str):
             resultlist = []
@@ -4181,11 +4062,16 @@ class WebInterface(object):
 
     queueManageIt.exposed = True
 
-    def queueClients(self):
-        # Usenet and torrent grabs still waiting at the download client.
+    def downloadQueue(self):
+        # Everything on its way: direct downloads plus grabs at SABnzbd, NZBGet or a torrent client.
+        active = json.loads(self._active_ddl())
+        if active.get('status') == 'Downloading' and active.get('a_total'):
+            active.update(_download_rate(active['a_id'], active['a_done'], active['a_total']))
+        elif active.get('status') != 'Downloading':
+            active = None
         myDB = db.DBConnection()
-        return json.dumps({'items': client_snatches(myDB)})
-    queueClients.exposed = True
+        return json.dumps({'items': downloadqueue.build(myDB, active), 'waiting': mylar.DDL_QUEUE.qsize()})
+    downloadQueue.exposed = True
 
     def previewRename(self, **args): #comicid=None, comicidlist=None):
         file_format = mylar.CONFIG.FILE_FORMAT

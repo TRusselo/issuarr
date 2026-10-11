@@ -133,7 +133,7 @@ The menus moved to a sidebar on the left. Press **Ctrl K** on any page to jump t
 | Export wanted / downloaded lists | **Tools > Export** |
 | History | **Downloads > History** |
 | Manage Failed | **Downloads > Failed** |
-| DDL queue | **Downloads > Queue** |
+| DDL queue | **Downloads > Queue**, which now also lists Usenet and torrent downloads with their progress |
 | Activity / Jobs | **Tasks > Jobs** |
 | Logs | **Tasks > Logs** |
 | Settings (gear icon) | **Settings**, split into General, Appearance, Download clients, Search providers, Files & post-processing, and Notifications & advanced |

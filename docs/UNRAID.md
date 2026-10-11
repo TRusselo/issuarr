@@ -6,8 +6,6 @@ There are two ways to install it. Both use the same template and give you the sa
 
 ## Option 1: Community Applications
 
-Issuarr has been submitted to Community Applications and is waiting for review. Until it is listed, use option 2.
-
 1. Open the **Apps** tab and search for **Issuarr**.
 2. Click **Install**.
 3. Fill in the paths (see below) and click **Apply**.

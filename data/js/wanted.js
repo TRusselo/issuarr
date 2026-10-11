@@ -194,6 +194,13 @@
       .then(function (r) { if (!r.ok) throw new Error(r.status); I().toast('Searching every Tier 1 issue. Anything found shows up in Downloads.'); })
       .catch(function () { I().toast('That didn\'t work. Check the log.', false); });
   });
+  $id('w-search-all').addEventListener('click', function () {
+    var n = st.rows.length;
+    if (n && !window.confirm('Search all ' + plural(n) + '? Providers are searched one page at a time, so a long list can take hours.')) return;
+    fetch('forceSearch?tiers=all', { credentials: 'same-origin' })
+      .then(function (r) { if (!r.ok) throw new Error(r.status); I().toast('Searching every Wanted issue, Tier 2 included. Anything found shows up in Downloads.'); })
+      .catch(function () { I().toast('That didn\'t work. Check the log.', false); });
+  });
   $id('w-export').addEventListener('click', function () {
     fetch('wanted_Export?mode=Wanted', { credentials: 'same-origin' })
       .then(function (r) { if (!r.ok) throw new Error(r.status); I().toast('Saved Wanted_list.csv in the data folder.'); })

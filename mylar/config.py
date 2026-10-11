@@ -391,6 +391,7 @@ _CONFIG_DEFINITIONS = OrderedDict({
     'DDL_QUERY_DELAY': (int, 'DDL', 15),
     'DDL_LOCATION': (str, 'DDL', None),
     'DDL_AUTORESUME': (bool, 'DDL', True),
+    'DDL_MAX_PARALLEL': (int, 'DDL', 3),
     'DDL_PREFER_UPSCALED': (bool, 'DDL', True),
     'DDL_PRIORITY_ORDER': (str, 'DDL', []),
     'ENABLE_FLARESOLVERR': (bool, 'DDL', False),

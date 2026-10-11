@@ -1330,7 +1330,7 @@ class GC(object):
             mylar.DDL_LOCK = True
 
         myDB = db.DBConnection()
-        mylar.DDL_QUEUED.append(id)
+        mylar.DDL_QUEUED.add(id)
         filename = None
         self.cookie_receipt()
         self.apply_file_clearance()

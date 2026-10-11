@@ -1,9 +1,19 @@
-"""DDL queue worker functions."""
+"""DDL queue worker functions.
 
+A dispatcher thread (DDL-QUEUE) takes every item off mylar.DDL_QUEUE. GetComics' own
+server links go to one GetComics worker (DDL-GETCOMICS), so GetComics only ever serves
+one download at a time. File-host links (Mega, MediaFire, Pixeldrain, the external
+server) each get a thread of their own (DDL-HOST-<id>), as many at once as
+CONFIG.DDL_MAX_PARALLEL allows. The setting is read whenever a download is about to
+start, so a change applies to the next one; 0 sends everything to the GetComics worker.
+"""
+
+import collections
 import datetime
 import os
 import re
-import time
+import threading
+from queue import Empty, Queue
 
 import mylar
 from .. import logger, helpers
@@ -11,15 +21,47 @@ from mylar import db, getcomics
 from mylar.downloaders import mediafire, mega, pixeldrain
 
 
-ACTIVE = [None]
+GC_LINK_TYPES = (None, 'GC-Main', 'GC-Mirror')
+
+GC_QUEUE = Queue()              # GetComics direct items, one at a time
+PENDING = collections.deque()   # file-host items waiting for a free slot
+ACTIVE = set()                  # ids downloading right now
+RUNNING = [0]                   # file-host downloads running right now
+LOCK = threading.Lock()         # guards PENDING, ACTIVE and RUNNING
+STOP = threading.Event()
+LINK_TYPE_FAILURE = {}          # id -> link types that failed for it
+
+
+def max_parallel():
+    try:
+        return max(0, int(getattr(mylar.CONFIG, 'DDL_MAX_PARALLEL', 3)))
+    except (TypeError, ValueError):
+        return 3
+
+
+def is_getcomics(item):
+    return item.get('site', 'DDL(GetComics)') == 'DDL(GetComics)' and item.get('link_type') in GC_LINK_TYPES
+
+
+def _ids(q):
+    with q.mutex:
+        entries = list(q.queue)
+    return {str(e.get('item', e).get('id')) for e in entries if isinstance(e, dict)}
 
 
 def waiting_ids():
-    with mylar.DDL_QUEUE.mutex:
-        ids = {str(i.get('id')) for i in list(mylar.DDL_QUEUE.queue) if isinstance(i, dict)}
-    if ACTIVE[0] is not None:
-        ids.add(str(ACTIVE[0]))
+    ids = _ids(mylar.DDL_QUEUE) | _ids(GC_QUEUE)
+    with LOCK:
+        ids |= {str(i.get('id')) for i in PENDING}
+        ids |= ACTIVE
     return ids
+
+
+def waiting_count():
+    """Items queued but not downloading yet, across every DDL queue."""
+    with LOCK:
+        pending = len(PENDING)
+    return mylar.DDL_QUEUE.qsize() + GC_QUEUE.qsize() + pending
 
 
 def reload_saved(myDB):
@@ -34,39 +76,98 @@ def reload_saved(myDB):
         logger.warn('[DDL-QUEUE] Unable to reload the saved queue: %s' % e)
 
 
+def _start(target, name, *args):
+    thread = threading.Thread(target=target, args=args, name=name, daemon=True)
+    thread.start()
+    return thread
+
+
 def ddl_downloader(queue):
-    myDB = db.DBConnection()
-    link_type_failure = {}
-    reload_saved(myDB)
+    STOP.clear()
+    workers = [_start(gc_worker, 'DDL-GETCOMICS')]
+    reload_saved(db.DBConnection())
     while True:
-        if mylar.DDL_LOCK is True:
-            time.sleep(5)
+        try:
+            item = queue.get(timeout=1)
+        except Empty:
+            item = None
 
-        elif mylar.DDL_LOCK is False and queue.qsize() >= 1:
-            item = queue.get(True)
+        if item == 'exit':
+            logger.info('Cleaning up workers for shutdown')
+            STOP.set()
+            GC_QUEUE.put('exit')
+            for worker in workers:
+                worker.join(5)
+            break
 
-            if item == 'exit':
-                logger.info('Cleaning up workers for shutdown')
-                break
+        if item is not None:
+            route(item)
+        start_waiting()
 
-            ACTIVE[0] = item.get('id')
-            try:
-                ddl_process(myDB, item, link_type_failure)
-            except Exception as e:
-                logger.exception('[DDL-QUEUE] Error while handling %s: %s' % (item.get('series'), e))
-                try:
-                    ddl_give_up(myDB, item, {'id': item['id']}, link_type_failure)
-                except Exception as e2:
-                    logger.warn('[DDL-QUEUE] Unable to mark %s as failed: %s' % (item.get('series'), e2))
-            finally:
-                ACTIVE[0] = None
+
+def route(item):
+    if is_getcomics(item) or max_parallel() == 0:
+        GC_QUEUE.put(item)
+    else:
+        with LOCK:
+            PENDING.append(item)
+
+
+def start_waiting():
+    """Start waiting file-host downloads while the setting allows more."""
+    limit = max_parallel()
+    moved, starting = [], []
+    with LOCK:
+        if limit == 0:
+            moved = list(PENDING)
+            PENDING.clear()
         else:
-            time.sleep(5)
+            while PENDING and RUNNING[0] < limit and not STOP.is_set():
+                RUNNING[0] += 1
+                starting.append(PENDING.popleft())
+    for item in moved:
+        GC_QUEUE.put(item)
+    for item in starting:
+        _start(host_download, 'DDL-HOST-%s' % item.get('id'), item)
 
 
-def ddl_process(myDB, item, link_type_failure):
-    if item['id'] not in mylar.DDL_QUEUED:
-        mylar.DDL_QUEUED.append(item['id'])
+def gc_worker():
+    while True:
+        item = GC_QUEUE.get()
+        if item == 'exit':
+            break
+        run_download(item)
+
+
+def host_download(item):
+    try:
+        run_download(item)
+    finally:
+        with LOCK:
+            RUNNING[0] -= 1
+
+
+def run_download(item):
+    key = str(item.get('id'))
+    with LOCK:
+        ACTIVE.add(key)
+    try:
+        ddl_process(db.DBConnection(), item)
+    except Exception as e:
+        logger.exception('[DDL-QUEUE] Error while handling %s: %s' % (item.get('series'), e))
+        try:
+            ddl_give_up(db.DBConnection(), item, {'id': item['id']}, LINK_TYPE_FAILURE)
+        except Exception as e2:
+            logger.warn('[DDL-QUEUE] Unable to mark %s as failed: %s' % (item.get('series'), e2))
+    finally:
+        with LOCK:
+            ACTIVE.discard(key)
+
+
+def ddl_process(myDB, item, link_type_failure=None):
+    if link_type_failure is None:
+        link_type_failure = LINK_TYPE_FAILURE
+    mylar.DDL_QUEUED.add(item['id'])
 
     try:
         link_type_failure[item['id']].append(item['link_type_failure'])
@@ -152,7 +253,7 @@ def ddl_process(myDB, item, link_type_failure):
         except Exception as e:
             logger.error('process error: %s [%s]' %(e, ddzstat))
 
-        mylar.DDL_QUEUED.remove(item['id'])
+        mylar.DDL_QUEUED.discard(item['id'])
         try:
             link_type_failure.pop(item['id'])
         except KeyError:
@@ -165,7 +266,7 @@ def ddl_process(myDB, item, link_type_failure):
                 for x,y in dict(mylar.PACK_ISSUEIDS_DONT_QUEUE).items():
                     if y == item['id']:
                         pck_cnt +=1
-                        del mylar.PACK_ISSUEIDS_DONT_QUEUE[x]
+                        mylar.PACK_ISSUEIDS_DONT_QUEUE.pop(x, None)
                 logger.fdebug('Successfully removed %s issueids from pack queue list as download is completed.' % pck_cnt)
         except Exception:
             pass
@@ -214,9 +315,8 @@ def ddl_cancelled(item, ddzstat=None):
     helpers.reverse_the_pack_snatch(item['id'], item['comicid'])
     for x, y in dict(mylar.PACK_ISSUEIDS_DONT_QUEUE).items():
         if y == item['id']:
-            del mylar.PACK_ISSUEIDS_DONT_QUEUE[x]
-    if item['id'] in mylar.DDL_QUEUED:
-        mylar.DDL_QUEUED.remove(item['id'])
+            mylar.PACK_ISSUEIDS_DONT_QUEUE.pop(x, None)
+    mylar.DDL_QUEUED.discard(item['id'])
     ddl_cleanup(item['id'])
     return True
 
@@ -236,8 +336,7 @@ def ddl_give_up(myDB, item, ctrlval, link_type_failure):
             mylar.search.FailedMark(item['issueid'], item['comicid'], item['id'], item['series'], item['site'], retry=True)
         except Exception as e:
             logger.warn('[REDO] Unable to mark issueid %s as Failed: %s' % (item['issueid'], e))
-    if item['id'] in mylar.DDL_QUEUED:
-        mylar.DDL_QUEUED.remove(item['id'])
+    mylar.DDL_QUEUED.discard(item['id'])
     link_type_failure.pop(item['id'], None)
     ddl_cleanup(item['id'])
 

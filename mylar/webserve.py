@@ -7374,6 +7374,7 @@ class WebInterface(object):
                     "ddl_prefer_upscaled": helpers.checked(mylar.CONFIG.DDL_PREFER_UPSCALED),
                     "ddl_main_large_last": helpers.checked(mylar.CONFIG.DDL_MAIN_LARGE_LAST),
                     "ddl_main_large_mb": mylar.CONFIG.DDL_MAIN_LARGE_MB,
+                    "ddl_max_parallel": mylar.CONFIG.DDL_MAX_PARALLEL,
                     "ddl_location": '' if not mylar.CONFIG.DDL_LOCATION or mylar.CONFIG.DDL_LOCATION == mylar.CONFIG.CACHE_DIR else mylar.CONFIG.DDL_LOCATION,
                     "ddl_location_default": mylar.CONFIG.CACHE_DIR,
                     "enable_flaresolverr": helpers.checked(mylar.CONFIG.ENABLE_FLARESOLVERR),
@@ -9376,12 +9377,8 @@ class WebInterface(object):
 
     def _active_ddl(self):
          myDB = db.DBConnection()
-         from mylar.queues.ddl import ACTIVE
-         active = None
-         if ACTIVE[0] is not None:
-             active = myDB.selectone("SELECT * FROM DDL_INFO WHERE ID = ? AND STATUS = 'Downloading'", [ACTIVE[0]]).fetchone()
-         if active is None:
-             active = myDB.selectone("SELECT * FROM DDL_INFO WHERE STATUS = 'Downloading'").fetchone()
+         # several downloads can run at once - report the one that started last
+         active = myDB.selectone("SELECT * FROM DDL_INFO WHERE STATUS = 'Downloading' ORDER BY updated_date DESC").fetchone()
          if active is None:
              return json.dumps({'status':   'There are no active downloads currently being attended to',
                                 'percent':   0,

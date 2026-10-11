@@ -3897,7 +3897,8 @@ class WebInterface(object):
                              'id': x['id']})
 
         from mylar.queues.ddl import waiting_ids
-        waiting = waiting_ids()
+        from mylar.queues.jd2 import at_jd2
+        waiting = waiting_ids() | at_jd2()  # JD2 too, or a second Restart queues it twice
         added, already = 0, 0
         if itemlist is not None:
             for item in itemlist:

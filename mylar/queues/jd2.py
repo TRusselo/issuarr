@@ -10,6 +10,18 @@ from mylar import db
 from . import ddl
 from mylar.downloaders.jdownloader2 import JDownloader2
 
+# The record id of the item the monitor is working on. It's out of the queue while the monitor
+# checks it and sleeps before putting it back, but it's still at JD2.
+HOLDING = [None]
+
+
+def at_jd2():
+    """Record ids handed to JD2: waiting in its queue, or being checked by the monitor."""
+    ids = ddl._ids(mylar.JD2_QUEUE)
+    if HOLDING[0] is not None:
+        ids.add(HOLDING[0])
+    return ids
+
 
 def jd2_queue_monitor(queue):
     jd2_client = JDownloader2()
@@ -17,6 +29,7 @@ def jd2_queue_monitor(queue):
     while True:
         if queue.qsize() >= 1:
             item = queue.get(True)
+            HOLDING[0] = str(item.get('id') or item.get('ID')) if isinstance(item, dict) else None
             if item == 'exit':
                 logger.info('[JD2-QUEUE] Cleaning up workers for shutdown')
                 break
@@ -206,6 +219,7 @@ def jd2_queue_monitor(queue):
                 logger.warn('[JD2-QUEUE] Missing JD2 client or job id for item: %s', item)
                 jd2_give_up(myDB, item, record_id, 'no JD2 job id to monitor')
         else:
+            HOLDING[0] = None
             time.sleep(10)
 
 
@@ -216,6 +230,20 @@ def jd2_give_up(myDB, item, record_id, reason):
     """JD2 couldn't finish the download. The DDL failover worker tries Issuarr's own downloaders
     for the same post, file hosts first for big files, and never JD2 again. Only when direct
     downloads are off, or the post can't be read again, is the issue marked Failed here."""
+    job_id = item.get('jd2_job_id')
+    if job_id:
+        try:
+            row = myDB.selectone('SELECT jd2_job_id FROM ddl_info WHERE id=?', [record_id]).fetchone()
+        except Exception as err:
+            logger.warn('[JD2-QUEUE] Unable to check the JD2 job for %s: %s', record_id, err)
+            row = None
+        current = row['jd2_job_id'] if row else None
+        if current and str(current) != str(job_id):
+            # Restart sent the item to JD2 again; the newer job carries on.
+            logger.info('[JD2-QUEUE] Ignoring JD2 job %s for %s: it was replaced by job %s.', job_id, item.get('series') or record_id, current)
+            return
+    if HOLDING[0] == str(record_id):
+        HOLDING[0] = None  # let go of it, or failover would think JD2 still has it
     if not item.get('mainlink') or not getattr(mylar.CONFIG, 'ENABLE_DDL', False):
         jd2_mark_failed(myDB, item, record_id, reason)
         return

@@ -106,3 +106,38 @@ def test_items_waiting_for_failover_count_as_queued(monkeypatch):
     ddl.send_to_failover({'id': 'x'}, {'success': False})
     assert 'x' in ddl.waiting_ids()
     assert ddl.waiting_count() == 1
+
+
+@pytest.mark.unit
+def test_same_link_type_failing_twice_gives_up(failover):
+    # a source that keeps coming back after it failed would reload the GetComics page forever
+    ddl.handle_failure(None, item(link_type='Unknown'), {'success': False})
+    ddl.handle_failure(None, item(link_type='Unknown'), {'success': False})
+    assert len(FakeGC.instances) == 1
+    assert failover == ['54429']
+
+
+@pytest.mark.unit
+def test_cancelled_item_in_failover_is_dropped(failover, monkeypatch):
+    monkeypatch.setattr(mylar, 'DDL_CANCEL', {'54429'}, raising=False)
+    dropped = []
+    monkeypatch.setattr(ddl, 'ddl_cancelled', lambda item, ddzstat=None: dropped.append(item['id']) or True)
+    ddl.handle_failure(None, item(), {'success': False})
+    assert dropped == ['54429']
+    assert FakeGC.instances == []
+
+
+@pytest.mark.unit
+def test_item_in_failover_counts_as_queued_while_handled(failover, monkeypatch):
+    monkeypatch.setattr(mylar, 'DDL_QUEUE', queue.Queue(), raising=False)
+    monkeypatch.setattr(ddl, 'ACTIVE', set())
+    seen = []
+    real = FakeGC.parse_downloadresults
+
+    def parse(self, *a, **k):
+        seen.append('54429' in ddl.waiting_ids())
+        return real(self, *a, **k)
+    monkeypatch.setattr(FakeGC, 'parse_downloadresults', parse)
+    ddl.handle_failure(None, item(), {'success': False})
+    assert seen == [True]
+    assert '54429' not in ddl.ACTIVE

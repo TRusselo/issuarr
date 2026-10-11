@@ -1305,6 +1305,8 @@ class GC(object):
                 src = ddlsources.canonical(site)
                 if not src or not ddlsources.is_enabled(src):
                     continue
+                if getattr(self, 'jd2', None) is None and src not in ddlsources.BUILTIN:
+                    continue  # only JD2 can download from this host
                 if link_type_failure and any(src[:4] in str(t).lower() or (src == 'main' and 'main' in str(t).lower()) for t in link_type_failure):
                     continue
                 entries.append({'series': title, 'site': 'Main Server' if src == 'main' else site, 'year': m.group('year') or '',

@@ -68,6 +68,7 @@ def lanes(monkeypatch):
     monkeypatch.setattr(ddl, 'ACTIVE', set())
     monkeypatch.setattr(ddl, 'RUNNING', [0])
     monkeypatch.setattr(ddl, 'STOP', threading.Event())
+    monkeypatch.setattr(ddl, 'WORKER_POLL', 0.05)
     monkeypatch.setattr(ddl, 'reload_saved', lambda myDB: None)
     monkeypatch.setattr(ddl.db, 'DBConnection', lambda *a, **k: None)
     fake = FakeDownloads()
@@ -241,3 +242,19 @@ def test_exception_goes_to_failover_and_frees_the_slot(lanes):
     assert wait_for(lambda: 'b' in lanes.done)
     assert wait_for(lambda: [f[0]['id'] for f in lanes.failed] == ['a'])
     assert lanes.failed[0][1]['link_type_failure'] == 'GC-Pixel'
+
+
+@pytest.mark.unit
+def test_restarting_the_queue_never_runs_two_getcomics_downloads(lanes):
+    # turning direct downloads off and on again starts a new dispatcher while the old GetComics worker is busy
+    for i in ('a', 'b', 'c'):
+        mylar.DDL_QUEUE.put(gc_item(i))
+    assert wait_for(lambda: 'a' in lanes.started)
+    mylar.DDL_QUEUE.put('exit')
+    assert wait_for(lambda: not lanes.dispatcher.is_alive(), timeout=10)
+    lanes.dispatcher = threading.Thread(target=ddl.ddl_downloader, args=(mylar.DDL_QUEUE,), name='DDL-QUEUE', daemon=True)
+    lanes.dispatcher.start()
+    time.sleep(0.5)
+    lanes.release('a', 'b', 'c')
+    assert wait_for(lambda: sorted(lanes.done) == ['a', 'b', 'c'], timeout=10)
+    assert lanes.peak['gc'] == 1

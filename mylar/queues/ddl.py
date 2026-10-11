@@ -29,6 +29,9 @@ ACTIVE = set()                  # ids downloading right now
 RUNNING = [0]                   # file-host downloads running right now
 LOCK = threading.Lock()         # guards PENDING, ACTIVE and RUNNING
 STOP = threading.Event()
+WORKER_POLL = 1.0               # seconds an idle worker waits before checking whether to stop
+GC_SLOT = threading.Lock()      # held for every GetComics direct download - never two at once,
+FAILOVER_SLOT = threading.Lock()  # even if a restarted queue briefly has two workers
 FAILOVER_QUEUE = Queue()        # failed downloads, and items JD2 gave up on
 FAILOVER = {}                   # str(id) -> {'failed': [link types], 'no_jd2': bool}
 
@@ -85,10 +88,12 @@ def _start(target, name, *args):
 
 def ddl_downloader(queue):
     STOP.clear()
-    # each worker drains the queue it was started with, so a worker that outlives a restart
-    # can't steal items from the queue its replacement uses
+    # each worker drains the queue it was started with and stops on its own flag, so a worker
+    # still busy when the queue is restarted finishes its item and leaves the rest to its replacement
     gc_queue, failover_queue = GC_QUEUE, FAILOVER_QUEUE
-    workers = [_start(gc_worker, 'DDL-GETCOMICS', gc_queue), _start(failover_worker, 'DDL-FAILOVER', failover_queue)]
+    stop = threading.Event()
+    workers = [_start(gc_worker, 'DDL-GETCOMICS', gc_queue, stop),
+               _start(failover_worker, 'DDL-FAILOVER', failover_queue, stop)]
     reload_saved(db.DBConnection())
     while True:
         try:
@@ -99,8 +104,7 @@ def ddl_downloader(queue):
         if item == 'exit':
             logger.info('Cleaning up workers for shutdown')
             STOP.set()
-            gc_queue.put('exit')
-            failover_queue.put('exit')
+            stop.set()
             for worker in workers:
                 worker.join(5)
             break
@@ -136,12 +140,29 @@ def start_waiting():
         _start(host_download, 'DDL-HOST-%s' % item.get('id'), item)
 
 
-def gc_worker(gc_queue):
-    while True:
-        item = gc_queue.get()
+def _next(q, stop):
+    """The next item for a worker, or None once the worker should stop."""
+    while not stop.is_set():
+        try:
+            item = q.get(timeout=WORKER_POLL)
+        except Empty:
+            continue
         if item == 'exit':
+            return None
+        if stop.is_set():
+            q.put(item)  # leave it for the worker that replaced this one
+            return None
+        return item
+    return None
+
+
+def gc_worker(gc_queue, stop):
+    while True:
+        item = _next(gc_queue, stop)
+        if item is None:
             break
-        run_download(item)
+        with GC_SLOT:
+            run_download(item)
 
 
 def host_download(item):
@@ -177,14 +198,15 @@ def forget(record_id):
     FAILOVER.pop(str(record_id), None)
 
 
-def failover_worker(failover_queue):
+def failover_worker(failover_queue, stop):
     while True:
-        entry = failover_queue.get()
-        if entry == 'exit':
+        entry = _next(failover_queue, stop)
+        if entry is None:
             break
         item = entry['item']
         try:
-            handle_failure(db.DBConnection(), item, entry['result'], entry['jd2_gave_up'])
+            with FAILOVER_SLOT:
+                handle_failure(db.DBConnection(), item, entry['result'], entry['jd2_gave_up'])
         except Exception as e:
             logger.exception('[DDL-FAILOVER] Error while looking for another source for %s: %s' % (item.get('series'), e))
             try:
@@ -199,34 +221,49 @@ def handle_failure(myDB, item, result, jd2_gave_up=False):
     Runs on the one failover thread, so GetComics pages are re-read one at a time. Once JD2
     has given up on an item, only Issuarr's own downloaders are tried for it.
     """
-    state = FAILOVER.setdefault(str(item['id']), {'failed': [], 'no_jd2': False})
-    if jd2_gave_up:
-        state['no_jd2'] = True
-        logger.info('[DDL-FAILOVER] JD2 gave up on %s - trying Issuarr\'s own downloaders.' % item.get('series'))
-    else:
-        link_type = item.get('link_type') or result.get('link_type_failure')
-        if link_type and link_type not in state['failed']:
-            state['failed'].append(link_type)
-        logger.info('[DDL-FAILOVER] %s failed from %s - looking for another source.' % (item.get('series'), link_type))
-
-    if item.get('site', 'DDL(GetComics)') != 'DDL(GetComics)':
-        myDB.action('DELETE FROM ddl_info where id=?', [item['id']])
-        mylar.search.FailedMark(item['issueid'], item['comicid'], item['id'], result.get('filename'), item['site'], retry=True)
-        forget(item['id'])
+    if str(item['id']) in mylar.DDL_CANCEL:
+        ddl_cancelled(item)
         return
+    key = str(item['id'])
+    with LOCK:
+        ACTIVE.add(key)  # counts as queued while it's handled, so a Restart can't queue it twice
+    try:
+        state = FAILOVER.setdefault(str(item['id']), {'failed': [], 'no_jd2': False})
+        if jd2_gave_up:
+            state['no_jd2'] = True
+            logger.info('[DDL-FAILOVER] JD2 gave up on %s - trying Issuarr\'s own downloaders.' % item.get('series'))
+        else:
+            link_type = item.get('link_type') or result.get('link_type_failure')
+            if link_type and link_type in state['failed']:
+                # this source was already tried and came back - retrying would loop (and re-read the page) forever
+                logger.info('[DDL-FAILOVER] %s failed from %s again - giving up.' % (item.get('series'), link_type))
+                ddl_give_up(myDB, item)
+                return
+            if link_type:
+                state['failed'].append(link_type)
+            logger.info('[DDL-FAILOVER] %s failed from %s - looking for another source.' % (item.get('series'), link_type))
 
-    if 'links_exhausted' in result or not item.get('mainlink'):
-        ddl_give_up(myDB, item)
-        return
+        if item.get('site', 'DDL(GetComics)') != 'DDL(GetComics)':
+            myDB.action('DELETE FROM ddl_info where id=?', [item['id']])
+            mylar.search.FailedMark(item['issueid'], item['comicid'], item['id'], result.get('filename'), item['site'], retry=True)
+            forget(item['id'])
+            return
 
-    ggc = getcomics.GC(comicid=item.get('comicid'), issueid=item.get('issueid'), oneoff=item.get('oneoff'))
-    if state['no_jd2']:
-        ggc.jd2 = None
-    # parse_downloadresults saves the next link to ddl_info and puts it back on DDL_QUEUE;
-    # when nothing is left it only returns links_exhausted
-    redo = ggc.parse_downloadresults(item['id'], item['mainlink'], item.get('comicinfo'), item.get('packinfo'), state['failed'])
-    if isinstance(redo, dict) and 'links_exhausted' in redo:
-        ddl_give_up(myDB, item)
+        if 'links_exhausted' in result or not item.get('mainlink'):
+            ddl_give_up(myDB, item)
+            return
+
+        ggc = getcomics.GC(comicid=item.get('comicid'), issueid=item.get('issueid'), oneoff=item.get('oneoff'))
+        if state['no_jd2']:
+            ggc.jd2 = None
+        # parse_downloadresults saves the next link to ddl_info and puts it back on DDL_QUEUE;
+        # when nothing is left it only returns links_exhausted
+        redo = ggc.parse_downloadresults(item['id'], item['mainlink'], item.get('comicinfo'), item.get('packinfo'), state['failed'])
+        if isinstance(redo, dict) and 'links_exhausted' in redo:
+            ddl_give_up(myDB, item)
+    finally:
+        with LOCK:
+            ACTIVE.discard(key)
 
 
 def ddl_process(myDB, item):

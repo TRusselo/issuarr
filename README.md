@@ -73,7 +73,7 @@ New issues of the series you follow arrive the same way, week after week.
 ### Integrations
 - **OPDS** catalogue for reading apps on phones and tablets.
 - **Notifications** on snatches and downloads via Discord, Slack, Mattermost, Telegram, Pushover, Pushbullet, Prowl, Boxcar, Gotify or email.
-- **Web API** for scripts and other apps (see [API_REFERENCE](API_REFERENCE)).
+- **Web API** for scripts and other apps (see [docs/API.md](docs/API.md)).
 - Login protection and HTTPS for the web interface.
 
 ## Requirements
@@ -194,7 +194,7 @@ Issuarr marks the missing issues of new series *Wanted* and starts searching. Wa
 - [Moving from Mylar3 to Issuarr](docs/MIGRATING.md): switching an existing install, where pages moved, and changing library paths.
 - [Using JDownloader 2](docs/JDOWNLOADER2.md) for direct-download mirror links.
 - [Troubleshooting](docs/TROUBLESHOOTING.md): database locking, tagging failures, moved libraries.
-- [API_REFERENCE](API_REFERENCE) for the web API.
+- [docs/API.md](docs/API.md) for the web API.
 
 This README and the `docs` folder are Issuarr's documentation. Mylar's old documentation website is no longer run by the Mylar team, so don't rely on it or follow its links.
 

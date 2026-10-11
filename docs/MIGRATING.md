@@ -150,6 +150,7 @@ Settings were reworded, but each one is the same `config.ini` key as before, so 
 - **Manage issues** opens on Skipped and has no Wanted tab. Wanted issues are managed on the **Wanted** page.
 - **GetComics searches** now also look for packs and series-and-year posts, so issues that only exist inside a pack can be found.
 - **Notifications say Issuarr.** Snatch, download and tagging-error messages say Issuarr instead of Mylar, and Discord posts appear under the name Issuarr. If you filter or route notifications by the word "Mylar", update those rules.
+- **The API is the same, with tighter checks.** Scripts that use your API key keep working unchanged, and the key can now also be sent as an `X-Api-Key` header. The web UI's internal message key no longer works for other commands, and IDs with quotes or spaces in them are now treated as IDs rather than SQL. See [API.md](API.md).
 
 ## Moving to a new machine or new paths
 

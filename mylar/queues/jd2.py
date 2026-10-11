@@ -7,6 +7,7 @@ import time
 import mylar
 from .. import logger, helpers
 from mylar import db
+from . import ddl
 from mylar.downloaders.jdownloader2 import JDownloader2
 
 
@@ -136,7 +137,7 @@ def jd2_queue_monitor(queue):
                                 stale = (datetime.datetime.now() - updated_dt) >= datetime.timedelta(minutes=3)
 
                         if stale:
-                            jd2_mark_failed(myDB, item, record_id, 'job %s never reached the JD2 download list (links offline or rejected)' % job_id)
+                            jd2_give_up(myDB, item, record_id, 'job %s never reached the JD2 download list (links offline or rejected)' % job_id)
                             continue
 
                         queue.put(item)
@@ -194,8 +195,7 @@ def jd2_queue_monitor(queue):
                         reason = (status_payload or {}).get('reason') or job_status
                         logger.warn('[JD2-QUEUE] Download %s can not complete in JD2 (%s).', job_filename or record_id, reason)
                         jd2_client.remove(job_id, record_id)
-                        if not jd2_fallback(myDB, item, record_id):
-                            jd2_mark_failed(myDB, item, record_id, 'JD2 status %s' % reason)
+                        jd2_give_up(myDB, item, record_id, 'JD2 status %s' % reason)
                         continue
 
                     if job_status not in completed_states:
@@ -204,7 +204,7 @@ def jd2_queue_monitor(queue):
                         continue
             else:
                 logger.warn('[JD2-QUEUE] Missing JD2 client or job id for item: %s', item)
-                jd2_mark_failed(myDB, item, record_id, 'no JD2 job id to monitor')
+                jd2_give_up(myDB, item, record_id, 'no JD2 job id to monitor')
         else:
             time.sleep(10)
 
@@ -212,27 +212,25 @@ def jd2_queue_monitor(queue):
 JD2_DEAD_STATUS = ('offline', 'file not found', 'not available', 'plugin defect', 'aborted', 'blocked by cloudflare')
 
 
-def jd2_fallback(myDB, item, record_id):
-    if item.get('jd2_fallback') or not item.get('mainlink') or not getattr(mylar.CONFIG, 'ENABLE_DDL', False):
-        return False
+def jd2_give_up(myDB, item, record_id, reason):
+    """JD2 couldn't finish the download. The DDL failover worker tries Issuarr's own downloaders
+    for the same post, file hosts first for big files, and never JD2 again. Only when direct
+    downloads are off, or the post can't be read again, is the issue marked Failed here."""
+    if not item.get('mainlink') or not getattr(mylar.CONFIG, 'ENABLE_DDL', False):
+        jd2_mark_failed(myDB, item, record_id, reason)
+        return
+    logger.info('[JD2-QUEUE] JD2 gave up on %s (%s) - trying Issuarr\'s own downloaders.', item.get('series') or record_id, reason)
     payload = dict(item)
-    if item.get('link_type') not in ('GC-Main', 'GC-Mirror'):
-        if not item.get('main_link'):
-            return False
-        payload.update({'link': item['main_link'], 'link_type': 'GC-Main'})
-    for k in ('jd2_job_id', 'jd2_priority_links'):
+    for k in ('jd2_job_id', 'jd2_priority_links', 'main_link'):
         payload.pop(k, None)
-    payload['jd2_fallback'] = True
+    payload['id'] = record_id
     payload.setdefault('resume', None)
     try:
         myDB.upsert('ddl_info', {'status': 'Queued', 'jd2_job_id': None,
                                  'updated_date': datetime.datetime.now().strftime('%Y-%m-%d %H:%M')}, {'id': record_id})
-        mylar.DDL_QUEUE.put(payload)
     except Exception as err:
-        logger.warn('[JD2-QUEUE] Unable to hand %s to the built-in downloader: %s', record_id, err)
-        return False
-    logger.info('[JD2-QUEUE] Handing %s to the built-in downloader instead.', item.get('series') or record_id)
-    return True
+        logger.warn('[JD2-QUEUE] Unable to reset %s for the built-in downloaders: %s', record_id, err)
+    ddl.send_to_failover(payload, {'success': False, 'reason': reason}, jd2_gave_up=True)
 
 
 def jd2_status_is_dead(job_status):

@@ -256,17 +256,33 @@ def test_arcformat(monkeypatch):
     assert helpers.arcformat('Expensive Crossovers', '2010-2019', 'Marvel') == os.path.join(os.getcwd(), 'Expensive Crossovers (2010-2019)')
 
 
+# Week N is the Sunday-Saturday week holding the year's Nth Wednesday (TalkHard's numbering):
+# 52 or 53 weeks a year, no week 0. Checked against TalkHard: 2025 has a week 53
+# (Dec 28 - Jan 3) and week 1 of 2026 starts on January 4.
 weekly_info_tests = [
-    (('12', '2025', '42'), {'endweek': 'March 22, 2025', 'last_update': 'None', 'midweek': '2025-03-19', 'next_weeknumber': 13,
-                            'next_year': 2025, 'prev_weeknumber': 11, 'prev_year': 2025, 'startweek': 'March 16, 2025',
-                            'weeknumber': 12, 'year': 2025}),
-    (('52', '2024', '52'), {'endweek': 'January 04, 2025', 'last_update': 'None', 'midweek': '2025-01-01', 'next_weeknumber': '00',
-                            'next_year': 2025, 'prev_weeknumber': 51, 'prev_year': 2024, 'startweek': 'December 29, 2024',
-                            'weeknumber': 52, 'year': 2024}),
-    (('01', '2019', '11'), {'endweek': 'January 12, 2019', 'last_update': 'None', 'midweek': '2019-01-09', 'next_weeknumber': 2,
-                            'next_year': 2019, 'prev_weeknumber': 0, 'prev_year': 2019, 'startweek': 'January 06, 2019',
-                            'weeknumber': 1, 'year': 2019}),
+    (('12', '2025'), {'endweek': 'March 22, 2025', 'midweek': '2025-03-19', 'startweek': 'March 16, 2025',
+                      'weeknumber': 12, 'year': 2025, 'prev_weeknumber': 11, 'prev_year': 2025, 'next_weeknumber': 13, 'next_year': 2025}),
+    (('52', '2025'), {'endweek': 'December 27, 2025', 'midweek': '2025-12-24', 'startweek': 'December 21, 2025',
+                      'weeknumber': 52, 'year': 2025, 'prev_weeknumber': 51, 'prev_year': 2025, 'next_weeknumber': 53, 'next_year': 2025}),
+    (('53', '2025'), {'endweek': 'January 03, 2026', 'midweek': '2025-12-31', 'startweek': 'December 28, 2025',
+                      'weeknumber': 53, 'year': 2025, 'prev_weeknumber': 52, 'prev_year': 2025, 'next_weeknumber': 1, 'next_year': 2026}),
+    (('01', '2026'), {'endweek': 'January 10, 2026', 'midweek': '2026-01-07', 'startweek': 'January 04, 2026',
+                      'weeknumber': 1, 'year': 2026, 'prev_weeknumber': 53, 'prev_year': 2025, 'next_weeknumber': 2, 'next_year': 2026}),
+    (('52', '2026'), {'endweek': 'January 02, 2027', 'midweek': '2026-12-30', 'startweek': 'December 27, 2026',
+                      'weeknumber': 52, 'year': 2026, 'prev_weeknumber': 51, 'prev_year': 2026, 'next_weeknumber': 1, 'next_year': 2027}),
+    # 2026 has 52 weeks, so week 53 is week 1 of 2027; week 0 is the previous year's last week.
+    (('53', '2026'), {'endweek': 'January 09, 2027', 'midweek': '2027-01-06', 'startweek': 'January 03, 2027',
+                      'weeknumber': 1, 'year': 2027, 'prev_weeknumber': 52, 'prev_year': 2026, 'next_weeknumber': 2, 'next_year': 2027}),
+    (('0', '2026'), {'endweek': 'January 03, 2026', 'midweek': '2025-12-31', 'startweek': 'December 28, 2025',
+                      'weeknumber': 53, 'year': 2025, 'prev_weeknumber': 52, 'prev_year': 2025, 'next_weeknumber': 1, 'next_year': 2026}),
+    (('01', '2019', '11'), {'endweek': 'January 05, 2019', 'midweek': '2019-01-02', 'startweek': 'December 30, 2018',
+                      'weeknumber': 1, 'year': 2019, 'prev_weeknumber': 52, 'prev_year': 2018, 'next_weeknumber': 2, 'next_year': 2019}),
 ]
+
+
+def _expected_week(result, folder):
+    # The patched "today" (2001-12-25) is in week 52 of 2001.
+    return {'current_weeknumber': 52, 'current_year': 2001, 'last_update': 'None', 'week_folder': folder, **result}
 
 
 @pytest.mark.parametrize("input,result", weekly_info_tests)
@@ -277,18 +293,8 @@ def test_weekly_info_format0(patch_datetime, monkeypatch, input, result):
     monkeypatch.setattr(mylar.CONFIG, "DESTINATION_DIR", os.getcwd(), raising=False)
     monkeypatch.setattr(mylar.CONFIG, "WEEKFOLDER_FORMAT", 0, raising=False)
 
-    assert helpers.weekly_info(*input) == {'current_weeknumber': 51,
-                                           'endweek': result['endweek'],
-                                           'last_update': result['last_update'],
-                                           'midweek': result['midweek'],
-                                           'next_weeknumber': result['next_weeknumber'],
-                                           'next_year': result['next_year'],
-                                           'prev_weeknumber': result['prev_weeknumber'],
-                                           'prev_year': result['prev_year'],
-                                           'startweek': result['startweek'],
-                                           'week_folder': os.path.join(os.getcwd(), f"{result['year']}-{result['weeknumber']:02}"),
-                                           'weeknumber': result['weeknumber'],
-                                           'year': result['year']}
+    folder = os.path.join(os.getcwd(), f"{result['year']}-{result['weeknumber']:02}")
+    assert helpers.weekly_info(*input) == _expected_week(result, folder)
 
 
 @pytest.mark.parametrize("input,result", weekly_info_tests)
@@ -299,18 +305,17 @@ def test_weekly_info_format1(patch_datetime, monkeypatch, input, result):
     monkeypatch.setattr(mylar.CONFIG, "DESTINATION_DIR", os.getcwd(), raising=False)
     monkeypatch.setattr(mylar.CONFIG, "WEEKFOLDER_FORMAT", 1, raising=False)
 
-    assert helpers.weekly_info(*input) == {'current_weeknumber': 51,
-                                           'endweek': result['endweek'],
-                                           'last_update': result['last_update'],
-                                           'midweek': result['midweek'],
-                                           'next_weeknumber': result['next_weeknumber'],
-                                           'next_year': result['next_year'],
-                                           'prev_weeknumber': result['prev_weeknumber'],
-                                           'prev_year': result['prev_year'],
-                                           'startweek': result['startweek'],
-                                           'week_folder': os.path.join(os.getcwd(), result['midweek']),
-                                           'weeknumber': result['weeknumber'],
-                                           'year': result['year']}
+    assert helpers.weekly_info(*input) == _expected_week(result, os.path.join(os.getcwd(), result['midweek']))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("day,expected", [
+    ('2025-12-31', (53, 2025)), ('2026-01-03', (53, 2025)), ('2026-01-04', (1, 2026)),
+    ('2026-10-11', (41, 2026)), ('2026-10-14', (41, 2026)), ('2027-01-01', (52, 2026)), ('2027-01-03', (1, 2027)),
+])
+def test_release_week(day, expected):
+    import datetime as _dt
+    assert helpers.release_week(_dt.date.fromisoformat(day)) == expected
 
 
 class MockEnvOnSnatchScript():

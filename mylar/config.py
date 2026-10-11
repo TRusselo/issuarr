@@ -107,6 +107,7 @@ _CONFIG_DEFINITIONS = OrderedDict({
     'SECURE_DIR': (str, 'General', None),
     'ENCRYPT_PASSWORDS': (bool, 'General', False),
     'BACKUP_ON_START': (bool, 'General', False),
+    'DB_JOURNAL_MODE': (str, 'General', 'auto'),   # auto, wal or delete
     'BACKUP_LOCATION': (str, 'General', None),
     'BACKUP_RETENTION': (int, 'General', 4),
     'BACKFILL_LENGTH': (int, 'General', 8),  # weeks

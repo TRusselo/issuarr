@@ -36,6 +36,55 @@ def dbFilename(filename="mylar.db"):
 
     return os.path.join(mylar.DATA_DIR, filename)
 
+# Filesystems where SQLite's WAL mode isn't safe: it needs shared memory between processes,
+# which network and FUSE filesystems (including Unraid's /mnt/user) don't reliably provide.
+NETWORK_FS = ('nfs', 'nfs4', 'cifs', 'smb3', 'smbfs', '9p', 'afs', 'ceph', 'glusterfs', 'davfs',
+              'fuse.sshfs', 'fuse.shfs', 'fuse.rclone', 'fuse.glusterfs', 'fuse.davfs', 'fuse.mergerfs')
+
+
+def fs_type(path, mounts='/proc/mounts'):
+    """The filesystem type holding path, from the longest matching mount point, or None if unknown."""
+    try:
+        real = os.path.realpath(path)
+        best, ftype = '', None
+        with open(mounts) as f:
+            for line in f:
+                parts = line.split()
+                if len(parts) < 3:
+                    continue
+                mnt = parts[1].replace('\\040', ' ')
+                if (real == mnt or real.startswith(mnt.rstrip('/') + '/')) and len(mnt) > len(best):
+                    best, ftype = mnt, parts[2]
+        return ftype
+    except (OSError, IOError):
+        return None
+
+
+def wanted_journal_mode(path, setting='auto', mounts='/proc/mounts'):
+    """'wal' or 'delete' for the database at path. WAL lets reads carry on while something writes,
+    which stops most "database is locked" errors, but only on a local disk."""
+    setting = (setting or 'auto').strip().lower()
+    if setting in ('wal', 'delete'):
+        return setting
+    ftype = fs_type(path, mounts)
+    if ftype is not None and ftype.lower() in NETWORK_FS:
+        return 'delete'
+    return 'wal'
+
+
+def set_journal_mode(conn, path):
+    want = wanted_journal_mode(os.path.dirname(path) or '.', getattr(mylar.CONFIG, 'DB_JOURNAL_MODE', 'auto'))
+    try:
+        current = conn.execute('PRAGMA journal_mode').fetchone()[0].lower()
+        if current != want:
+            new = conn.execute('PRAGMA journal_mode = %s' % want.upper()).fetchone()[0].lower()
+            logger.info('[DB] Journal mode %s -> %s (%s)' % (current, new, path))
+        else:
+            logger.fdebug('[DB] Journal mode is %s' % current)
+    except Exception as e:
+        logger.warn('[DB] Unable to set the journal mode to %s: %s' % (want, e))
+
+
 class WriteOnly:
 
     def __init__(self):

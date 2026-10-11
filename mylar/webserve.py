@@ -3369,9 +3369,8 @@ class WebInterface(object):
         if statchk:
             if statchk['status'] == 'success':
                 weekinfo = helpers.weekly_info(weeknumber, year)
-                tmpcurrent = '%s%s' % (weekinfo['year'],weekinfo['current_weeknumber'])
-                tmppull = '%s%s' % (year, weeknumber)
-                if int(tmppull) <= int(tmpcurrent):
+                # (year, week) pairs: gluing them into one number misorders weeks 1-9.
+                if (int(year), int(weeknumber)) <= (int(weekinfo['current_year']), int(weekinfo['current_weeknumber'])):
                     weeklypull.future_check()
                 return {'status': 'success'}
         return {'status': 'failure'}
@@ -3382,14 +3381,14 @@ class WebInterface(object):
         weekinfo = helpers.weekly_info()
 
         weeknumber = weekinfo['current_weeknumber']
-        weekyear = weekinfo['year']
+        weekyear = weekinfo['current_year']
         startweek = weekinfo['startweek']
         midweek = weekinfo['midweek']
         endweek = weekinfo['endweek']
 
         myDB = db.DBConnection()
         logger.info('weeknumber: %s' % weeknumber)
-        upcomingdata = myDB.select("SELECT * from weekly WHERE Issue is not NULL AND Comic is not NULL and CAST(weeknumber as numeric) >= ? and CAST(year as numeric) >= ? order by weeknumber DESC", [weeknumber, weekyear])
+        upcomingdata = myDB.select("SELECT * from weekly WHERE Issue is not NULL AND Comic is not NULL and (CAST(year as numeric) > ? OR (CAST(year as numeric) = ? AND CAST(weeknumber as numeric) >= ?)) order by year DESC, weeknumber DESC", [weekyear, weekyear, weeknumber])
         if upcomingdata is None:
             logger.info('No upcoming data as of yet...')
         else:
@@ -10148,13 +10147,6 @@ class WebInterface(object):
                 if results['ComicVersion'] is not None:
                     if results['ComicVersion'].isdigit():
                         comicVol = 'v' + results['ComicVersion']
-                        if all([mylar.CONFIG.SETDEFAULTVOLUME is False, comicVol == 'v1']):
-                            comicVol = None
-                        else:
-                            if mylar.CONFIG.SETDEFAULTVOLUME is True:
-                                comicVol = 'v1'
-                            else:
-                                comicVol = None
                     else:
                         comicVol = None
                 else:

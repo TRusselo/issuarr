@@ -690,7 +690,7 @@
                         <div class="set-sub" id="volumetag_options" style="display:none">
                             ${toggle('cmtag_start_year_as_volume', 'Use the start year as the volume', config['cmtag_start_year_as_volume'], id='cmtag_start_year_as_volume')}
                             <div id="defaultvolume_div">
-                                ${toggle('setdefaultvolume', 'Always write a volume', config['setdefaultvolume'], id='setdefaultvolume', help='Writes 1 when the volume is 1 or unknown.')}
+                                ${toggle('setdefaultvolume', 'Always write a volume', config['setdefaultvolume'], id='setdefaultvolume', help='Writes 1 when ComicVine has no volume for the series.')}
                             </div>
                         </div>
                         ${select('ct_notes_format', 'Notes format', [('Issue ID', 'Issue ID (ComicTagger)'), ('CVDB', 'CVDB (ComicVine Scraper)')], mylar.CONFIG.CT_NOTES_FORMAT,

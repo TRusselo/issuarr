@@ -18,7 +18,7 @@ from bs4 import BeautifulSoup, UnicodeDammit
 import datetime
 import re
 import mylar
-from mylar import logger, db
+from mylar import logger, db, helpers
 from mylar.helpers import ignored_publisher_check
 
 def locg(pulldate=None,weeknumber=None,year=None):
@@ -27,18 +27,14 @@ def locg(pulldate=None,weeknumber=None,year=None):
         if pulldate:
             logger.info('pulldate is : ' + str(pulldate))
             if pulldate is None or pulldate == '00000000':
-                weeknumber = todaydate.strftime("%U")
+                weeknumber, year = helpers.release_week(todaydate.date())
             elif '-' in pulldate:
-                #find the week number
+                #find the week (TalkHard numbering) for the date, but never earlier than this week
                 weektmp = datetime.date(*(int(s) for s in pulldate.split('-')))
-                weeknumber = weektmp.strftime("%U")
-                #we need to now make sure we default to the correct week
-                weeknumber_new = todaydate.strftime("%U")
-                if weeknumber_new > weeknumber:
-                    weeknumber = weeknumber_new
+                weeknumber, year = max(helpers.release_week(weektmp), helpers.release_week(todaydate.date()))
 
         else:
-            if str(weeknumber).isdigit() and int(weeknumber) <= 52:
+            if str(weeknumber).isdigit() and 1 <= int(weeknumber) <= 53:
                 #already requesting week #
                 weeknumber = weeknumber
             else:

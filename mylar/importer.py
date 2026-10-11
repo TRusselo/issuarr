@@ -304,8 +304,7 @@ def addComictoDB(comicid, mismatch=None, pullupd=None, imported=None, ogcname=No
         if comic['ComicVersion'].isdigit():
             comicVol = 'v' + comic['ComicVersion']
             logger.info('Updated version to :' + str(comicVol))
-            if all([mylar.CONFIG.SETDEFAULTVOLUME is False, comicVol == 'v1']):
-                comicVol = None
+            # A volume ComicVine sets explicitly is kept, v1 included (upstream #71).
         else:
             if mylar.CONFIG.SETDEFAULTVOLUME is True:
                 comicVol = 'v1'

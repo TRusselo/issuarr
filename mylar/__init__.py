@@ -358,8 +358,8 @@ def initialize(config_file):
 
         # set the current week for the pull-list
         todaydate = datetime.datetime.today()
-        CURRENT_WEEKNUMBER = todaydate.strftime("%U")
-        CURRENT_YEAR = todaydate.strftime("%Y")
+        _wk, _yr = helpers.release_week(todaydate.date())
+        CURRENT_WEEKNUMBER, CURRENT_YEAR = str(_wk), str(_yr)
 
         if SEARCH_TIER_DATE is None:
             #tier the wanted listed so anything older than SEARCH_TIER_CUTOFF (default 14 days)
@@ -875,7 +875,8 @@ def dbcheck():
 
     #might enable these at a later date.
     #c.execute('''PRAGMA synchronous = EXTRA''')
-    #c.execute('''PRAGMA journal_mode = WAL''')
+    from mylar import db as _db
+    _db.set_journal_mode(conn, DB_FILE)
 
     #add in the late players to the game....
 

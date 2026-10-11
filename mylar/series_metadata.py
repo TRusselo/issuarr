@@ -134,8 +134,6 @@ class metadata_Series(object):
                     if comicVol.isdigit():
                         comicVol = int(comicVol)
                         logger.info('Updated version to :' + str(comicVol))
-                        if all([mylar.CONFIG.SETDEFAULTVOLUME is False, comicVol == 'v1']):
-                           comicVol = None
                     else:
                         comicVol = int(re.sub('[^0-9]', '', comicVol).strip())
 

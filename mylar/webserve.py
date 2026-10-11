@@ -207,6 +207,77 @@ def _human_bytes(n):
         n /= 1024.0
 
 
+def ddl_queue_rows(myDB):
+    """Every row of the direct-download queue, named from the library where possible.
+
+    Starts from ddl_info so nothing is dropped: annuals, story-arc issues, packs and
+    one-offs used to vanish because the old query needed a matching row in issues.
+    """
+    def lookup(sql, ids):
+        out = {}
+        ids = [i for i in ids if i is not None]
+        for n in range(0, len(ids), 500):
+            chunk = ids[n:n + 500]
+            try:
+                for r in myDB.select(sql % ','.join('?' * len(chunk)), chunk):
+                    out.setdefault(str(r['id']), r)
+            except Exception:
+                pass
+        return out
+
+    rows = myDB.select("SELECT id, series, year, size, status, issueid, comicid, updated_date, issues, pack, link_type FROM ddl_info")
+    issueids = list({str(r['issueid']) for r in rows if r['issueid'] is not None})
+    comicids = list({str(r['comicid']) for r in rows if r['comicid'] is not None})
+    comics = lookup("SELECT ComicID AS id, ComicName, ComicVersion, ComicYear FROM comics WHERE ComicID IN (%s)", comicids)
+    issues = lookup("SELECT IssueID AS id, ComicID, Issue_Number FROM issues WHERE IssueID IN (%s)", issueids)
+    annuals = lookup("SELECT IssueID AS id, ComicID, Issue_Number FROM annuals WHERE IssueID IN (%s)", issueids)
+    oneoffs = lookup("SELECT IssueID AS id, ComicID, ComicName, IssueNumber AS Issue_Number FROM oneoffhistory WHERE IssueID IN (%s)", issueids)
+
+    resultlist = []
+    for r in rows:
+        iid = None if r['issueid'] is None else str(r['issueid'])
+        iss = issues.get(iid) or annuals.get(iid)
+        oneoff = oneoffs.get(iid) if iss is None else None
+        comicid = r['comicid'] or (iss['ComicID'] if iss else None) or (oneoff['ComicID'] if oneoff else None)
+        comic = comics.get(str(comicid)) if comicid is not None else None
+        name = comic['ComicName'] if comic else (oneoff['ComicName'] if oneoff else None)
+        volume = comic['ComicVersion'] if comic else None
+
+        if r['issues'] is not None:
+            issue = '#%s' % r['issues']
+            year = r['year']
+        else:
+            number = iss['Issue_Number'] if iss else (oneoff['Issue_Number'] if oneoff else None)
+            issue = '#%s' % number if number is not None else None
+            year = (comic['ComicYear'] if comic else None) or r['year']
+
+        filename = r['series'] or ''
+        if r['pack'] or name is None:
+            if year is not None and str(year) not in filename:
+                series = '%s (%s)' % (filename, year)
+            else:
+                series = filename
+            if name is None and not r['pack'] and issue is not None and issue not in series:
+                series = '%s %s' % (series, issue)
+        else:
+            parts = [name] + ([volume] if volume else []) + ([issue] if issue else [])
+            series = '%s (%s)' % (' '.join(parts), year) if year else ' '.join(parts)
+
+        resultlist.append({'series':       series,
+                           'issue':        issue,
+                           'queueid':      r['id'],
+                           'linktype':     r['link_type'],
+                           'volume':       volume,
+                           'year':         year,
+                           'size':         (r['size'] or '').strip(),
+                           'comicid':      comicid if comic else None,
+                           'issueid':      r['issueid'],
+                           'status':       r['status'],
+                           'updated_date': r['updated_date'],
+                           'progress':     '100%' if r['status'] == 'Completed' else ''})
+    return resultlist
+
+
 def client_snatches(myDB):
     """Grabs handed to SABnzbd, NZBGet or a torrent client that haven't been processed yet.
 
@@ -4072,110 +4143,7 @@ class WebInterface(object):
         filtered = []
 
         myDB = db.DBConnection()
-        resultlist = 'There are currently no items waiting in the Direct Download (DDL) Queue for processing.'
-        s_info = myDB.select("SELECT a.ComicName, a.ComicVersion, a.ComicID, a.ComicYear, b.Issue_Number, b.IssueID, c.series as filename, c.size, c.status, c.id, c.updated_date, c.issues, c.year, c.pack, c.link_type FROM comics as a INNER JOIN issues as b ON a.ComicID = b.ComicID INNER JOIN ddl_info as c ON b.IssueID = c.IssueID") # WHERE c.status != 'Downloading'")
-        o_info = myDB.select("Select a.ComicName, b.Issue_Number, a.IssueID, a.ComicID, c.series as filename, c.size, c.status, c.id, c.updated_date, c.issues, c.year, c.pack, c.link_type from oneoffhistory a join snatched b on a.issueid=b.issueid join ddl_info c on b.issueid=c.issueid where b.provider like 'DDL%'")
-        tmp_list = {}
-        if s_info:
-            resultlist = []
-            for si in s_info:
-                if si['issues'] is None:
-                    issue = si['Issue_Number']
-                    year = si['ComicYear']
-                    if issue is not None:
-                        issue = '#%s' % issue
-                else:
-                    year = si['year']
-                    issue = '#%s' % si['issues']
-
-                if si['status'] == 'Completed':
-                    si_status = '100%'
-                else:
-                    si_status = ''
-
-                if si['pack']:
-                    if si['year'] is not None and si['year'] not in si['filename']:
-                        series = '%s (%s)' % (si['filename'], si['year'])
-                    else:
-                        series = si['filename']
-                else:
-                    if issue is not None:
-                        if si['ComicVersion'] is not None:
-                            series = '%s %s %s (%s)' % (si['ComicName'], si['ComicVersion'], issue, year)
-                        else:
-                            series = '%s %s (%s)' % (si['ComicName'], issue, year)
-                    else:
-                        if si['ComicVersion'] is not None:
-                            series = '%s %s (%s)' % (si['ComicName'], si['ComicVersion'], year)
-                        else:
-                            series = '%s (%s)' % (si['ComicName'], year)
-
-                resultlist.append({'series':       series, #i['ComicName'],
-                                   'issue':        issue,
-                                   'queueid':      si['id'],
-                                   'linktype':     si['link_type'],
-                                   'volume':       si['ComicVersion'],
-                                   'year':         year,
-                                   'size':         (si['size'] or '').strip(),
-                                   'comicid':      si['ComicID'],
-                                   'issueid':      si['IssueID'],
-                                   'status':       si['status'],
-                                   'updated_date': si['updated_date'],
-                                   'progress':     si_status})
-                tmp_list[si['id']] = {
-                                     'comicid': si['comicid'],
-                                     'issueid': si['issueid'],
-                                     'updated_date': si['updated_date']
-                                     }
-            #logger.info('s_info: %s' % (resultlist))
-        if o_info:
-            if type(resultlist) is str:
-                resultlist = []
-
-            for oi in o_info:
-                if oi['id'] in tmp_list:
-                    #logger.fdebug('duplicate entry: %s' % (oi,))
-                    continue
-
-                if oi['issues'] is None:
-                    issue = oi['Issue_Number']
-                    year = oi['year']
-                    if issue is not None:
-                        issue = '#%s' % issue
-                else:
-                    year = oi['year']
-                    issue = '#%s' % oi['issues']
-
-                if oi['status'] == 'Completed':
-                    oi_status = '100%'
-                else:
-                    oi_status = ''
-
-                if oi['pack']:
-                    if oi['year'] is not None and oi['year'] not in (oi['filename'] or ''):
-                        series = '%s (%s)' % (oi['filename'], oi['year'])
-                    else:
-                        series = oi['filename']
-                else:
-                    if issue is not None:
-                        series = '%s %s (%s)' % (oi['ComicName'], issue, year)
-                    else:
-                        series = '%s (%s)' % (oi['ComicName'], year)
-
-                resultlist.append({'series':       series,
-                                   'issue':        issue,
-                                   'queueid':      oi['id'],
-                                   'volume':       None,
-                                   'linktype':     oi['link_type'],
-                                   'year':         year,
-                                   'size':         (oi['size'] or '').strip(),
-                                   'comicid':      oi['ComicID'],
-                                   'issueid':      oi['IssueID'],
-                                   'status':       oi['status'],
-                                   'updated_date': oi['updated_date'],
-                                   'progress':     oi_status})
-
-            #logger.info('o_info: %s' % (resultlist))
+        resultlist = ddl_queue_rows(myDB)
 
         if isinstance(resultlist, str):
             resultlist = []
@@ -4185,7 +4153,7 @@ class WebInterface(object):
         if sSearch == "" or sSearch == None:
             filtered = resultlist[::]
         else:
-            filtered = [row for row in resultlist if any([sSearch.lower() in row['series'].lower(), sSearch.lower() in row['status'].lower()])]
+            filtered = [row for row in resultlist if any([sSearch.lower() in (row['series'] or '').lower(), sSearch.lower() in (row['status'] or '').lower()])]
         sortcolumn = 'series'
         if iSortCol_0 == '1':
             sortcolumn = 'series'

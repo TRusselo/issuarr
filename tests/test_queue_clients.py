@@ -17,6 +17,9 @@ def myDB(monkeypatch, tmp_path):
     d.action('CREATE TABLE oneoffhistory (IssueID TEXT, Status TEXT)')
     d.action('CREATE TABLE snatched (IssueID TEXT, ComicName TEXT, Issue_Number TEXT, Size INTEGER, DateAdded TEXT, '
              'Status TEXT, FolderName TEXT, ComicID TEXT, Provider TEXT, Hash TEXT, crc TEXT)')
+    d.action('CREATE TABLE comics (ComicID TEXT, ComicName TEXT, ComicVersion TEXT, ComicYear TEXT)')
+    d.action('CREATE TABLE ddl_info (ID TEXT UNIQUE, series TEXT, year TEXT, filename TEXT, size TEXT, issueid TEXT, '
+             'comicid TEXT, link TEXT, status TEXT, updated_date TEXT, issues TEXT, pack INTEGER, link_type TEXT)')
     return d
 
 
@@ -58,3 +61,25 @@ def test_untracked_grab_falls_back_to_snatch_history(myDB):
     assert len(webserve.client_snatches(myDB)) == 1
     snatch(myDB, '9', 'Downloaded', 'experimental', '2026-10-11 11:00:00')
     assert webserve.client_snatches(myDB) == []
+
+
+def ddl(d, id, issueid, comicid, series='Alpha 001 (2020)', status='Completed', **kw):
+    d.action("INSERT INTO ddl_info (ID, series, year, size, issueid, comicid, status, updated_date, issues, pack, link_type) "
+             "VALUES (?, ?, ?, ?, ?, ?, ?, '2026-10-11 10:00', ?, ?, 'GC-Main')",
+             [id, series, kw.get('year', '2020'), kw.get('size'), issueid, comicid, status, kw.get('issues'), kw.get('pack', 0)])
+
+
+@pytest.mark.unit
+def test_ddl_queue_lists_annuals_arcs_and_unknown_items(myDB):
+    myDB.action("INSERT INTO comics VALUES ('100', 'Alpha', NULL, '2020')")
+    myDB.action("INSERT INTO issues (IssueID, ComicID, Issue_Number, Status) VALUES ('1', '100', '1', 'Downloaded')")
+    myDB.action("INSERT INTO annuals (IssueID, ComicID, Issue_Number, Status) VALUES ('2', '100', '1', 'Downloaded')")
+    ddl(myDB, 'a', '1', '100', size='20 MB ')
+    ddl(myDB, 'b', '2', '100')
+    ddl(myDB, 'c', '55_3', None, series='Arc Thing 003', year=None)
+    ddl(myDB, 'd', '9', '100', series='Alpha 1-6', issues='1-6', pack=1)
+    rows = {r['queueid']: r for r in webserve.ddl_queue_rows(myDB)}
+    assert rows['a']['series'] == 'Alpha #1 (2020)' and rows['a']['size'] == '20 MB' and rows['a']['comicid'] == '100'
+    assert rows['b']['series'] == 'Alpha #1 (2020)'
+    assert rows['c']['series'] == 'Arc Thing 003' and rows['c']['comicid'] is None
+    assert rows['d']['series'] == 'Alpha 1-6 (2020)' and rows['d']['issue'] == '#1-6'

@@ -80,6 +80,8 @@
 /* ---------- Page frame ---------- */
 
 html { color: var(--text); font-size: 14px; line-height: 1.5; }
+/* Classes like .btn set display, which would otherwise beat the hidden attribute. */
+[hidden] { display: none !important; }
 body {
   background: var(--ink) !important; background-image: none !important; color: var(--text) !important;
   font-family: var(--font-body) !important; margin: 0; overflow-y: auto;

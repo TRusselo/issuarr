@@ -103,7 +103,7 @@
     $id('w-range').textContent = list.length ? 'Showing ' + fmt(shown.length) + ' of ' + plural(list.length) : '';
     var more = $id('w-more-rows');
     more.hidden = list.length <= st.limit;
-    more.textContent = 'Show more (' + fmt(list.length - st.limit) + ' left)';
+    more.textContent = 'Show more (' + fmt(Math.max(list.length - st.limit, 0)) + ' left)';
     renderBulk();
   }
 

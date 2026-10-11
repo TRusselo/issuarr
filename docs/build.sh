@@ -26,6 +26,9 @@ page README.md index.md \
 page docs/MIGRATING.md MIGRATING.md \
     "Moving from Mylar3 to Issuarr" \
     "Switch from Mylar3 to Issuarr in Docker or from source, keeping your settings, watchlist, history and database."
+page docs/UNRAID.md UNRAID.md \
+    "Installing Issuarr on Unraid" \
+    "Install Issuarr on Unraid with its Docker template, choose appdata and library paths, or switch an existing Mylar3 container."
 page docs/JDOWNLOADER2.md JDOWNLOADER2.md \
     "Using JDownloader 2 with Issuarr" \
     "Hand GetComics mirror links (Mega, Mediafire, Pixeldrain) from Issuarr to JDownloader 2."

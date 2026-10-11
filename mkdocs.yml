@@ -13,6 +13,7 @@ docs_dir: build/site-src
 nav:
   - Home: index.md
   - Moving from Mylar3: MIGRATING.md
+  - Unraid: UNRAID.md
   - JDownloader 2: JDOWNLOADER2.md
   - Web API: API.md
   - Troubleshooting: TROUBLESHOOTING.md

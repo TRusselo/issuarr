@@ -65,6 +65,8 @@ With `docker run`, stop and remove the old container and start a new one with th
 
 > Issuarr's data folder is still `/config/mylar`, as in Mylar3, so nothing needs moving.
 
+**On Unraid**, click the Mylar3 container's icon, choose **Edit**, change **Repository** to `ghcr.io/issuarr/issuarr:latest` and click **Apply**. To use Issuarr's own template instead, see [Installing Issuarr on Unraid](UNRAID.md#coming-from-mylar3-on-unraid).
+
 ## 2b. Switch a source install
 
 Clone Issuarr next to your old install rather than over it:

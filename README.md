@@ -142,6 +142,10 @@ The image follows the [linuxserver.io](https://www.linuxserver.io/) conventions 
 
 Issuarr's database works best on a local disk. If `/config` is on a network share or Unraid's `/mnt/user`, see ["Database is locked"](docs/TROUBLESHOOTING.md#database-is-locked).
 
+### Unraid
+
+Issuarr has an Unraid template. See [Installing Issuarr on Unraid](docs/UNRAID.md) to add it, choose paths, or switch an existing Mylar3 container.
+
 ### From source
 
 ```sh
@@ -192,6 +196,7 @@ Issuarr marks the missing issues of new series *Wanted* and starts searching. Wa
 ## Documentation
 
 - [Moving from Mylar3 to Issuarr](docs/MIGRATING.md): switching an existing install, where pages moved, and changing library paths.
+- [Installing on Unraid](docs/UNRAID.md): the Unraid template, paths and switching from Mylar3.
 - [Using JDownloader 2](docs/JDOWNLOADER2.md) for direct-download mirror links.
 - [Troubleshooting](docs/TROUBLESHOOTING.md): database locking, tagging failures, moved libraries.
 - [docs/API.md](docs/API.md) for the web API.

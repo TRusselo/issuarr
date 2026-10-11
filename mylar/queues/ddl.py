@@ -29,7 +29,8 @@ ACTIVE = set()                  # ids downloading right now
 RUNNING = [0]                   # file-host downloads running right now
 LOCK = threading.Lock()         # guards PENDING, ACTIVE and RUNNING
 STOP = threading.Event()
-LINK_TYPE_FAILURE = {}          # id -> link types that failed for it
+FAILOVER_QUEUE = Queue()        # failed downloads, and items JD2 gave up on
+FAILOVER = {}                   # str(id) -> {'failed': [link types], 'no_jd2': bool}
 
 
 def max_parallel():
@@ -50,7 +51,7 @@ def _ids(q):
 
 
 def waiting_ids():
-    ids = _ids(mylar.DDL_QUEUE) | _ids(GC_QUEUE)
+    ids = _ids(mylar.DDL_QUEUE) | _ids(GC_QUEUE) | _ids(FAILOVER_QUEUE)
     with LOCK:
         ids |= {str(i.get('id')) for i in PENDING}
         ids |= ACTIVE
@@ -61,7 +62,7 @@ def waiting_count():
     """Items queued but not downloading yet, across every DDL queue."""
     with LOCK:
         pending = len(PENDING)
-    return mylar.DDL_QUEUE.qsize() + GC_QUEUE.qsize() + pending
+    return mylar.DDL_QUEUE.qsize() + GC_QUEUE.qsize() + FAILOVER_QUEUE.qsize() + pending
 
 
 def reload_saved(myDB):
@@ -84,7 +85,10 @@ def _start(target, name, *args):
 
 def ddl_downloader(queue):
     STOP.clear()
-    workers = [_start(gc_worker, 'DDL-GETCOMICS')]
+    # each worker drains the queue it was started with, so a worker that outlives a restart
+    # can't steal items from the queue its replacement uses
+    gc_queue, failover_queue = GC_QUEUE, FAILOVER_QUEUE
+    workers = [_start(gc_worker, 'DDL-GETCOMICS', gc_queue), _start(failover_worker, 'DDL-FAILOVER', failover_queue)]
     reload_saved(db.DBConnection())
     while True:
         try:
@@ -95,7 +99,8 @@ def ddl_downloader(queue):
         if item == 'exit':
             logger.info('Cleaning up workers for shutdown')
             STOP.set()
-            GC_QUEUE.put('exit')
+            gc_queue.put('exit')
+            failover_queue.put('exit')
             for worker in workers:
                 worker.join(5)
             break
@@ -131,9 +136,9 @@ def start_waiting():
         _start(host_download, 'DDL-HOST-%s' % item.get('id'), item)
 
 
-def gc_worker():
+def gc_worker(gc_queue):
     while True:
-        item = GC_QUEUE.get()
+        item = gc_queue.get()
         if item == 'exit':
             break
         run_download(item)
@@ -152,30 +157,84 @@ def run_download(item):
     with LOCK:
         ACTIVE.add(key)
     try:
-        ddl_process(db.DBConnection(), item)
-    except Exception as e:
-        logger.exception('[DDL-QUEUE] Error while handling %s: %s' % (item.get('series'), e))
         try:
-            ddl_give_up(db.DBConnection(), item, {'id': item['id']}, LINK_TYPE_FAILURE)
-        except Exception as e2:
-            logger.warn('[DDL-QUEUE] Unable to mark %s as failed: %s' % (item.get('series'), e2))
+            result = ddl_process(db.DBConnection(), item)
+        except Exception as e:
+            logger.exception('[DDL-QUEUE] Error while downloading %s: %s' % (item.get('series'), e))
+            result = {'success': False, 'filename': None, 'path': None, 'link_type_failure': item.get('link_type')}
+        if result is not None:
+            send_to_failover(item, result)
     finally:
         with LOCK:
             ACTIVE.discard(key)
 
 
-def ddl_process(myDB, item, link_type_failure=None):
-    if link_type_failure is None:
-        link_type_failure = LINK_TYPE_FAILURE
+def send_to_failover(item, result, jd2_gave_up=False):
+    FAILOVER_QUEUE.put({'item': item, 'result': result or {}, 'jd2_gave_up': jd2_gave_up})
+
+
+def forget(record_id):
+    FAILOVER.pop(str(record_id), None)
+
+
+def failover_worker(failover_queue):
+    while True:
+        entry = failover_queue.get()
+        if entry == 'exit':
+            break
+        item = entry['item']
+        try:
+            handle_failure(db.DBConnection(), item, entry['result'], entry['jd2_gave_up'])
+        except Exception as e:
+            logger.exception('[DDL-FAILOVER] Error while looking for another source for %s: %s' % (item.get('series'), e))
+            try:
+                ddl_give_up(db.DBConnection(), item)
+            except Exception as e2:
+                logger.warn('[DDL-FAILOVER] Unable to mark %s as failed: %s' % (item.get('series'), e2))
+
+
+def handle_failure(myDB, item, result, jd2_gave_up=False):
+    """Queue the item's next source, or mark it Failed when none is left.
+
+    Runs on the one failover thread, so GetComics pages are re-read one at a time. Once JD2
+    has given up on an item, only Issuarr's own downloaders are tried for it.
+    """
+    state = FAILOVER.setdefault(str(item['id']), {'failed': [], 'no_jd2': False})
+    if jd2_gave_up:
+        state['no_jd2'] = True
+        logger.info('[DDL-FAILOVER] JD2 gave up on %s - trying Issuarr\'s own downloaders.' % item.get('series'))
+    else:
+        link_type = item.get('link_type') or result.get('link_type_failure')
+        if link_type and link_type not in state['failed']:
+            state['failed'].append(link_type)
+        logger.info('[DDL-FAILOVER] %s failed from %s - looking for another source.' % (item.get('series'), link_type))
+
+    if item.get('site', 'DDL(GetComics)') != 'DDL(GetComics)':
+        myDB.action('DELETE FROM ddl_info where id=?', [item['id']])
+        mylar.search.FailedMark(item['issueid'], item['comicid'], item['id'], result.get('filename'), item['site'], retry=True)
+        forget(item['id'])
+        return
+
+    if 'links_exhausted' in result or not item.get('mainlink'):
+        ddl_give_up(myDB, item)
+        return
+
+    ggc = getcomics.GC(comicid=item.get('comicid'), issueid=item.get('issueid'), oneoff=item.get('oneoff'))
+    if state['no_jd2']:
+        ggc.jd2 = None
+    # parse_downloadresults saves the next link to ddl_info and puts it back on DDL_QUEUE;
+    # when nothing is left it only returns links_exhausted
+    redo = ggc.parse_downloadresults(item['id'], item['mainlink'], item.get('comicinfo'), item.get('packinfo'), state['failed'])
+    if isinstance(redo, dict) and 'links_exhausted' in redo:
+        ddl_give_up(myDB, item)
+
+
+def ddl_process(myDB, item):
+    """Download one item. Returns None when it's finished or dropped, or the failed result for the failover worker."""
     mylar.DDL_QUEUED.add(item['id'])
 
-    try:
-        link_type_failure[item['id']].append(item['link_type_failure'])
-    except Exception:
-        pass
-
     if ddl_cancelled(item):
-        return
+        return None
 
     logger.info('Now loading request from DDL queue: %s' % item['series'])
 
@@ -184,6 +243,7 @@ def ddl_process(myDB, item, link_type_failure=None):
            'updated_date': datetime.datetime.now().strftime('%Y-%m-%d %H:%M')}
     myDB.upsert('ddl_info', val, ctrlval)
 
+    ddzstat = None
     if item['site'] == 'DDL(GetComics)':
         try:
             remote_filesize = item['remote_filesize']
@@ -212,8 +272,11 @@ def ddl_process(myDB, item, link_type_failure=None):
         meganz = mega.MegaNZ()
         ddzstat = meganz.ddl_download(item['link'], item['filename'], item['id'], item['issueid'], item['link_type'])
 
+    if not ddzstat:
+        ddzstat = {'success': False, 'filename': None, 'path': None, 'link_type_failure': item.get('link_type')}
+
     if ddl_cancelled(item, ddzstat):
-        return
+        return None
 
     if ddzstat['success'] and ddzstat['filename'] is not None:
         filecondition = helpers.check_file_condition(ddzstat['path'])
@@ -254,10 +317,7 @@ def ddl_process(myDB, item, link_type_failure=None):
             logger.error('process error: %s [%s]' %(e, ddzstat))
 
         mylar.DDL_QUEUED.discard(item['id'])
-        try:
-            link_type_failure.pop(item['id'])
-        except KeyError:
-            pass
+        forget(item['id'])
 
         try:
             pck_cnt = 0
@@ -278,30 +338,11 @@ def ddl_process(myDB, item, link_type_failure=None):
         if ddzstat['filename'] is not None:
             path = os.path.join(path, ddzstat['filename'])
         logger.info('File successfully downloaded. Post Processing is not enabled - item retained here: %s' % (path,))
+        forget(item['id'])
         ddl_cleanup(item['id'])
     else:
-        if item['site'] == 'DDL(GetComics)':
-            try:
-                ltf = ddzstat['links_exhausted']
-            except KeyError:
-                logger.info('[Status: %s] Failed to download item from %s : %s ' % (ddzstat['success'], item['link_type'], ddzstat))
-                try:
-                    link_type_failure[item['id']].append(item['link_type'])
-                except KeyError:
-                    link_type_failure[item['id']] = [item['link_type']]
-                logger.fdebug('[%s] link_type_failure: %s' % (item['id'], link_type_failure))
-                ggc = getcomics.GC(comicid=item['comicid'], issueid=item['issueid'], oneoff=item['oneoff'])
-                redo = ggc.parse_downloadresults(item['id'], item['mainlink'], item['comicinfo'], item['packinfo'], link_type_failure[item['id']])
-                # parse_downloadresults re-queues the next link itself; when none are left it
-                # only returns links_exhausted, so the item has to be failed here.
-                if isinstance(redo, dict) and 'links_exhausted' in redo:
-                    ddl_give_up(myDB, item, ctrlval, link_type_failure)
-            else:
-                ddl_give_up(myDB, item, ctrlval, link_type_failure)
-        else:
-            logger.info('[Status: %s] Failed to download item from %s : %s ' % (ddzstat['success'], item['site'], ddzstat))
-            myDB.action('DELETE FROM ddl_info where id=?', [item['id']])
-            mylar.search.FailedMark(item['issueid'], item['comicid'], item['id'], ddzstat['filename'], item['site'], retry=True)
+        return ddzstat
+    return None
 
 
 def ddl_cancelled(item, ddzstat=None):
@@ -321,11 +362,12 @@ def ddl_cancelled(item, ddzstat=None):
     return True
 
 
-def ddl_give_up(myDB, item, ctrlval, link_type_failure):
-    # every link for this item failed - mark it Failed instead of leaving the issue sitting at Snatched
-    logger.info('[REDO] Exhausted all available links [%s] for issueid %s and was not able to download anything' % (link_type_failure.get(item['id']), item['issueid']))
+def ddl_give_up(myDB, item):
+    # every source for this item failed - mark it Failed instead of leaving the issue sitting at Snatched
+    tried = FAILOVER.get(str(item['id']), {}).get('failed')
+    logger.info('[REDO] Exhausted all available links [%s] for issueid %s and was not able to download anything' % (tried, item.get('issueid')))
     myDB.upsert('ddl_info', {'status': 'Failed',
-                             'updated_date': datetime.datetime.now().strftime('%Y-%m-%d %H:%M')}, ctrlval)
+                             'updated_date': datetime.datetime.now().strftime('%Y-%m-%d %H:%M')}, {'id': item['id']})
     helpers.reverse_the_pack_snatch(item['id'], item['comicid'])
     try:
         is_pack = item['comicinfo'][0]['pack'] is True
@@ -337,7 +379,7 @@ def ddl_give_up(myDB, item, ctrlval, link_type_failure):
         except Exception as e:
             logger.warn('[REDO] Unable to mark issueid %s as Failed: %s' % (item['issueid'], e))
     mylar.DDL_QUEUED.discard(item['id'])
-    link_type_failure.pop(item['id'], None)
+    forget(item['id'])
     ddl_cleanup(item['id'])
 
 

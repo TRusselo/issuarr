@@ -29,7 +29,11 @@ class FakeDownloads:
         self.peak = collections.Counter()
         self.started = []
         self.done = []
+        self.failed = []
+        self.results = {}
+        self.raises = set()
         self.gates = collections.defaultdict(threading.Event)
+        self.closing = False
 
     def __call__(self, myDB, item):
         group = 'gc' if threading.current_thread().name == 'DDL-GETCOMICS' else 'host'
@@ -38,13 +42,15 @@ class FakeDownloads:
             self.peak[group] = max(self.peak[group], self.running[group])
             self.started.append(item['id'])
         try:
-            self.gates[item['id']].wait(5)
+            self.gates[item['id']].wait(0 if self.closing else 5)
+            if item['id'] in self.raises:
+                raise RuntimeError('boom')
         finally:
             with self.lock:
                 self.running[group] -= 1
         with self.lock:
             self.done.append(item['id'])
-        return None
+        return self.results.get(item['id'])
 
     def release(self, *ids):
         for i in ids:
@@ -56,6 +62,8 @@ def lanes(monkeypatch):
     monkeypatch.setattr(mylar, 'CONFIG', types.SimpleNamespace(DDL_MAX_PARALLEL=2), raising=False)
     monkeypatch.setattr(mylar, 'DDL_QUEUE', queue.Queue(), raising=False)
     monkeypatch.setattr(ddl, 'GC_QUEUE', queue.Queue())
+    monkeypatch.setattr(ddl, 'FAILOVER_QUEUE', queue.Queue())
+    monkeypatch.setattr(ddl, 'FAILOVER', {})
     monkeypatch.setattr(ddl, 'PENDING', collections.deque())
     monkeypatch.setattr(ddl, 'ACTIVE', set())
     monkeypatch.setattr(ddl, 'RUNNING', [0])
@@ -64,9 +72,12 @@ def lanes(monkeypatch):
     monkeypatch.setattr(ddl.db, 'DBConnection', lambda *a, **k: None)
     fake = FakeDownloads()
     monkeypatch.setattr(ddl, 'ddl_process', fake)
+    monkeypatch.setattr(ddl, 'handle_failure',
+                        lambda myDB, item, result, jd2_gave_up=False: fake.failed.append((item, result, jd2_gave_up)))
     fake.dispatcher = threading.Thread(target=ddl.ddl_downloader, args=(mylar.DDL_QUEUE,), name='DDL-QUEUE', daemon=True)
     fake.dispatcher.start()
     yield fake
+    fake.closing = True
     for gate in list(fake.gates.values()):
         gate.set()
     mylar.DDL_QUEUE.put('exit')
@@ -206,3 +217,27 @@ def test_setting_is_defined_and_on_the_settings_page():
     assert mylar_config._CONFIG_DEFINITIONS['DDL_MAX_PARALLEL'] == (int, 'DDL', 3)
     with open('data/interfaces/default/config.html', encoding='utf-8') as f:
         assert 'name="ddl_max_parallel"' in f.read()
+
+
+@pytest.mark.unit
+def test_failed_download_goes_to_the_failover_worker(lanes):
+    lanes.results['a'] = {'success': False, 'link_type_failure': 'GC-Pixel'}
+    lanes.release('a')
+    mylar.DDL_QUEUE.put(host_item('a'))
+    assert wait_for(lambda: lanes.failed)
+    failed_item, result, jd2_gave_up = lanes.failed[0]
+    assert failed_item['id'] == 'a'
+    assert result['link_type_failure'] == 'GC-Pixel'
+    assert jd2_gave_up is False
+
+
+@pytest.mark.unit
+def test_exception_goes_to_failover_and_frees_the_slot(lanes):
+    mylar.CONFIG.DDL_MAX_PARALLEL = 1
+    lanes.raises.add('a')
+    lanes.release('a', 'b')
+    mylar.DDL_QUEUE.put(host_item('a'))
+    mylar.DDL_QUEUE.put(host_item('b'))
+    assert wait_for(lambda: 'b' in lanes.done)
+    assert wait_for(lambda: [f[0]['id'] for f in lanes.failed] == ['a'])
+    assert lanes.failed[0][1]['link_type_failure'] == 'GC-Pixel'

@@ -1544,7 +1544,17 @@ def annual_as_oneshot(comicname, issuenumber):
     return bool(re.search(r'\b(?:19|20)\d{2}\b', comicname))
 
 
-def searchforissue(issueid=None, new=False, rsschecker=None, manual=False):
+def queued_issueids():
+    """IssueIDs already waiting in the search queue."""
+    with mylar.SEARCH_QUEUE.mutex:
+        waiting = list(mylar.SEARCH_QUEUE.queue)
+    return {x.get('issueid') for x in waiting if isinstance(x, dict)}
+
+
+def searchforissue(issueid=None, new=False, rsschecker=None, manual=False, all_tiers=False):
+    # all_tiers: the Wanted page's "Search all" button. It also queues Tier 2 issues, which the
+    # scheduled search leaves to RSS. Queueing only fills the search queue, so it doesn't need
+    # (or touch) the lock the queue worker holds while it searches.
     if rsschecker == 'yes':
         while mylar.SEARCHLOCK is True:
            # logger.info(
@@ -1553,7 +1563,7 @@ def searchforissue(issueid=None, new=False, rsschecker=None, manual=False):
            # )
             time.sleep(5)
 
-    if mylar.SEARCHLOCK is True:
+    if mylar.SEARCHLOCK is True and not all_tiers:
         logger.info(
             'A search is currently in progress....queueing this up again to try'
             ' in a bit.'
@@ -1599,6 +1609,7 @@ def searchforissue(issueid=None, new=False, rsschecker=None, manual=False):
         )
     ):
         if not issueid or rsschecker:
+            already_queued = queued_issueids() if all_tiers else set()
 
             if rsschecker:
                 logger.info(
@@ -1930,19 +1941,23 @@ def searchforissue(issueid=None, new=False, rsschecker=None, manual=False):
                     else:
                         DateAdded = result['DateAdded']
 
-                    if rsschecker is None and DateAdded >= mylar.SEARCH_TIER_DATE:
+                    if rsschecker is None and (all_tiers or DateAdded >= mylar.SEARCH_TIER_DATE):
+                        # Story-arc issues are looked up by their arc id (the queue spots the "_");
+                        # the plain IssueID isn't found when the series isn't on the watchlist.
+                        queue_id = result['IssueArcID'] if result['mode'] == 'story_arc' and result.get('IssueArcID') else result['IssueID']
+                        if queue_id in already_queued:
+                            continue
                         logger.fdebug(
-                            '[TIER1] Adding: %s #%s [ComicID:%s / IssueiD: %s][ %s >= %s]'
-                            % (comicname, result['Issue_Number'], result['ComicID'], result['IssueID'], DateAdded, mylar.SEARCH_TIER_DATE)
+                            '[%s] Adding: %s #%s [ComicID:%s / IssueiD: %s][ %s %s %s]'
+                            % ('TIER1' if DateAdded >= mylar.SEARCH_TIER_DATE else 'TIER2', comicname, result['Issue_Number'], result['ComicID'], result['IssueID'],
+                               DateAdded, '>=' if DateAdded >= mylar.SEARCH_TIER_DATE else '<', mylar.SEARCH_TIER_DATE)
                         )
                         mylar.SEARCH_QUEUE.put(
                             {
                                 'comicname': comicname,
                                 'seriesyear': SeriesYear,
                                 'issuenumber': result['Issue_Number'],
-                                # Story-arc issues are looked up by their arc id (the queue spots the "_");
-                                # the plain IssueID isn't found when the series isn't on the watchlist.
-                                'issueid': result['IssueArcID'] if result['mode'] == 'story_arc' and result.get('IssueArcID') else result['IssueID'],
+                                'issueid': queue_id,
                                 'comicid': result['ComicID'],
                                 'booktype': booktype,
                             }
@@ -2295,7 +2310,7 @@ def searchforissue(issueid=None, new=False, rsschecker=None, manual=False):
                     mylar.SEARCHLOCK = False
             else:
                 logger.info('Completed Queueing API Search scan')
-                if mylar.SEARCHLOCK is True:
+                if mylar.SEARCHLOCK is True and not all_tiers:
                     mylar.SEARCHLOCK = False
         else:
             try:

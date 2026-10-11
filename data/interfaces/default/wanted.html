@@ -9,10 +9,11 @@
         <div class="page-head">
             <div class="head-text">
                 <h1>Wanted</h1>
-                <p class="page-sub">Issues Issuarr is looking for. <b>Tier 1</b> is everything added in the last ${tier_cutoff} days and is searched on every scheduled search. <b>Tier 2</b> is older and is only picked up from RSS feeds.</p>
+                <p class="page-sub">Issues Issuarr is looking for. <b>Tier 1</b> is everything added in the last ${tier_cutoff} days and is searched on every scheduled search. <b>Tier 2</b> is older and is only picked up from RSS feeds, unless you use <b>Search all</b>.</p>
             </div>
             <div class="btn-row">
                 <button type="button" class="btn btn-primary" id="w-search-tier1" title="Run the scheduled search now, for every Tier 1 issue">Search Tier 1 now</button>
+                <button type="button" class="btn" id="w-search-all" title="Queue every Wanted issue for a search, Tier 2 included">Search all</button>
                 <details class="menu" id="w-more">
                     <summary class="btn" aria-label="More wanted actions" title="More">
                         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M5 12h.01M12 12h.01M19 12h.01"/></svg>

@@ -4593,11 +4593,12 @@ class WebInterface(object):
         raise cherrypy.HTTPRedirect("home")
     forceUpdate.exposed = True
 
-    def forceSearch(self, issueIds = None):
-        #from mylar import search
-        #threading.Thread(target=search.searchforissue).start()
-        #raise cherrypy.HTTPRedirect("home")
-        if issueIds is None:
+    def forceSearch(self, issueIds = None, tiers = None):
+        if tiers == 'all':
+            # Every Wanted issue, Tier 2 included. Only fills the search queue, so the scheduled
+            # search keeps its own timing.
+            threading.Thread(target=search.searchforissue, kwargs={'all_tiers': True}, name='SEARCH-ALL', daemon=True).start()
+        elif issueIds is None:
             self.schedulerForceCheck(jobid='search')
         else:
             myDB = db.DBConnection()

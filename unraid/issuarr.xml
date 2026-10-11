@@ -12,8 +12,11 @@
   <Overview>Issuarr automatically finds, downloads, renames, tags and organizes your comic books (cbz and cbr) from Usenet, torrents and GetComics. It is a free, open-source successor to Mylar3 and a drop-in replacement for the linuxserver/mylar3 image: point Appdata at your old mylar3 folder and your settings and database carry over.&#xD;
 &#xD;
 For the best database performance keep Appdata on a pool or disk path (for example /mnt/cache/appdata/issuarr) rather than /mnt/user, unless the appdata share is exclusive to a pool. See https://issuarr.github.io/issuarr/UNRAID/</Overview>
-  <Changes/>
+  <Changes>Initial release</Changes>
   <Category>Downloaders: MediaApp:Books</Category>
+  <ExtraSearchTerms>mylar mylar3 comics comic cbz cbr comicvine getcomics</ExtraSearchTerms>
+  <License>GPLv3</License>
+  <ReadMe>https://raw.githubusercontent.com/issuarr/issuarr/main/docs/UNRAID.md</ReadMe>
   <WebUI>http://[IP]:[PORT:8090]/</WebUI>
   <TemplateURL>https://raw.githubusercontent.com/issuarr/issuarr/main/unraid/issuarr.xml</TemplateURL>
   <Icon>https://raw.githubusercontent.com/issuarr/issuarr/main/data/images/issuarr-transparent.png</Icon>
@@ -23,7 +26,7 @@ For the best database performance keep Appdata on a pool or disk path (for examp
   <DateInstalled/>
   <DonateText/>
   <DonateLink/>
-  <Requires/>
+  <Requires>A ComicVine API key (free, from comicvine.gamespot.com) and at least one download source: a Usenet indexer and client, a torrent client, or GetComics.</Requires>
   <Config Name="WebUI" Target="8090" Default="8090" Mode="tcp" Description="Port for the Issuarr web interface." Type="Port" Display="always" Required="true" Mask="false">8090</Config>
   <Config Name="Appdata" Target="/config" Default="/mnt/user/appdata/issuarr" Mode="rw" Description="Settings, database and cover cache (kept in the mylar subfolder). Coming from Mylar3, use your old mylar3 appdata folder. A pool or disk path such as /mnt/cache/appdata/issuarr lets the database use its faster WAL mode." Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/issuarr</Config>
   <Config Name="Comics" Target="/comics" Default="" Mode="rw" Description="Your comic library. Set Settings &gt; General &gt; Comic folder to /comics. Coming from Mylar3, keep the same container path as before." Type="Path" Display="always" Required="true" Mask="false"/>

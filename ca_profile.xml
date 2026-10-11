@@ -1,0 +1,12 @@
+<CommunityApplications>
+  <Profile>
+**Issuarr** is a self-hosted comic book manager and the successor to Mylar3. It finds, downloads, renames, tags and organizes your comics (cbz and cbr) from Usenet, torrents and GetComics, using ComicVine for metadata.
+
+The image is a drop-in replacement for linuxserver/mylar3: point Appdata at your old mylar3 folder and your settings and database carry over.
+
+Install guide: https://issuarr.github.io/issuarr/UNRAID/
+Help and bug reports: https://github.com/issuarr/issuarr/issues
+  </Profile>
+  <Icon>https://raw.githubusercontent.com/issuarr/issuarr/main/data/images/issuarr-transparent.png</Icon>
+  <WebPage>https://issuarr.github.io/issuarr/</WebPage>
+</CommunityApplications>

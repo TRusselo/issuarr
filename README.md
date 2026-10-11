@@ -144,7 +144,7 @@ Issuarr's database works best on a local disk. If `/config` is on a network shar
 
 ### Unraid
 
-Issuarr has an Unraid template. See [Installing Issuarr on Unraid](docs/UNRAID.md) to add it, choose paths, or switch an existing Mylar3 container.
+Install Issuarr from the **Apps** tab (Community Applications), or add its template by hand. See [Installing Issuarr on Unraid](docs/UNRAID.md) for both methods, which paths to choose, and how to switch an existing Mylar3 container.
 
 ### From source
 

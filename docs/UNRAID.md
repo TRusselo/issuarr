@@ -2,7 +2,20 @@
 
 Issuarr has an Unraid template in this repository, [`templates/issuarr.xml`](https://github.com/issuarr/issuarr/blob/main/templates/issuarr.xml). It runs the `ghcr.io/issuarr/issuarr:latest` image with the usual Unraid defaults (user `99`, group `100`, appdata under `/mnt/user/appdata`).
 
-## Add the template
+There are two ways to install it. Both use the same template and give you the same container.
+
+## Option 1: Community Applications
+
+Issuarr has been submitted to Community Applications and is waiting for review. Until it is listed, use option 2.
+
+1. Open the **Apps** tab and search for **Issuarr**.
+2. Click **Install**.
+3. Fill in the paths (see below) and click **Apply**.
+4. Open the web UI from the container's icon, or at `http://<your-server>:8090`, and follow [Getting started](https://issuarr.github.io/issuarr/#getting-started).
+
+## Option 2: Add the template by hand
+
+This works on any Unraid server, whether or not Community Applications is installed.
 
 1. Open a terminal on the server (**>_** in the top-right of the web UI) and download the template into your user templates folder:
 

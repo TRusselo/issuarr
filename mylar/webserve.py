@@ -207,6 +207,55 @@ def _human_bytes(n):
         n /= 1024.0
 
 
+def client_snatches(myDB):
+    """Grabs handed to SABnzbd, NZBGet or a torrent client that haven't been processed yet.
+
+    Direct downloads are left out because the DDL queue already lists them. A grab counts
+    as waiting while its issue (or arc issue, or one-off) is still marked Snatched; that
+    status changes when the file is post-processed, fails, or is reset by hand.
+    """
+    current = {}
+    for table, key in (('issues', 'IssueID'), ('annuals', 'IssueID'), ('storyarcs', 'IssueArcID'), ('oneoffhistory', 'IssueID')):
+        try:
+            for r in myDB.select('SELECT %s AS id, Status FROM %s WHERE Status IS NOT NULL' % (key, table)):
+                if r['id'] is not None:
+                    current.setdefault(str(r['id']), set()).add(r['Status'])
+        except Exception:
+            continue
+
+    rows = myDB.select("SELECT IssueID, ComicID, ComicName, Issue_Number, Provider, DateAdded, Status FROM snatched "
+                       "WHERE Status IN ('Snatched', 'Downloaded', 'Post-Processed') ORDER BY DateAdded DESC")
+    done = {}
+    for r in rows:
+        if r['Status'] != 'Snatched':
+            prev = done.get(r['IssueID'])
+            done[r['IssueID']] = max(prev, r['DateAdded'] or '') if prev else (r['DateAdded'] or '')
+
+    out = []
+    seen = set()
+    for r in rows:
+        iid = r['IssueID']
+        if r['Status'] != 'Snatched' or iid is None or iid in seen:
+            continue
+        provider = r['Provider'] or ''
+        if provider.upper().startswith('DDL'):
+            continue
+        statuses = current.get(str(iid))
+        if statuses is not None:
+            if 'Snatched' not in statuses:
+                continue
+        elif done.get(iid, '') >= (r['DateAdded'] or ''):
+            continue
+        seen.add(iid)
+        out.append({'issueid': iid,
+                    'comicid': r['ComicID'],
+                    'series': r['ComicName'],
+                    'issue': r['Issue_Number'],
+                    'provider': provider or None,
+                    'sent': r['DateAdded']})
+    return out
+
+
 def _download_rate(did, done, total):
     now = time.time()
     prev = _DL_SAMPLE.get('last')
@@ -4062,7 +4111,7 @@ class WebInterface(object):
                                    'linktype':     si['link_type'],
                                    'volume':       si['ComicVersion'],
                                    'year':         year,
-                                   'size':         si['size'].strip(),
+                                   'size':         (si['size'] or '').strip(),
                                    'comicid':      si['ComicID'],
                                    'issueid':      si['IssueID'],
                                    'status':       si['status'],
@@ -4098,7 +4147,7 @@ class WebInterface(object):
                     oi_status = ''
 
                 if oi['pack']:
-                    if oi['year'] not in oi['filename']:
+                    if oi['year'] is not None and oi['year'] not in (oi['filename'] or ''):
                         series = '%s (%s)' % (oi['filename'], oi['year'])
                     else:
                         series = oi['filename']
@@ -4114,7 +4163,7 @@ class WebInterface(object):
                                    'volume':       None,
                                    'linktype':     oi['link_type'],
                                    'year':         year,
-                                   'size':         oi['size'].strip(),
+                                   'size':         (oi['size'] or '').strip(),
                                    'comicid':      oi['ComicID'],
                                    'issueid':      oi['IssueID'],
                                    'status':       oi['status'],
@@ -4158,6 +4207,12 @@ class WebInterface(object):
         })
 
     queueManageIt.exposed = True
+
+    def queueClients(self):
+        # Usenet and torrent grabs still waiting at the download client.
+        myDB = db.DBConnection()
+        return json.dumps({'items': client_snatches(myDB)})
+    queueClients.exposed = True
 
     def previewRename(self, **args): #comicid=None, comicidlist=None):
         file_format = mylar.CONFIG.FILE_FORMAT

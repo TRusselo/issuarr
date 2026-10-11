@@ -1,4 +1,4 @@
-/* Downloads > Queue: the direct-download queue and the active download. */
+/* Downloads > Queue: grabs waiting at the download client, the direct-download queue and the active download. */
 (function () {
   'use strict';
 
@@ -53,7 +53,7 @@
   function renderRows(rows) {
     var tb = $id('q-table').tBodies[0];
     if (!rows.length) {
-      var msg = st.q || st.status ? 'Nothing matches.' : 'Nothing has been sent to the download queue yet.';
+      var msg = st.q || st.status ? 'Nothing matches.' : 'No direct downloads yet. Grabs from GetComics and other direct sources show here.';
       tb.innerHTML = '<tr><td colspan="6" class="empty-state">' + msg + '</td></tr>';
       return;
     }
@@ -87,6 +87,38 @@
       .catch(function () {
         $id('q-table').tBodies[0].innerHTML = '<tr><td colspan="6" class="empty-state">Couldn\'t load the queue. Check the log.</td></tr>';
       });
+  }
+
+  /* ---- usenet and torrent grabs ---- */
+  function loadClients() {
+    fetch('queueClients', { credentials: 'same-origin', cache: 'no-store' })
+      .then(function (r) { if (!r.ok) throw new Error(r.status); return r.json(); })
+      .then(function (d) { renderClients(d.items || []); })
+      .catch(function () {
+        var body = $id('q-clients-body');
+        body.className = 'muted';
+        body.textContent = 'Couldn\'t check what\'s at your download client. Check the log.';
+      });
+  }
+
+  function renderClients(items) {
+    var body = $id('q-clients-body');
+    $id('q-clients-count').textContent = items.length ? items.length + ' waiting' : '';
+    if (!items.length) {
+      body.className = 'muted';
+      body.textContent = 'Nothing is waiting at SABnzbd, NZBGet or your torrent client.';
+      return;
+    }
+    body.className = 'dt-wrap';
+    body.innerHTML = '<table class="dt"><thead><tr><th scope="col">Issue</th><th scope="col">From</th><th scope="col">Sent</th>' +
+      '<th scope="col">Status</th></tr></thead><tbody>' + items.map(function (it) {
+        var name = esc(it.series || '') + (it.issue ? ' ' + esc(/^\d/.test(it.issue) ? '#' + it.issue : it.issue) : '');
+        var cell = it.comicid && String(it.issueid).indexOf('_') === -1
+          ? '<a href="comicDetails?ComicID=' + encodeURIComponent(it.comicid) + '">' + name + '</a>' : name;
+        return '<tr><td>' + cell + '</td><td class="nowrap">' + esc(it.provider || '-') + '</td>' +
+          '<td class="mono muted nowrap">' + esc((it.sent || '').slice(0, 16)) + '</td>' +
+          '<td><span class="status is-snatched" title="Sent to the download client. It moves to History once it\'s been processed.">Waiting on client</span></td></tr>';
+      }).join('') + '</tbody></table>';
   }
 
   /* ---- active download ---- */
@@ -181,10 +213,12 @@
   function start() {
     renderTabs();
     pollActive(true);
+    loadClients();
     pixeldrain();
     setInterval(pollActive, 5000);
-    document.addEventListener('visibilitychange', function () { if (!document.hidden) pollActive(true); });
-    document.addEventListener('issuarr:refresh', function () { pollActive(true); loadTable(); });
+    setInterval(function () { if (!document.hidden) loadClients(); }, 15000);
+    document.addEventListener('visibilitychange', function () { if (!document.hidden) { pollActive(true); loadClients(); } });
+    document.addEventListener('issuarr:refresh', function () { pollActive(true); loadTable(); loadClients(); });
   }
   if (window.jQuery) window.jQuery(start); else document.addEventListener('DOMContentLoaded', start);
 })();

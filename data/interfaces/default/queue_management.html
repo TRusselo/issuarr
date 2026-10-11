@@ -9,7 +9,7 @@
         <div class="page-head">
             <div class="head-text">
                 <h1><span class="page-crumb">Downloads › </span>Queue</h1>
-                <p class="page-sub">Direct downloads from GetComics and its hosts, including the ones handed to JDownloader 2. Usenet and torrent grabs show in History until they're processed.</p>
+                <p class="page-sub">What's downloading now: grabs sent to SABnzbd, NZBGet or your torrent client that haven't been processed yet, and direct downloads from GetComics and its hosts, including the ones handed to JDownloader 2.</p>
             </div>
             <div class="btn-row">
                 <button type="button" class="btn" id="q-restart-queue">Restart queue</button>
@@ -30,7 +30,16 @@
             <div id="q-active-body" class="muted">Checking…</div>
         </section>
 
-        <section class="section" aria-label="Queue and recent downloads">
+        <section class="panel" id="q-clients" aria-labelledby="q-clients-title">
+            <div class="panel-head">
+                <h2 class="panel-title" id="q-clients-title">At your download client</h2>
+                <span class="muted" id="q-clients-count"></span>
+            </div>
+            <div id="q-clients-body" class="muted">Checking…</div>
+        </section>
+
+        <section class="section" aria-label="Direct download queue">
+            <h2 class="panel-title">Direct downloads</h2>
             <div class="section-head" style="align-items: flex-end">
                 <div class="filter-tabs" role="group" aria-label="Show" id="q-tabs"></div>
                 <label class="nowrap" style="display: flex; align-items: center; gap: 8px">

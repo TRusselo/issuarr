@@ -17,6 +17,7 @@ nav:
   - JDownloader 2: JDOWNLOADER2.md
   - Web API: API.md
   - Troubleshooting: TROUBLESHOOTING.md
+  - Changelog: CHANGELOG.md
 
 theme:
   name: material

@@ -58,4 +58,6 @@ See [Moving from Mylar3 to Issuarr](MIGRATING.md) for what to check afterwards.
 
 ## Updates
 
-The template follows the `latest` tag, which is rebuilt whenever Issuarr's main branch changes. Unraid shows **update ready** on the Docker tab when a new image is out; click it to update.
+The template follows the `latest` tag, which is rebuilt whenever a new Issuarr release lands on the main branch. Unraid shows **update ready** on the Docker tab when a new image is out; click it to update.
+
+To try changes before they are released, change **Repository** to `ghcr.io/issuarr/issuarr:dev` and click **Apply**. The `dev` tag is rebuilt whenever Issuarr's dev branch changes, so it is less tested than `latest`. Change it back to `latest` to return to releases; your settings and library are kept either way.

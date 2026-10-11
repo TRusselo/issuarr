@@ -1,13 +1,14 @@
 # Build a LSIO compatible container for dev branches
 name: Build & Publish Feature Container
 
-# Run on any branch that isn't a main branch
+# Run on any branch except main and dev (docker_ghcr.yml builds those)
 on:
     push:
         branches-ignore:
             - 'stable'
             - 'nightly'
             - 'main'
+            - 'dev'
 
 # Cancel previous run on this branch if a new push is made
 concurrency:

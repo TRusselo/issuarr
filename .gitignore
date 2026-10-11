@@ -33,3 +33,8 @@ __pycache__
 # Docs site: generated from README.md at build time, and the build output
 build/
 site/
+
+# Local Claude Code files (instructions, settings, worktrees)
+CLAUDE.md
+CLAUDE.local.md
+.claude/

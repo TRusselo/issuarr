@@ -23,6 +23,7 @@ def cfg(monkeypatch):
 
 def pick(issue, name='Aliens Omnibus'):
     gc = getcomics.GC.__new__(getcomics.GC)
+    gc.jd2 = object()  # JD2 configured, so hosts only JD2 handles are listed too
     return gc._single_item(BeautifulSoup(PAGE, 'html.parser'), [{'ComicName': name, 'IssueNumber': issue, 'IssueID': '1'}])
 
 
@@ -45,3 +46,28 @@ def test_main_first_when_large_rule_off():
 def test_no_match_falls_back():
     assert pick('5') is None
     assert pick('4', name='Predator Omnibus') is None
+
+
+HOSTS_PAGE = '''<ul>
+<li>Aliens Omnibus Vol. 5 (2009) (630 MB)<strong> :</strong><br /><a href="https://getcomics.org/dls/v5px"><span>Pixeldrain</span></a> | <a href="https://getcomics.org/dls/v5vk"><span>VikingFile</span></a></li>
+</ul>'''
+
+
+def pick_hosts(jd2, failed):
+    gc = getcomics.GC.__new__(getcomics.GC)
+    gc.jd2 = jd2
+    return gc._single_item(BeautifulSoup(HOSTS_PAGE, 'html.parser'),
+                           [{'ComicName': 'Aliens Omnibus', 'IssueNumber': '5', 'IssueID': '1'}], failed)
+
+
+@pytest.mark.unit
+def test_without_jd2_a_host_only_jd2_handles_is_never_picked():
+    # after JD2 gave up, picking VikingFile queued an 'Unknown' link that failed and was picked again forever
+    single = pick_hosts(None, ['GC-Pixel'])
+    assert single is None or single[1]['source'] != 'vikingfile'
+
+
+@pytest.mark.unit
+def test_with_jd2_a_host_only_jd2_handles_can_still_be_picked():
+    single = pick_hosts(object(), ['GC-Pixel'])
+    assert single[1]['source'] == 'vikingfile'

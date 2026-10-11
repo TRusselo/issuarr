@@ -125,7 +125,7 @@ class PixelDrain(object):
         myDB = db.DBConnection()
         myDB.upsert(
             'ddl_info',
-            {'tmp_filename': filename},  # tmp_filename should be all that's needed to be updated at this point...
+            {'tmp_filename': filepath},  # tmp_filename should be all that's needed to be updated at this point...
             {'id': self.id},
         )
 
@@ -141,12 +141,21 @@ class PixelDrain(object):
             logger.fdebug('[PixelDrain] now writing....')
             with open(filepath, 'wb') as f:
                 for chunk in response.iter_content(chunk_size=1024):
+                    if str(self.id) in mylar.DDL_CANCEL:
+                        raise mylar.getcomics.DownloadCancelled()
                     if chunk:
                         f.write(chunk)
                         f.flush()
 
         except Exception as e:
-            logger.warn('[PixelDrain][ERROR] %s' % e)
+            if str(self.id) in mylar.DDL_CANCEL:
+                logger.info('[PixelDrain] Stopped downloading %s - it was aborted or removed from the queue.' % filename)
+                try:
+                    os.remove(filepath)
+                except OSError:
+                    pass
+            else:
+                logger.warn('[PixelDrain][ERROR] %s' % e)
             if 'EBLOCKED' in str(e):
                 logger.warn('[PixelDrain] Content has been removed - we should move on to the next one at this point.')
             return {"success": False, "filename": filename, "path": None, "link_type_failure": 'GC-Pixel'}

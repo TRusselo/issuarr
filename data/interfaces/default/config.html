@@ -499,6 +499,10 @@
                         </div>
                     </div>
                     <div class="set-row">
+                        <label class="set-label" for="ddl_max_parallel"><b>Simultaneous file-host downloads</b><span>How many Mega, MediaFire and Pixeldrain downloads run at once. GetComics' own server always gets one at a time. 0 downloads everything one at a time. Changes apply to the next download that starts.</span></label>
+                        <div class="set-ctl"><input type="number" name="ddl_max_parallel" id="ddl_max_parallel" value="${config['ddl_max_parallel'] | h}" min="0" max="10" step="1" class="set-num" /></div>
+                    </div>
+                    <div class="set-row">
                         <label class="set-label" for="ddl_location"><b>Download folder</b><span>Where GetComics downloads are saved, and packs unzipped, before filing. Leave empty to use ${config['ddl_location_default'] | h}. Choose a folder outside the monitored folder.</span>
                             <span id="ddl_location_warning" class="set-warn" style="display:none;">This is inside the monitored folder, so downloads could be processed before they finish.</span></label>
                         <div class="set-ctl"><input type="text" id="ddl_location" name="ddl_location" value="${'' if config['ddl_location'] in (None, 'None') else config['ddl_location'] | h}" ${'data-none="1"' if config['ddl_location'] in (None, 'None') else ''} placeholder="${config['ddl_location_default'] | h}" class="set-wide" /></div>

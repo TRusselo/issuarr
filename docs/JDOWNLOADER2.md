@@ -9,7 +9,7 @@ This is optional. Direct downloads work without it.
 - Issuarr still tries the GetComics server itself first. The mirror links go to JD2 when that fails, or straight away when a post only has hosts JD2 handles.
 - Mirrors get JD2 priorities in the host order you set under **Settings > Search providers > Direct downloads**, highest first.
 - If JD2 can't be reached or refuses the links, Issuarr hands the download back to its built-in downloader.
-- If a job never shows up in JD2's download list (for example because every link is offline), Issuarr gives up after about three minutes and marks the issue Failed, so it doesn't sit at Snatched.
+- If JD2 gives up on a download (links offline, blocked, or the job never shows up in JD2's download list within about three minutes), Issuarr tries its own downloaders for the same post: file hosts first for big files, GetComics' own server last. The issue is marked Failed only when none of them work, so it doesn't sit at Snatched.
 - When JD2 finishes, Issuarr post-processes the download from JD2's download folder like any other download.
 
 ## 1. Set up JD2

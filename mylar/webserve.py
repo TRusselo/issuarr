@@ -85,6 +85,7 @@ from mylar import (
     weeklypull,
 )
 from mylar.queues import queue_info
+from mylar.queues import ddl as ddl_queue
 from mylar.auth import (
     AuthController,
     require,
@@ -196,39 +197,6 @@ class WebMaintenance(object):
         message = 'Shutting Down...'
         return serve_template(templatename="shutdown.html", title="Shutting Down", message=message, timer=5)
     shutdown.exposed = True
-
-
-_DL_SAMPLE = {}
-
-
-def _human_bytes(n):
-    for unit in ('B', 'KB', 'MB', 'GB'):
-        if n < 1024 or unit == 'GB':
-            return ('%.0f %s' if unit in ('B', 'KB') else '%.1f %s') % (n, unit)
-        n /= 1024.0
-
-
-def _download_rate(did, done, total):
-    now = time.time()
-    prev = _DL_SAMPLE.get('last')
-    speed = prev[3] if prev and prev[0] == did else None
-    if prev and prev[0] == did and done >= prev[1] and now - prev[2] >= 2:
-        inst = (done - prev[1]) / (now - prev[2])
-        speed = inst if speed is None else speed * 0.6 + inst * 0.4
-        _DL_SAMPLE['last'] = (did, done, now, speed)
-    elif not prev or prev[0] != did or done < prev[1]:
-        _DL_SAMPLE['last'] = (did, done, now, None)
-    out = {'a_progress': '%s of %s' % (_human_bytes(done), _human_bytes(total))}
-    if speed:
-        out['a_speed'] = '%s/s' % _human_bytes(speed)
-        left = max(total - done, 0) / speed
-        if left < 90:
-            out['a_eta'] = 'under 2 min left'
-        elif left < 5400:
-            out['a_eta'] = 'about %d min left' % round(left / 60)
-        else:
-            out['a_eta'] = 'about %.1f h left' % (left / 3600)
-    return out
 
 
 class WebInterface(object):
@@ -4064,13 +4032,9 @@ class WebInterface(object):
 
     def downloadQueue(self):
         # Everything on its way: direct downloads plus grabs at SABnzbd, NZBGet or a torrent client.
-        active = json.loads(self._active_ddl())
-        if active.get('status') == 'Downloading' and active.get('a_total'):
-            active.update(_download_rate(active['a_id'], active['a_done'], active['a_total']))
-        elif active.get('status') != 'Downloading':
-            active = None
         myDB = db.DBConnection()
-        return json.dumps({'items': downloadqueue.build(myDB, active), 'waiting': mylar.DDL_QUEUE.qsize()})
+        return json.dumps({'items': downloadqueue.build(myDB, rate=downloadqueue.download_rate),
+                           'waiting': ddl_queue.waiting_count()})
     downloadQueue.exposed = True
 
     def previewRename(self, **args): #comicid=None, comicidlist=None):
@@ -7374,6 +7338,7 @@ class WebInterface(object):
                     "ddl_prefer_upscaled": helpers.checked(mylar.CONFIG.DDL_PREFER_UPSCALED),
                     "ddl_main_large_last": helpers.checked(mylar.CONFIG.DDL_MAIN_LARGE_LAST),
                     "ddl_main_large_mb": mylar.CONFIG.DDL_MAIN_LARGE_MB,
+                    "ddl_max_parallel": mylar.CONFIG.DDL_MAX_PARALLEL,
                     "ddl_location": '' if not mylar.CONFIG.DDL_LOCATION or mylar.CONFIG.DDL_LOCATION == mylar.CONFIG.CACHE_DIR else mylar.CONFIG.DDL_LOCATION,
                     "ddl_location_default": mylar.CONFIG.CACHE_DIR,
                     "enable_flaresolverr": helpers.checked(mylar.CONFIG.ENABLE_FLARESOLVERR),
@@ -9368,20 +9333,16 @@ class WebInterface(object):
         out = json.loads(self._active_ddl())
         myDB = db.DBConnection()
         out['counts'] = {r['status']: r['count'] for r in myDB.select("SELECT status, count(*) AS count FROM ddl_info GROUP BY status")}
-        out['waiting'] = mylar.DDL_QUEUE.qsize()
+        out['waiting'] = ddl_queue.waiting_count()
         if out.get('status') == 'Downloading' and out.get('a_total'):
-            out.update(_download_rate(out['a_id'], out['a_done'], out['a_total']))
+            out.update(downloadqueue.download_rate(out['a_id'], out['a_done'], out['a_total']))
         return json.dumps(out)
     check_ActiveDDL.exposed = True
 
     def _active_ddl(self):
          myDB = db.DBConnection()
-         from mylar.queues.ddl import ACTIVE
-         active = None
-         if ACTIVE[0] is not None:
-             active = myDB.selectone("SELECT * FROM DDL_INFO WHERE ID = ? AND STATUS = 'Downloading'", [ACTIVE[0]]).fetchone()
-         if active is None:
-             active = myDB.selectone("SELECT * FROM DDL_INFO WHERE STATUS = 'Downloading'").fetchone()
+         # several downloads can run at once - report the one that started last
+         active = myDB.selectone("SELECT * FROM DDL_INFO WHERE STATUS = 'Downloading' ORDER BY updated_date DESC").fetchone()
          if active is None:
              return json.dumps({'status':   'There are no active downloads currently being attended to',
                                 'percent':   0,
@@ -9391,48 +9352,22 @@ class WebInterface(object):
                                 'a_size':  None,
                                 'a_id':  None,
                                 'a_issueid': None})
+         progress = downloadqueue.ddl_progress(active)
+         if progress and progress['total']:
+             return json.dumps({'status':      'Downloading',
+                                'percent':     '%s%%' % progress['percent'],
+                                'a_series':    active['series'],
+                                'a_year':      active['year'],
+                                'a_filename':  active['filename'],
+                                'a_size':      active['size'],
+                                'a_done':      progress['done'],
+                                'a_total':     progress['total'],
+                                'a_id':        active['id']})
+         if active['filename'] is None and not active['tmp_filename']:
+             statline = 'No filename assigned for %s (%s).</br> This was probably never started successfully - you should restart the download (use the option in the GUI)' % (active['series'], active['year'])
          else:
-             filelocation = None
-             if active['filename'] is not None:
-                 # if this is resumed, we need to use the resume value which holds the filesize of the resume
-                 filelocation = os.path.join(mylar.CONFIG.DDL_LOCATION, active['filename'])
-                 #logger.fdebug('b4-checking file existance: %s' % filelocation)
-                 if all(['External' in active['site'], active['link_type'] == 'DDL-Ext']):
-                     filelocation = active['tmp_filename']
-                 elif 'DDL' in active['site'] and any([active['link_type'] == 'GC-Mega', active['link_type'] == 'GC-Pixel']):
-                     filelocation = active['tmp_filename']
-                 else:
-                     filelocation = os.path.join(mylar.CONFIG.DDL_LOCATION, active['filename'])
-                 #logger.fdebug('after-checking file existance: %s' % filelocation)
-                 if filelocation and os.path.exists(filelocation) is True:
-                     filesize = os.stat(filelocation).st_size
-                     #logger.fdebug('filesize: %s / remote: %s' % (filesize, active['remote_filesize']))
-                     remote_filesize = active['remote_filesize']
-                     cmath = int(float(filesize*100)/int(int(remote_filesize)*100) * 100)
-                     if filesize > int(remote_filesize) and cmath > 102:
-                         logger.fdebug('size calc is incorrect ... correcting...')
-                         remote_filesize = helpers.human2bytes(re.sub('/s', '', active['size'][:-1]).strip())
-                         cmath = int(float(filesize*100)/int(int(remote_filesize)*100) * 100)
-                     #logger.fdebug('remote_filesize: %s' % (remote_filesize))
-                     #logger.fdebug('ACTIVE DDL: %s  %s%s  [%s]' % (active['filename'], cmath, '%', 'Downloading'))
-                     #logger.fdebug('size: %s' % active['size'])
-                     return json.dumps({'status':      'Downloading',
-                                        'percent':     "%s%s" % (cmath, '%'),
-                                        'a_series':    active['series'],
-                                        'a_year':      active['year'],
-                                        'a_filename':  active['filename'],
-                                        'a_size':      active['size'],
-                                        'a_done':      filesize,
-                                        'a_total':     int(remote_filesize),
-                                        'a_id':        active['id']})
-                 if filelocation:
-                     statline = '%s does not exist.</br> This probably needs to be restarted (use the option in the GUI)' % filelocation
-                 else:
-                     statline = 'No download file yet for %s (%s).</br> If this doesn\'t change, restart the download.' % (active['series'], active['year'])
-             else:
-                 infoline = '%s (%s)' % (active['series'], active['year'])
-                 statline = 'No filename assigned for %s.</br> This was probably never started successfully - you should restart the download (use the option in the GUI)' % infoline
-             return json.dumps({'a_id': active['id'], 'status': statline, 'percent': 0})
+             statline = 'No download file yet for %s (%s).</br> If this doesn\'t change, restart the download.' % (active['series'], active['year'])
+         return json.dumps({'a_id': active['id'], 'status': statline, 'percent': 0})
 
 
     def create_readlist(self, list=None, weeknumber=None, year=None):

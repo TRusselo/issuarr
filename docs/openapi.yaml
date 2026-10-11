@@ -1,0 +1,1712 @@
+# OpenAPI description of the Issuarr web API (mylar/api.py).
+# Keep it in step with the code: tests/test_openapi.py checks that every command is listed.
+openapi: 3.1.0
+info:
+  title: Issuarr API
+  version: 1.0.0
+  summary: The Issuarr web API, compatible with Mylar3.
+  description: |-
+    Every command is a GET request. Each one is listed here as `/api/COMMAND`, which works the same as the Mylar-style `/api?cmd=COMMAND`.
+
+    **Errors come back with HTTP status 200.** Check the `success` field: an error looks like `{"success": false, "error": {"code": 460, "message": "..."}}`. Code 460 means bad input; 500 means the command failed.
+
+    Some commands return a bare JSON list or object instead of the `success`/`data` envelope, and some return the text `OK`. Each command's response says which.
+
+    Commands tagged **Destructive** (and marked `x-destructive: true`) delete data or stop Issuarr with no confirmation step. Don't let an automated client call them unless you mean it.
+
+    Human-readable guide: [API.md](https://github.com/issuarr/issuarr/blob/main/docs/API.md).
+  license:
+    name: GPL-3.0-or-later
+    identifier: GPL-3.0-or-later
+servers:
+- url: '{scheme}://{host}:{port}{http_root}'
+  description: Your Issuarr server. `http_root` is empty unless you set HTTP root in Settings.
+  variables:
+    scheme:
+      default: http
+      enum:
+      - http
+      - https
+    host:
+      default: localhost
+    port:
+      default: '8090'
+    http_root:
+      default: ''
+security:
+- apikeyHeader: []
+- apikeyQuery: []
+tags:
+- name: Library
+- name: Search
+- name: Story arcs
+- name: Changes
+- name: Metadata
+- name: Files
+- name: Providers
+- name: System
+- name: Destructive
+paths:
+  /api/getIndex:
+    get:
+      operationId: getIndex
+      tags:
+      - Library
+      summary: List every series on the watchlist
+      responses:
+        '200':
+          description: Series, sorted by name.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                - allOf:
+                  - $ref: '#/components/schemas/Success'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/Comic'
+                - $ref: '#/components/schemas/Error'
+  /api/getComic:
+    get:
+      operationId: getComic
+      tags:
+      - Library
+      summary: Get one series with its issues and annuals
+      description: Unknown IDs return empty lists, not an error.
+      parameters:
+      - name: id
+        in: query
+        required: true
+        description: ComicID (ComicVine volume ID).
+        schema:
+          type: string
+      responses:
+        '200':
+          description: The series, its issues (newest first) and annuals (empty unless annuals are enabled).
+          content:
+            application/json:
+              schema:
+                oneOf:
+                - allOf:
+                  - $ref: '#/components/schemas/Success'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          comic:
+                            type: array
+                            items:
+                              $ref: '#/components/schemas/Comic'
+                            maxItems: 1
+                          issues:
+                            type: array
+                            items:
+                              $ref: '#/components/schemas/Issue'
+                          annuals:
+                            type: array
+                            items:
+                              $ref: '#/components/schemas/Annual'
+                - $ref: '#/components/schemas/Error'
+  /api/getComicInfo:
+    get:
+      operationId: getComicInfo
+      tags:
+      - Library
+      summary: Get one series
+      parameters:
+      - name: id
+        in: query
+        required: true
+        description: ComicID (ComicVine volume ID).
+        schema:
+          type: string
+      responses:
+        '200':
+          description: A one-item list. Fails with "No comic found with that ID" if not found.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                - allOf:
+                  - $ref: '#/components/schemas/Success'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/Comic'
+                        maxItems: 1
+                - $ref: '#/components/schemas/Error'
+  /api/getIssueInfo:
+    get:
+      operationId: getIssueInfo
+      tags:
+      - Library
+      summary: Get one issue
+      parameters:
+      - name: id
+        in: query
+        required: true
+        description: IssueID (ComicVine issue ID).
+        schema:
+          type: string
+      responses:
+        '200':
+          description: A one-item list. Fails with "No issue found with that ID" if not found.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                - allOf:
+                  - $ref: '#/components/schemas/Success'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/Issue'
+                        maxItems: 1
+                - $ref: '#/components/schemas/Error'
+  /api/getUpcoming:
+    get:
+      operationId: getUpcoming
+      tags:
+      - Library
+      summary: This week's pull-list issues for watched series
+      description: 'Bare response: no success/data envelope.'
+      parameters:
+      - name: include_downloaded_issues
+        in: query
+        required: false
+        description: Y to include Snatched and Downloaded issues as well as Wanted.
+        schema:
+          type: string
+          enum:
+          - Y
+          - N
+      responses:
+        '200':
+          description: Upcoming issues.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                - type: array
+                  items:
+                    $ref: '#/components/schemas/UpcomingIssue'
+                - $ref: '#/components/schemas/Error'
+  /api/getWanted:
+    get:
+      operationId: getWanted
+      tags:
+      - Library
+      summary: List Wanted issues
+      description: 'Bare response: no success/data envelope.'
+      parameters:
+      - name: story_arcs
+        in: query
+        required: false
+        description: true to include Wanted story-arc issues (only when upcoming story arcs are enabled).
+        schema:
+          type: string
+          enum:
+          - 'true'
+          - 'false'
+      responses:
+        '200':
+          description: Wanted issues, plus `story_arcs` and `annuals` when those features are on.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                - type: object
+                  properties:
+                    issues:
+                      type: array
+                      items:
+                        type: object
+                        additionalProperties: true
+                    story_arcs:
+                      type: array
+                      items:
+                        type: object
+                        additionalProperties: true
+                    annuals:
+                      type: array
+                      items:
+                        type: object
+                        additionalProperties: true
+                  required:
+                  - issues
+                - $ref: '#/components/schemas/Error'
+  /api/getHistory:
+    get:
+      operationId: getHistory
+      tags:
+      - Library
+      summary: List the snatch history
+      description: Returns every row of the history table, newest first. There is no paging.
+      responses:
+        '200':
+          description: History rows.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                - allOf:
+                  - $ref: '#/components/schemas/Success'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          type: object
+                          additionalProperties: true
+                - $ref: '#/components/schemas/Error'
+  /api/getReadList:
+    get:
+      operationId: getReadList
+      tags:
+      - Library
+      summary: List the reading list
+      responses:
+        '200':
+          description: Reading-list issues, oldest first.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                - allOf:
+                  - $ref: '#/components/schemas/Success'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            id:
+                              type: string
+                            number:
+                              type: string
+                            issueDate:
+                              type: string
+                            status:
+                              type: string
+                            comicName:
+                              type: string
+                - $ref: '#/components/schemas/Error'
+  /api/getStoryArc:
+    get:
+      operationId: getStoryArc
+      tags:
+      - Story arcs
+      summary: List story arcs, or the issues in one arc
+      description: 'Bare response: no success/data envelope.'
+      parameters:
+      - name: id
+        in: query
+        required: false
+        description: StoryArcID. Without it, every arc is listed.
+        schema:
+          type: string
+      - name: customOnly
+        in: query
+        required: false
+        description: Any non-empty value lists only arcs created in Issuarr (IDs starting with C).
+        schema:
+          type: string
+      responses:
+        '200':
+          description: Arcs (`StoryArcID, StoryArc, HighestOrder`), or the issues of one arc in reading order.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                - type: array
+                  items:
+                    type: object
+                    additionalProperties: true
+                - $ref: '#/components/schemas/Error'
+  /api/addStoryArc:
+    get:
+      operationId: addStoryArc
+      tags:
+      - Story arcs
+      summary: Create a story arc or add issues to one
+      description: Give `id` to add to an existing arc, or `storyarcname` to create a new one. Give the issues as `issues`
+        or `arclist`.
+      parameters:
+      - name: id
+        in: query
+        required: false
+        description: StoryArcID of an existing arc.
+        schema:
+          type: string
+      - name: storyarcname
+        in: query
+        required: false
+        description: Name for a new arc.
+        schema:
+          type: string
+      - name: issues
+        in: query
+        required: false
+        description: Comma-separated IssueIDs, added in this order.
+        schema:
+          type: string
+      - name: arclist
+        in: query
+        required: false
+        description: Pipe-separated `IssueID,order` pairs. Only the IssueIDs are used; order follows the list.
+        schema:
+          type: string
+      responses:
+        '200':
+          description: A message.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                - allOf:
+                  - $ref: '#/components/schemas/Success'
+                  - type: object
+                    properties:
+                      data:
+                        type: string
+                        description: A sentence describing what happened.
+                - $ref: '#/components/schemas/Error'
+  /api/listAnnualSeries:
+    get:
+      operationId: listAnnualSeries
+      tags:
+      - Library
+      summary: List annuals that were merged into series
+      description: Give at least one of the two flags.
+      parameters:
+      - name: list_issues
+        in: query
+        required: false
+        description: 'Any value: list each annual.'
+        schema:
+          type: string
+      - name: group_series
+        in: query
+        required: false
+        description: 'Any value: group the annuals by ComicID.'
+        schema:
+          type: string
+      - name: show_downloaded
+        in: query
+        required: false
+        description: 'Any value: only Downloaded annuals.'
+        schema:
+          type: string
+      responses:
+        '200':
+          description: A list, or an object keyed by ComicID when `group_series` is given.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                - allOf:
+                  - $ref: '#/components/schemas/Success'
+                  - type: object
+                    properties:
+                      data:
+                        oneOf:
+                        - type: array
+                          items:
+                            $ref: '#/components/schemas/AnnualListing'
+                        - type: object
+                          additionalProperties:
+                            type: array
+                            items:
+                              $ref: '#/components/schemas/AnnualListing'
+                - $ref: '#/components/schemas/Error'
+  /api/seriesjsonListing:
+    get:
+      operationId: seriesjsonListing
+      tags:
+      - Metadata
+      summary: List series and their folders for series.json work
+      parameters:
+      - name: missing
+        in: query
+        required: false
+        description: 'Any value: only series without a series.json.'
+        schema:
+          type: string
+      responses:
+        '200':
+          description: '`ComicID` and `ComicLocation` per series. Fails if the list is empty.'
+          content:
+            application/json:
+              schema:
+                oneOf:
+                - allOf:
+                  - $ref: '#/components/schemas/Success'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            ComicID:
+                              type: string
+                            ComicLocation:
+                              type: string
+                - $ref: '#/components/schemas/Error'
+  /api/refreshSeriesjson:
+    get:
+      operationId: refreshSeriesjson
+      tags:
+      - Metadata
+      summary: Rewrite series.json files
+      description: The response is `OK`, or for `all`/`missing`/`refresh-missing` the series list from seriesjsonListing.
+      parameters:
+      - name: comicid
+        in: query
+        required: true
+        description: A ComicID, or `all`, `missing` or `refresh-missing`.
+        schema:
+          type: string
+      responses:
+        '200':
+          description: '`OK` or the series list.'
+          content:
+            text/plain:
+              schema:
+                type: string
+                example: OK
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /api/getArt:
+    get:
+      operationId: getArt
+      tags:
+      - Files
+      summary: Get a series cover
+      description: Downloads and caches the cover if it is not cached yet.
+      parameters:
+      - name: id
+        in: query
+        required: true
+        description: ComicID (ComicVine volume ID).
+        schema:
+          type: string
+      responses:
+        '200':
+          description: The cover image.
+          content:
+            image/jpeg:
+              schema:
+                type: string
+                format: binary
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /api/downloadIssue:
+    get:
+      operationId: downloadIssue
+      tags:
+      - Files
+      summary: Download an issue file
+      description: Only works once the issue has been downloaded.
+      parameters:
+      - name: id
+        in: query
+        required: true
+        description: IssueID (ComicVine issue ID).
+        schema:
+          type: string
+      responses:
+        '200':
+          description: The issue file.
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /api/downloadNZB:
+    get:
+      operationId: downloadNZB
+      tags:
+      - Files
+      summary: Download an NZB from the cache folder
+      parameters:
+      - name: nzbname
+        in: query
+        required: true
+        description: File name in the cache folder (not a path).
+        schema:
+          type: string
+      responses:
+        '200':
+          description: The NZB file.
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /api/findComic:
+    get:
+      operationId: findComic
+      tags:
+      - Search
+      summary: Search ComicVine
+      description: 'Bare response: no success/data envelope. Uses your ComicVine API quota.'
+      parameters:
+      - name: name
+        in: query
+        required: true
+        description: Series or story-arc name.
+        schema:
+          type: string
+      - name: issue
+        in: query
+        required: false
+        description: Issue number to match.
+        schema:
+          type: string
+      - name: type_
+        in: query
+        required: false
+        description: What to search for.
+        schema:
+          type: string
+          enum:
+          - comic
+          - story_arc
+          default: comic
+      - name: mode
+        in: query
+        required: false
+        description: Search mode for comics.
+        schema:
+          type: string
+          enum:
+          - series
+          - pullseries
+          - want
+          default: series
+      - name: page
+        in: query
+        required: false
+        description: Page number.
+        schema:
+          type: integer
+      - name: pageSize
+        in: query
+        required: false
+        description: Results per page.
+        schema:
+          type: integer
+      responses:
+        '200':
+          description: Matches, newest first.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                - type: array
+                  items:
+                    type: object
+                    additionalProperties: true
+                    properties:
+                      name:
+                        type: string
+                      comicid:
+                        type: string
+                        description: ComicID to pass to addComic.
+                      comicyear:
+                        type: string
+                      issues: {}
+                      publisher:
+                        type: string
+                      url:
+                        type: string
+                      comicimage:
+                        type: string
+                      type:
+                        type: string
+                      volume: {}
+                      imprint: {}
+                      haveit:
+                        description: Whether the series is already on the watchlist.
+                - $ref: '#/components/schemas/Error'
+  /api/addComic:
+    get:
+      operationId: addComic
+      tags:
+      - Changes
+      summary: Add a series to the watchlist
+      description: Runs in the background. Use getComicInfo afterwards to see it.
+      parameters:
+      - name: id
+        in: query
+        required: true
+        description: ComicID (ComicVine volume ID).
+        schema:
+          type: string
+      responses:
+        '200':
+          description: A message.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                - allOf:
+                  - $ref: '#/components/schemas/Success'
+                  - type: object
+                    properties:
+                      data:
+                        type: string
+                        description: A sentence describing what happened.
+                - $ref: '#/components/schemas/Error'
+  /api/refreshComic:
+    get:
+      operationId: refreshComic
+      tags:
+      - Changes
+      summary: Refresh series metadata from ComicVine
+      parameters:
+      - name: id
+        in: query
+        required: true
+        description: ComicID, or several separated by commas.
+        schema:
+          type: string
+      responses:
+        '200':
+          description: A message.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                - allOf:
+                  - $ref: '#/components/schemas/Success'
+                  - type: object
+                    properties:
+                      data:
+                        type: string
+                        description: A sentence describing what happened.
+                - $ref: '#/components/schemas/Error'
+  /api/pauseComic:
+    get:
+      operationId: pauseComic
+      tags:
+      - Changes
+      summary: Pause a series
+      parameters:
+      - name: id
+        in: query
+        required: true
+        description: ComicID (ComicVine volume ID).
+        schema:
+          type: string
+      responses:
+        '200':
+          description: 'The text `OK`: the request was accepted. It does not mean the work has finished.'
+          content:
+            text/plain:
+              schema:
+                type: string
+                example: OK
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /api/resumeComic:
+    get:
+      operationId: resumeComic
+      tags:
+      - Changes
+      summary: Resume a paused series
+      parameters:
+      - name: id
+        in: query
+        required: true
+        description: ComicID (ComicVine volume ID).
+        schema:
+          type: string
+      responses:
+        '200':
+          description: 'The text `OK`: the request was accepted. It does not mean the work has finished.'
+          content:
+            text/plain:
+              schema:
+                type: string
+                example: OK
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /api/queueIssue:
+    get:
+      operationId: queueIssue
+      tags:
+      - Changes
+      summary: Mark an issue Wanted and search for it
+      description: The search normally runs before the response comes back.
+      parameters:
+      - name: id
+        in: query
+        required: true
+        description: IssueID (ComicVine issue ID).
+        schema:
+          type: string
+      responses:
+        '200':
+          description: 'The text `OK`: the request was accepted. It does not mean the work has finished.'
+          content:
+            text/plain:
+              schema:
+                type: string
+                example: OK
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /api/unqueueIssue:
+    get:
+      operationId: unqueueIssue
+      tags:
+      - Changes
+      summary: Mark an issue Skipped
+      parameters:
+      - name: id
+        in: query
+        required: true
+        description: IssueID (ComicVine issue ID).
+        schema:
+          type: string
+      responses:
+        '200':
+          description: 'The text `OK`: the request was accepted. It does not mean the work has finished.'
+          content:
+            text/plain:
+              schema:
+                type: string
+                example: OK
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /api/changeStatus:
+    get:
+      operationId: changeStatus
+      tags:
+      - Changes
+      summary: Change the status of every matching issue in a series
+      description: With `id=all` it changes issues across the whole library.
+      parameters:
+      - name: status_from
+        in: query
+        required: true
+        description: Current status to match, such as Wanted or Skipped.
+        schema:
+          type: string
+      - name: status_to
+        in: query
+        required: true
+        description: New status.
+        schema:
+          type: string
+      - name: id
+        in: query
+        required: true
+        description: ComicID, or `all`.
+        schema:
+          type: string
+      responses:
+        '200':
+          description: A message with the number of issues changed.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                - allOf:
+                  - $ref: '#/components/schemas/Success'
+                  - type: object
+                    properties:
+                      data:
+                        type: string
+                        description: A sentence describing what happened.
+                - $ref: '#/components/schemas/Error'
+  /api/changeBookType:
+    get:
+      operationId: changeBookType
+      tags:
+      - Changes
+      summary: Force a series' book type
+      parameters:
+      - name: id
+        in: query
+        required: true
+        description: ComicID (ComicVine volume ID).
+        schema:
+          type: string
+      - name: booktype
+        in: query
+        required: true
+        description: Book type.
+        schema:
+          type: string
+          enum:
+          - Print
+          - Digital
+          - TPB
+          - GN
+          - HC
+          - One-Shot
+      responses:
+        '200':
+          description: A message.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                - allOf:
+                  - $ref: '#/components/schemas/Success'
+                  - type: object
+                    properties:
+                      data:
+                        type: string
+                        description: A sentence describing what happened.
+                - $ref: '#/components/schemas/Error'
+  /api/recheckFiles:
+    get:
+      operationId: recheckFiles
+      tags:
+      - Changes
+      summary: Rescan a series folder for files
+      description: The rescan runs before the response comes back.
+      parameters:
+      - name: id
+        in: query
+        required: true
+        description: ComicID (ComicVine volume ID).
+        schema:
+          type: string
+      responses:
+        '200':
+          description: JSON `null` when the rescan finished.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                - type: 'null'
+                - $ref: '#/components/schemas/Error'
+  /api/setComicLocation:
+    get:
+      operationId: setComicLocation
+      tags:
+      - Changes
+      summary: Point a series at an existing folder
+      description: Then rescans the folder.
+      parameters:
+      - name: id
+        in: query
+        required: true
+        description: ComicID (ComicVine volume ID).
+        schema:
+          type: string
+      - name: location
+        in: query
+        required: true
+        description: Folder that already exists on the Issuarr server.
+        schema:
+          type: string
+      responses:
+        '200':
+          description: The old and new folder.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                - allOf:
+                  - $ref: '#/components/schemas/Success'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          ComicID:
+                            type: string
+                          old_location:
+                            type: string
+                          location:
+                            type: string
+                - $ref: '#/components/schemas/Error'
+  /api/regenerateCovers:
+    get:
+      operationId: regenerateCovers
+      tags:
+      - Changes
+      summary: Re-download series covers
+      description: Runs in the background.
+      parameters:
+      - name: id
+        in: query
+        required: true
+        description: ComicID, comma-separated ComicIDs, `all`, or `missing`.
+        schema:
+          type: string
+      responses:
+        '200':
+          description: A message.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                - allOf:
+                  - $ref: '#/components/schemas/Success'
+                  - type: object
+                    properties:
+                      data:
+                        type: string
+                        description: A sentence describing what happened.
+                - $ref: '#/components/schemas/Error'
+  /api/forceSearch:
+    get:
+      operationId: forceSearch
+      tags:
+      - Changes
+      summary: Search for every Wanted issue
+      description: The search runs before the response comes back, which can take a long time.
+      responses:
+        '200':
+          description: 'The text `OK`: the request was accepted. It does not mean the work has finished.'
+          content:
+            text/plain:
+              schema:
+                type: string
+                example: OK
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /api/forceProcess:
+    get:
+      operationId: forceProcess
+      tags:
+      - Changes
+      summary: Post-process a finished download
+      description: Used by download-client scripts. Queues the folder for post-processing.
+      parameters:
+      - name: nzb_name
+        in: query
+        required: true
+        description: Download name. Use `Manual Run` to process the whole folder.
+        schema:
+          type: string
+      - name: nzb_folder
+        in: query
+        required: true
+        description: Folder holding the download.
+        schema:
+          type: string
+      - name: issueid
+        in: query
+        required: false
+        description: IssueID, if known.
+        schema:
+          type: string
+      - name: comicid
+        in: query
+        required: false
+        description: ComicID, if known.
+        schema:
+          type: string
+      - name: failed
+        in: query
+        required: false
+        description: Mark the download as failed.
+        schema:
+          type: string
+      - name: ddl
+        in: query
+        required: false
+        description: 'Any value: this was a direct download.'
+        schema:
+          type: string
+      - name: oneoff
+        in: query
+        required: false
+        description: True for a one-off issue not on the watchlist.
+        schema:
+          type: string
+      responses:
+        '200':
+          description: A sentence saying the request was queued.
+          content:
+            text/plain:
+              schema:
+                type: string
+                example: Successfully submitted request for post-processing for Some Comic 001
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /api/delComic:
+    get:
+      operationId: delComic
+      tags:
+      - Destructive
+      summary: Remove a series from the watchlist
+      x-destructive: true
+      description: '**Destructive.** With `directory=true` the series folder is **deleted from disk**. There is no confirmation
+        step.'
+      parameters:
+      - name: id
+        in: query
+        required: true
+        description: ComicID (ComicVine volume ID).
+        schema:
+          type: string
+      - name: directory
+        in: query
+        required: false
+        description: true to also delete the series folder from disk.
+        schema:
+          type: string
+          enum:
+          - 'true'
+          - 'false'
+          default: 'false'
+      responses:
+        '200':
+          description: A message.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                - allOf:
+                  - $ref: '#/components/schemas/Success'
+                  - type: object
+                    properties:
+                      data:
+                        type: string
+                        description: A sentence describing what happened.
+                - $ref: '#/components/schemas/Error'
+  /api/shutdown:
+    get:
+      operationId: shutdown
+      tags:
+      - Destructive
+      summary: Stop Issuarr
+      x-destructive: true
+      description: '**Destructive.**'
+      responses:
+        '200':
+          description: 'The text `OK`: the request was accepted. It does not mean the work has finished.'
+          content:
+            text/plain:
+              schema:
+                type: string
+                example: OK
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /api/restart:
+    get:
+      operationId: restart
+      tags:
+      - Destructive
+      summary: Restart Issuarr
+      x-destructive: true
+      description: '**Destructive.**'
+      responses:
+        '200':
+          description: 'The text `OK`: the request was accepted. It does not mean the work has finished.'
+          content:
+            text/plain:
+              schema:
+                type: string
+                example: OK
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /api/update:
+    get:
+      operationId: update
+      tags:
+      - Destructive
+      summary: Update Issuarr to the latest version and restart
+      x-destructive: true
+      description: '**Destructive.** In Docker it only restarts; pull a new ghcr.io/issuarr/issuarr image to update.'
+      responses:
+        '200':
+          description: 'The text `OK`: the request was accepted. It does not mean the work has finished.'
+          content:
+            text/plain:
+              schema:
+                type: string
+                example: OK
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /api/clearLogs:
+    get:
+      operationId: clearLogs
+      tags:
+      - System
+      summary: Clear the in-memory log
+      responses:
+        '200':
+          description: The text `Cleared log`.
+          content:
+            text/plain:
+              schema:
+                type: string
+                example: Cleared log
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /api/getLogs:
+    get:
+      operationId: getLogs
+      tags:
+      - System
+      summary: Get recent log lines
+      description: 'Bare response: no success/data envelope.'
+      responses:
+        '200':
+          description: Log entries.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                - type: array
+                  items: {}
+                - $ref: '#/components/schemas/Error'
+  /api/getVersion:
+    get:
+      operationId: getVersion
+      tags:
+      - System
+      summary: Get version information
+      responses:
+        '200':
+          description: Version details.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                - allOf:
+                  - $ref: '#/components/schemas/Success'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/Version'
+                - $ref: '#/components/schemas/Error'
+  /api/checkGithub:
+    get:
+      operationId: checkGithub
+      tags:
+      - System
+      summary: Check for an update, then return version information
+      responses:
+        '200':
+          description: Version details.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                - allOf:
+                  - $ref: '#/components/schemas/Success'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/Version'
+                - $ref: '#/components/schemas/Error'
+  /api/getAPI:
+    get:
+      operationId: getAPI
+      tags:
+      - System
+      summary: Get the API key with the web UI username and password
+      description: Needs no API key. Only works when a web UI username and password are set.
+      parameters:
+      - name: username
+        in: query
+        required: true
+        description: Web UI username.
+        schema:
+          type: string
+      - name: password
+        in: query
+        required: true
+        description: Web UI password.
+        schema:
+          type: string
+      responses:
+        '200':
+          description: The API key.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                - allOf:
+                  - $ref: '#/components/schemas/Success'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          apikey:
+                            type: string
+                - $ref: '#/components/schemas/Error'
+      security:
+      - {}
+  /api/checkGlobalMessages:
+    get:
+      operationId: checkGlobalMessages
+      tags:
+      - System
+      summary: Poll for UI status messages
+      description: Used by the web UI. Also works with the UI's internal key.
+      responses:
+        '200':
+          description: One server-sent event, or an empty one when there is nothing new.
+          content:
+            text/event-stream:
+              schema:
+                type: string
+  /api/listProviders:
+    get:
+      operationId: listProviders
+      tags:
+      - Providers
+      summary: List Newznab and Torznab indexers
+      description: The response includes each indexer's API key.
+      responses:
+        '200':
+          description: Indexers.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                - allOf:
+                  - $ref: '#/components/schemas/Success'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          newznabs:
+                            type: array
+                            items:
+                              $ref: '#/components/schemas/Provider'
+                          torznabs:
+                            type: array
+                            items:
+                              $ref: '#/components/schemas/Provider'
+                - $ref: '#/components/schemas/Error'
+  /api/addProvider:
+    get:
+      operationId: addProvider
+      tags:
+      - Providers
+      summary: Add an indexer
+      parameters:
+      - name: providertype
+        in: query
+        required: true
+        description: Indexer type.
+        schema:
+          type: string
+          enum:
+          - newznab
+          - torznab
+      - name: name
+        in: query
+        required: true
+        description: Display name.
+        schema:
+          type: string
+      - name: host
+        in: query
+        required: true
+        description: Indexer URL, including http:// or https://.
+        schema:
+          type: string
+      - name: prov_apikey
+        in: query
+        required: true
+        description: The indexer's API key.
+        schema:
+          type: string
+      - name: enabled
+        in: query
+        required: true
+        description: true or false.
+        schema:
+          type: string
+          enum:
+          - 'true'
+          - 'false'
+      - name: categories
+        in: query
+        required: false
+        description: Comma-separated category IDs.
+        schema:
+          type: string
+      - name: uid
+        in: query
+        required: false
+        description: Newznab user ID.
+        schema:
+          type: string
+      responses:
+        '200':
+          description: A message.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                - allOf:
+                  - $ref: '#/components/schemas/Success'
+                  - type: object
+                    properties:
+                      data:
+                        type: string
+                        description: A sentence describing what happened.
+                - $ref: '#/components/schemas/Error'
+  /api/changeProvider:
+    get:
+      operationId: changeProvider
+      tags:
+      - Providers
+      summary: Edit an indexer
+      description: Identify the indexer by `prov_id` or `name`, then give the fields to change.
+      parameters:
+      - name: providertype
+        in: query
+        required: true
+        description: Indexer type.
+        schema:
+          type: string
+          enum:
+          - newznab
+          - torznab
+      - name: prov_id
+        in: query
+        required: false
+        description: Indexer ID from listProviders.
+        schema:
+          type: integer
+      - name: name
+        in: query
+        required: false
+        description: Current name.
+        schema:
+          type: string
+      - name: altername
+        in: query
+        required: false
+        description: New name.
+        schema:
+          type: string
+      - name: host
+        in: query
+        required: false
+        description: New URL.
+        schema:
+          type: string
+      - name: prov_apikey
+        in: query
+        required: false
+        description: New API key.
+        schema:
+          type: string
+      - name: enabled
+        in: query
+        required: false
+        description: true or false.
+        schema:
+          type: string
+          enum:
+          - 'true'
+          - 'false'
+      - name: disabled
+        in: query
+        required: false
+        description: true or false.
+        schema:
+          type: string
+          enum:
+          - 'true'
+          - 'false'
+      - name: categories
+        in: query
+        required: false
+        description: Comma-separated category IDs.
+        schema:
+          type: string
+      - name: uid
+        in: query
+        required: false
+        description: Newznab user ID.
+        schema:
+          type: string
+      responses:
+        '200':
+          description: A message.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                - allOf:
+                  - $ref: '#/components/schemas/Success'
+                  - type: object
+                    properties:
+                      data:
+                        type: string
+                        description: A sentence describing what happened.
+                - $ref: '#/components/schemas/Error'
+  /api/delProvider:
+    get:
+      operationId: delProvider
+      tags:
+      - Providers
+      summary: Remove an indexer
+      description: Identify the indexer by `prov_id` or `name`.
+      parameters:
+      - name: providertype
+        in: query
+        required: true
+        description: Indexer type.
+        schema:
+          type: string
+          enum:
+          - newznab
+          - torznab
+      - name: prov_id
+        in: query
+        required: false
+        description: Indexer ID from listProviders.
+        schema:
+          type: integer
+      - name: name
+        in: query
+        required: false
+        description: Indexer name.
+        schema:
+          type: string
+      responses:
+        '200':
+          description: A message.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                - allOf:
+                  - $ref: '#/components/schemas/Success'
+                  - type: object
+                    properties:
+                      data:
+                        type: string
+                        description: A sentence describing what happened.
+                - $ref: '#/components/schemas/Error'
+components:
+  securitySchemes:
+    apikeyHeader:
+      type: apiKey
+      in: header
+      name: X-Api-Key
+      description: 'Settings > General > API and OPDS. Preferred: keeps the key out of URLs and logs.'
+    apikeyQuery:
+      type: apiKey
+      in: query
+      name: apikey
+      description: The same key as a query parameter, as Mylar clients send it.
+  schemas:
+    Success:
+      type: object
+      required:
+      - success
+      - data
+      properties:
+        success:
+          const: true
+        data: {}
+    Error:
+      type: object
+      required:
+      - success
+      - error
+      properties:
+        success:
+          const: false
+        error:
+          type: object
+          required:
+          - code
+          - message
+          properties:
+            code:
+              type: integer
+              enum:
+              - 460
+              - 500
+              description: '460: bad input or key. 500: the command failed.'
+            message:
+              type: string
+    Comic:
+      type: object
+      properties:
+        id:
+          type: string
+          description: ComicID.
+        name:
+          type: string
+        imageURL:
+          type: string
+        status:
+          type: string
+          description: For example Active or Paused.
+        publisher:
+          type: string
+        publishYear:
+          type: string
+          description: Publication range as text.
+        year:
+          type: string
+        latestIssue:
+          type: string
+        totalIssues:
+          type:
+          - integer
+          - 'null'
+        detailsURL:
+          type: string
+        alternateSearch:
+          type:
+          - string
+          - 'null'
+    Issue:
+      type: object
+      properties:
+        id:
+          type: string
+          description: IssueID.
+        name:
+          type:
+          - string
+          - 'null'
+        imageURL:
+          type:
+          - string
+          - 'null'
+        number:
+          type: string
+        releaseDate:
+          type: string
+        issueDate:
+          type: string
+        status:
+          type: string
+          description: For example Wanted, Skipped, Snatched or Downloaded.
+        comicName:
+          type: string
+    Annual:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type:
+          - string
+          - 'null'
+        number:
+          type: string
+        releaseDate:
+          type: string
+        issueDate:
+          type: string
+        status:
+          type: string
+        comicName:
+          type: string
+    UpcomingIssue:
+      type: object
+      properties:
+        ComicName:
+          type: string
+        IssueNumber:
+          type: string
+        ComicID:
+          type: string
+        IssueID:
+          type: string
+        IssueDate:
+          type: string
+        Status:
+          type: string
+        DisplayComicName:
+          type: string
+    AnnualListing:
+      type: object
+      properties:
+        series:
+          type: string
+        annualname:
+          type: string
+        annualcomicid:
+          type: string
+        issueid:
+          type: integer
+        filename:
+          type:
+          - string
+          - 'null'
+        issuenumber:
+          type: string
+        comicid:
+          type: integer
+    Version:
+      type: object
+      properties:
+        git_path:
+          type:
+          - string
+          - 'null'
+        install_type:
+          type: string
+        current_version:
+          type:
+          - string
+          - 'null'
+        latest_version:
+          type:
+          - string
+          - 'null'
+        commits_behind: {}
+    Provider:
+      type: object
+      properties:
+        name:
+          type: string
+        host:
+          type: string
+        apikey:
+          type: string
+        categories:
+          type:
+          - string
+          - 'null'
+        uid:
+          type: string
+          description: Newznab only.
+        enabled:
+          type: boolean
+        id:
+          type: integer

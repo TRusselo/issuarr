@@ -157,6 +157,10 @@ class Api(object):
 
     def checkParams(self, *args, **kwargs):
 
+        # /api/COMMAND works the same as /api?cmd=COMMAND.
+        if 'cmd' not in kwargs and len(args) == 1:
+            kwargs['cmd'] = args[0]
+
         if 'cmd' not in kwargs:
             self.data = self._failureResponse('Missing parameter: cmd')
             return

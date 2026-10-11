@@ -167,3 +167,10 @@ def test_rest_key_check(monkeypatch):
     assert v.validate() is not True
     monkeypatch.setattr(cherrypy.request, 'headers', {'Api-Key': API_KEY}, raising=False)
     assert v.validate() is True
+
+
+@pytest.mark.unit
+def test_command_in_path():
+    a = api.Api()
+    a.checkParams('getIndex', apikey=API_KEY)
+    assert json.loads(a.fetchData())['success'] is True

@@ -21,6 +21,8 @@ curl -H "X-Api-Key: KEY" "http://localhost:8090/api?cmd=getIndex"
 
 `Api-Key` works as a header name too. The `/api` path doesn't use the web UI login, so the key is the only protection. Don't expose the port to the internet without a reverse proxy.
 
+Each command also works as a path, `/api/COMMAND?apikey=KEY`. A machine-readable description of every command, for AI tools and code generators, is in [openapi.yaml](https://github.com/issuarr/issuarr/blob/main/docs/openapi.yaml) (OpenAPI 3.1).
+
 The web UI has a second, internal key that it uses to poll for status messages. That key only works for `checkGlobalMessages`. Use the real API key for everything else.
 
 ## Responses

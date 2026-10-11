@@ -8,6 +8,7 @@ Releases come from the `main` branch and are the `latest` Docker image. Changes 
 
 - Development now happens on the `dev` branch, which builds the `ghcr.io/issuarr/issuarr:dev` image. `main` is for releases and keeps building `latest`; version tags like `v1.0.0` also build `1.0.0` and `1.0` images. ([`40f171a`](https://github.com/issuarr/issuarr/commit/40f171a))
 - The Docker image checks for updates against the branch it was built from, so a `dev` container compares itself with `dev` and a `latest` container with `main`. ([`40f171a`](https://github.com/issuarr/issuarr/commit/40f171a))
+- This changelog, also a page on the website. ([`eb1311b`](https://github.com/issuarr/issuarr/commit/eb1311b))
 
 ## Before releases (2 to 11 October 2026)
 

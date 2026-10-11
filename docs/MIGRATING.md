@@ -86,7 +86,7 @@ or copy `config.ini`, `mylar.db` (plus `mylar.db-wal` and `mylar.db-shm` if pres
 
 If your service file or init script (systemd, init.d) runs Mylar, change its path to the new folder. The examples in [init-scripts](../init-scripts) still use Mylar's names and paths, so adjust them to match yours.
 
-**Update checks.** Mylar's update check follows the repository named in the `[Git]` section of `config.ini`, which on most installs says `MylarComics`. On its first start Issuarr changes that to `git_user = TRusselo` and `git_branch = main`, so it compares you against Issuarr (`git_repo` defaults to `Issuarr`). If you had set your own fork or branch there, it is left alone.
+**Update checks.** Mylar's update check follows the repository named in the `[Git]` section of `config.ini`, which on most installs says `MylarComics`. On its first start Issuarr changes that to `git_user = TRusselo` and `git_branch = main`, so it compares you against Issuarr (`git_repo` defaults to `Issuarr`). If it pointed at your own fork, it is left alone.
 
 ## 3. Check things after the first start
 
@@ -149,6 +149,7 @@ Settings were reworded, but each one is the same `config.ini` key as before, so 
 - **"Wipe the NZB log"** is now **Clear the download log…** on **Downloads > History**, and explains what it affects first.
 - **Manage issues** opens on Skipped and has no Wanted tab. Wanted issues are managed on the **Wanted** page.
 - **GetComics searches** now also look for packs and series-and-year posts, so issues that only exist inside a pack can be found.
+- **Notifications say Issuarr.** Snatch, download and tagging-error messages say Issuarr instead of Mylar, and Discord posts appear under the name Issuarr. If you filter or route notifications by the word "Mylar", update those rules.
 
 ## Moving to a new machine or new paths
 

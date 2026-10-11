@@ -7245,7 +7245,7 @@ class WebInterface(object):
             else:
                 pr_tag = False
                 dspline = '[%s] %s {<span style="font-size:11px">%s/%s</span>}'
-            commit.append(dspline % ("<a href='https://github.com/" + str(mylar.CONFIG.GIT_USER) + "/mylar3/commit/" + commitno + "'>"+commitno+"</a>", desc, time, author))
+            commit.append(dspline % ("<a href='https://github.com/" + str(mylar.CONFIG.GIT_USER) + "/" + str(mylar.CONFIG.GIT_REPO) + "/commit/" + commitno + "'>"+commitno+"</a>", desc, time, author))
 
         return '<br />\n'.join(commit)
 

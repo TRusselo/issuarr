@@ -179,6 +179,7 @@ _CONFIG_DEFINITIONS = OrderedDict({
 
     'GIT_PATH' : (str, 'Git', None),
     'GIT_USER' : (str, 'Git', 'TRusselo'),
+    'GIT_REPO' : (str, 'Git', 'Issuarr'),
     'GIT_TOKEN' : (str, 'Git', None),
     'GIT_BRANCH' : (str, 'Git', None),
     'CHECK_GITHUB' : (bool, 'Git', False),
@@ -959,11 +960,15 @@ class Config(object):
             config.set('Release Provider', 'release_provider_url', self.RELEASE_PROVIDER_URL)
 
         if self.CONFIG_VERSION < 20:
-            # Issuarr: update checks follow TRusselo/mylar3, not the retired upstream repos
+            # Issuarr: update checks follow TRusselo/Issuarr, not the retired upstream repos
             if self.GIT_USER in (None, '', 'None', 'mylar3', 'MylarComics'):
-                logger.info('Update checks now follow TRusselo/mylar3')
+                logger.info('Update checks now follow TRusselo/Issuarr')
                 self.GIT_USER = 'TRusselo'
                 config.set('Git', 'GIT_USER', self.GIT_USER)
+            elif self.GIT_USER != 'TRusselo':
+                # someone's own fork keeps its Mylar3-era repository name
+                self.GIT_REPO = 'mylar3'
+                config.set('Git', 'GIT_REPO', self.GIT_REPO)
             if self.GIT_BRANCH in ('stable', 'nightly', 'master', 'python3-dev', '1000papercuts'):
                 self.GIT_BRANCH = 'trusselo'
                 config.set('Git', 'GIT_BRANCH', self.GIT_BRANCH)

@@ -70,7 +70,7 @@ With `docker run`, stop and remove the old container and start a new one with th
 Clone Issuarr next to your old install rather than over it:
 
 ```sh
-git clone -b trusselo https://github.com/TRusselo/mylar3.git issuarr
+git clone -b trusselo https://github.com/TRusselo/Issuarr.git issuarr
 cd issuarr
 python3 -m venv venv && . venv/bin/activate
 pip install -r requirements.txt
@@ -86,7 +86,7 @@ or copy `config.ini`, `mylar.db` (plus `mylar.db-wal` and `mylar.db-shm` if pres
 
 If your service file or init script (systemd, init.d) runs Mylar, change its path to the new folder. The examples in [init-scripts](../init-scripts) still use Mylar's names and paths, so adjust them to match yours.
 
-**Update checks.** Mylar's update check follows the repository named in the `[Git]` section of `config.ini`, which on most installs says `MylarComics`. On its first start Issuarr changes that to `git_user = TRusselo` and `git_branch = trusselo`, so it compares you against Issuarr. If you had set your own fork or branch there, it is left alone.
+**Update checks.** Mylar's update check follows the repository named in the `[Git]` section of `config.ini`, which on most installs says `MylarComics`. On its first start Issuarr changes that to `git_user = TRusselo` and `git_branch = trusselo`, so it compares you against Issuarr (`git_repo` defaults to `Issuarr`). If you had set your own fork or branch there, it is left alone.
 
 ## 3. Check things after the first start
 

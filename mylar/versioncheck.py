@@ -123,7 +123,7 @@ def getVersion(ptv):
             cur_branch = output[opp:output.find('\n', opp+1)].strip()
 
             if cur_commit_hash.startswith('v') and ptv['check_github_on_startup'] is True:
-                url2 = 'https://api.github.com/repos/%s/mylar3/tags' % (ptv['git_user'])
+                url2 = 'https://api.github.com/repos/%s/%s/tags' % (ptv['git_user'], mylar.CONFIG.GIT_REPO)
                 try:
                     response = requests.get(url2, verify=True, auth=ptv['git_token'])
                     git = response.json()
@@ -138,7 +138,7 @@ def getVersion(ptv):
                                 cur_commit_hash = x['commit']['sha']
                                 break
                         logger.info('version_name: %s' % current_version_name)
-                        url3 = 'https://api.github.com/repos/%s/mylar3/releases/tags/%s' % (ptv['git_user'], current_version_name)
+                        url3 = 'https://api.github.com/repos/%s/%s/releases/tags/%s' % (ptv['git_user'], mylar.CONFIG.GIT_REPO, current_version_name)
                         #logger.fdebug('url3: %s' % url3)
                         try:
                             repochk = requests.get(url3, verify=True, auth=ptv['git_token'])
@@ -244,7 +244,7 @@ def getVersion(ptv):
         if current_version_name is not None and current_release_name is None and branch == 'stable':
             # only stable has tags - so if not stable, no need to check at all.
             # and mylar.CONFIG.CHECK_GITHUB_ON_STARTUP is True:
-            url2 = 'https://api.github.com/repos/%s/mylar3/releases/tags/%s' % (ptv['git_user'], current_version_name)
+            url2 = 'https://api.github.com/repos/%s/%s/releases/tags/%s' % (ptv['git_user'], mylar.CONFIG.GIT_REPO, current_version_name)
             try:
                 response = requests.get(url2, verify=True, auth=mylar.CONFIG.GIT_TOKEN)
                 git = response.json()
@@ -299,7 +299,7 @@ def checkGithub(current_version=None):
         itype = 'false'
 
     # Get the latest commit available from github
-    url = 'https://api.github.com/repos/%s/mylar3/commits/%s' % (mylar.CONFIG.GIT_USER, mylar.CONFIG.GIT_BRANCH)
+    url = 'https://api.github.com/repos/%s/%s/commits/%s' % (mylar.CONFIG.GIT_USER, mylar.CONFIG.GIT_REPO, mylar.CONFIG.GIT_BRANCH)
     try:
         response = requests.get(url, verify=True, auth=mylar.CONFIG.GIT_TOKEN)
         git = response.json()
@@ -317,7 +317,7 @@ def checkGithub(current_version=None):
         # See how many commits behind we are
         if current_version is not None:
             logger.fdebug('Comparing currently installed version [%s] with latest github version [%s]' % (current_version, mylar.LATEST_VERSION))
-            url = 'https://api.github.com/repos/%s/mylar3/compare/%s...%s' % (mylar.CONFIG.GIT_USER, current_version, mylar.LATEST_VERSION)
+            url = 'https://api.github.com/repos/%s/%s/compare/%s...%s' % (mylar.CONFIG.GIT_USER, mylar.CONFIG.GIT_REPO, current_version, mylar.LATEST_VERSION)
 
             try:
                 response = requests.get(url, verify=True, auth=mylar.CONFIG.GIT_TOKEN)
@@ -379,7 +379,7 @@ def update():
         logger.info('Docker updates via it\'s own mechanics. Updating docker via Mylar GUI not supported at this time.')
 
     else:
-        tar_download_url = 'https://github.com/%s/mylar3/tarball/%s' % (mylar.CONFIG.GIT_USER, mylar.CONFIG.GIT_BRANCH)
+        tar_download_url = 'https://github.com/%s/%s/tarball/%s' % (mylar.CONFIG.GIT_USER, mylar.CONFIG.GIT_REPO, mylar.CONFIG.GIT_BRANCH)
         update_dir = os.path.join(mylar.PROG_DIR, 'update')
 
         try:

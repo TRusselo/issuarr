@@ -1,12 +1,14 @@
-<img width="571" height="571" alt="image" src="https://github.com/user-attachments/assets/ab2c575b-db53-489e-aba5-ffe01bc0debb" />
+<img width="571" height="571" alt="Issuarr logo" src="https://github.com/user-attachments/assets/ab2c575b-db53-489e-aba5-ffe01bc0debb" />
 
 # Issuarr
 
-[![Build & Publish Docker Image](https://github.com/TRusselo/mylar3/actions/workflows/docker_ghcr.yml/badge.svg?branch=trusselo)](https://github.com/TRusselo/mylar3/actions/workflows/docker_ghcr.yml)
+[![Build & Publish Docker Image](https://github.com/TRusselo/Issuarr/actions/workflows/docker_ghcr.yml/badge.svg?branch=trusselo)](https://github.com/TRusselo/Issuarr/actions/workflows/docker_ghcr.yml)
 
 **Issuarr is an automated comic book collection manager.** Tell it which series you follow and it watches for new and missing issues, downloads them, files and renames them, tags them with metadata, and keeps track of what your collection has and lacks.
 
 It works with cbr and cbz files and gets its series and issue information from [ComicVine](https://comicvine.gamespot.com/). It downloads from Usenet, torrents or direct-download sites. You run it on your own computer or server and use it from a web browser.
+
+Issuarr is the actively developed successor to **Mylar3**, so existing Mylar3 users can switch with their settings and database intact ([how](docs/MIGRATING.md)). It fits into a self-hosted *arr setup next to Sonarr, Radarr, Prowlarr, SABnzbd and qBittorrent, and its files work in comic readers and servers such as Komga, Kavita and ComicRack.
 
 
 ## How it works
@@ -81,7 +83,7 @@ New issues of the series you follow arrive the same way, week after week.
 - At least one place to download from: a Newznab indexer plus SABnzbd or NZBGet, a Torznab indexer plus a torrent client, or GetComics direct download.
 - Optional: FlareSolverr (for GetComics) and JDownloader 2 (for mirror links).
 
-<img width="144" height="100" alt="library" src="https://github.com/user-attachments/assets/5727ca6c-643e-41e2-8fa1-02b8389f2abd" /><img width="144" height="100" alt="ledger series" src="https://github.com/user-attachments/assets/13241f68-2c42-41eb-aa6d-a3e60bd11127" /><img width="144" height="100" alt="wanted" src="https://github.com/user-attachments/assets/2444ea0e-275c-4f5c-8ca4-adc964e616ac" /><img width="144" height="100" alt="upcoming" src="https://github.com/user-attachments/assets/69b87e52-3dc9-4d63-9cc1-c7bdebfb4a82" /><img width="144" height="100" alt="trades" src="https://github.com/user-attachments/assets/8d19055f-a237-4d29-af5d-098df06aa9d1" /><img width="144" height="130" alt="webp" src="https://github.com/user-attachments/assets/3f8f698a-43bf-4ef3-b2c5-ef47b908fe0e" />
+<img width="144" height="100" alt="Issuarr library cover wall" src="https://github.com/user-attachments/assets/5727ca6c-643e-41e2-8fa1-02b8389f2abd" /><img width="144" height="100" alt="Ledger showing missing issues per series" src="https://github.com/user-attachments/assets/13241f68-2c42-41eb-aa6d-a3e60bd11127" /><img width="144" height="100" alt="Wanted issues page" src="https://github.com/user-attachments/assets/2444ea0e-275c-4f5c-8ca4-adc964e616ac" /><img width="144" height="100" alt="Upcoming releases calendar" src="https://github.com/user-attachments/assets/69b87e52-3dc9-4d63-9cc1-c7bdebfb4a82" /><img width="144" height="100" alt="Trades and collected editions" src="https://github.com/user-attachments/assets/8d19055f-a237-4d29-af5d-098df06aa9d1" /><img width="144" height="130" alt="WebP conversion" src="https://github.com/user-attachments/assets/3f8f698a-43bf-4ef3-b2c5-ef47b908fe0e" />
 
 
 
@@ -90,7 +92,7 @@ New issues of the series you follow arrive the same way, week after week.
 
 ## Installation
 
-> **A note on the name.** Issuarr is newly renamed. The repository (`TRusselo/mylar3`), the Docker image (`ghcr.io/trusselo/mylar3`) and the data folder (`/config/mylar`) still use Mylar's names so existing installs can switch without moving anything; the commands below are correct as written.
+> **A note on the name.** Issuarr is newly renamed. The Docker image (`ghcr.io/trusselo/mylar3`) and the data folder (`/config/mylar`) keep Mylar's names so existing installs can switch without moving anything, and old links to `TRusselo/mylar3` lead here. The commands below are correct as written.
 
 **Coming from Mylar3?** Your settings and database carry over. Follow [Moving from Mylar3 to Issuarr](docs/MIGRATING.md).
 
@@ -143,7 +145,7 @@ Issuarr's database works best on a local disk. If `/config` is on a network shar
 ### From source
 
 ```sh
-git clone -b trusselo https://github.com/TRusselo/mylar3.git issuarr
+git clone -b trusselo https://github.com/TRusselo/Issuarr.git issuarr
 cd issuarr
 python3 -m venv venv && . venv/bin/activate
 pip install -r requirements.txt
@@ -199,7 +201,7 @@ This README and the `docs` folder are Issuarr's documentation. Mylar's old docum
 ## Getting help
 
 - [Troubleshooting](docs/TROUBLESHOOTING.md) covers the common problems.
-- [Issues](https://github.com/TRusselo/mylar3/issues): bug reports and feature requests.
+- [Issues](https://github.com/TRusselo/Issuarr/issues): bug reports and feature requests.
 - **Tasks > Logs** shows the log. **About** shows version details and health checks, and its **Care package** button bundles logs and settings, with passwords and keys removed, to attach to a bug report.
 
 ## History and credits

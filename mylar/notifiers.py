@@ -535,9 +535,9 @@ class MATTERMOST:
         payload = {
             "text": attachment_text,
             "username": "Issuarr",
-            "icon_url": "https://github.com/TRusselo/mylar3/raw/trusselo/data/images/issuarr-mark.png",
-            "footer": "Powered by [Issuarr](https://github.com/TRusselo/mylar3)",
-            "footer_icon": "https://github.com/TRusselo/mylar3/raw/trusselo/data/images/issuarr-mark.png",
+            "icon_url": "https://github.com/TRusselo/Issuarr/raw/trusselo/data/images/issuarr-mark.png",
+            "footer": "Powered by [Issuarr](https://github.com/TRusselo/Issuarr)",
+            "footer_icon": "https://github.com/TRusselo/Issuarr/raw/trusselo/data/images/issuarr-mark.png",
             "attachments": attachments
         }
         try:
@@ -577,7 +577,7 @@ class DISCORD:
 
         payload = {
                "username": "Issuarr",
-               "avatar_url": "https://github.com/TRusselo/mylar3/raw/trusselo/data/images/issuarr-mark.png",
+               "avatar_url": "https://github.com/TRusselo/Issuarr/raw/trusselo/data/images/issuarr-mark.png",
         }
         if self.test:
             payload["content"] = attachment_text

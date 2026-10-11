@@ -10,7 +10,7 @@ FROM ghcr.io/linuxserver/baseimage-ubuntu:jammy
 
 ARG BUILD_DATE
 ARG VERSION
-ARG MYLAR3_BRANCH=trusselo
+ARG MYLAR3_BRANCH=main
 ARG MYLAR3_COMMIT=unknown
 LABEL build_version="TRusselo/Issuarr version:- ${VERSION} Build-date:- ${BUILD_DATE}"
 LABEL org.opencontainers.image.source="https://github.com/TRusselo/Issuarr"

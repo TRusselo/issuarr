@@ -2,7 +2,7 @@
 
 # Issuarr
 
-[![Build & Publish Docker Image](https://github.com/TRusselo/Issuarr/actions/workflows/docker_ghcr.yml/badge.svg?branch=trusselo)](https://github.com/TRusselo/Issuarr/actions/workflows/docker_ghcr.yml)
+[![Build & Publish Docker Image](https://github.com/TRusselo/Issuarr/actions/workflows/docker_ghcr.yml/badge.svg?branch=main)](https://github.com/TRusselo/Issuarr/actions/workflows/docker_ghcr.yml)
 
 **Issuarr is an automated comic book collection manager.** Tell it which series you follow and it watches for new and missing issues, downloads them, files and renames them, tags them with metadata, and keeps track of what your collection has and lacks.
 
@@ -145,7 +145,7 @@ Issuarr's database works best on a local disk. If `/config` is on a network shar
 ### From source
 
 ```sh
-git clone -b trusselo https://github.com/TRusselo/Issuarr.git issuarr
+git clone https://github.com/TRusselo/Issuarr.git issuarr
 cd issuarr
 python3 -m venv venv && . venv/bin/activate
 pip install -r requirements.txt

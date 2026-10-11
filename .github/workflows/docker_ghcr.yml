@@ -4,7 +4,7 @@ name: Build & Publish Docker Image
 on:
     push:
         branches:
-            - 'trusselo'
+            - 'main'
     workflow_dispatch:
 
 concurrency:
@@ -42,7 +42,7 @@ jobs:
             with:
               images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
               tags: |
-                type=raw,value=latest,enable=${{ github.ref == 'refs/heads/trusselo' }}
+                type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
                 type=ref,event=branch
                 type=sha,format=short,prefix=
 

@@ -8,6 +8,7 @@ on:
             - 'stable'
             - 'nightly'
             - 'trusselo'
+            - 'main'
 
 # Cancel previous run on this branch if a new push is made
 concurrency:

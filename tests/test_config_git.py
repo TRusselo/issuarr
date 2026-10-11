@@ -20,7 +20,7 @@ def _upgrade(git_user, git_branch):
     try:
         c = mconfig.Config.__new__(mconfig.Config)
         c.CONFIG_VERSION = 19
-        c.newconfig = 20
+        c.newconfig = 21
         c.GIT_USER = git_user
         c.GIT_BRANCH = git_branch
         c.GIT_REPO = 'Issuarr'
@@ -31,13 +31,13 @@ def _upgrade(git_user, git_branch):
 
 
 @pytest.mark.parametrize('user', ['MylarComics', 'mylar3', None])
-def test_update_checks_move_to_trusselo(user):
+def test_update_checks_move_to_issuarr(user):
     c, cp = _upgrade(user, 'stable')
     assert c.GIT_USER == 'TRusselo'
-    assert c.GIT_BRANCH == 'trusselo'
+    assert c.GIT_BRANCH == 'main'
     assert c.GIT_REPO == 'Issuarr'
     assert cp.get('Git', 'GIT_USER') == 'TRusselo'
-    assert cp.get('Git', 'GIT_BRANCH') == 'trusselo'
+    assert cp.get('Git', 'GIT_BRANCH') == 'main'
 
 
 def test_own_fork_and_branch_are_kept():
@@ -46,6 +46,12 @@ def test_own_fork_and_branch_are_kept():
     assert c.GIT_BRANCH == 'my-branch'
     assert c.GIT_REPO == 'mylar3'
     assert not cp.has_option('Git', 'GIT_USER')
+
+
+def test_old_main_branch_name_moves_to_main():
+    c, cp = _upgrade('TRusselo', 'trusselo')
+    assert c.GIT_BRANCH == 'main'
+    assert cp.get('Git', 'GIT_BRANCH') == 'main'
 
 
 def test_defaults_point_at_issuarr():

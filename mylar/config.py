@@ -536,7 +536,7 @@ class Config(object):
                 count = 0
 
             #this is the current version at this particular point in time.
-            self.newconfig = 20
+            self.newconfig = 21
 
             OLDCONFIG_VERSION = 0
             if count == 0:
@@ -970,7 +970,13 @@ class Config(object):
                 self.GIT_REPO = 'mylar3'
                 config.set('Git', 'GIT_REPO', self.GIT_REPO)
             if self.GIT_BRANCH in ('stable', 'nightly', 'master', 'python3-dev', '1000papercuts'):
-                self.GIT_BRANCH = 'trusselo'
+                self.GIT_BRANCH = 'main'
+                config.set('Git', 'GIT_BRANCH', self.GIT_BRANCH)
+
+        if self.CONFIG_VERSION < 21:
+            # Issuarr's main branch was called trusselo until 2026-10
+            if self.GIT_USER == 'TRusselo' and self.GIT_BRANCH == 'trusselo':
+                self.GIT_BRANCH = 'main'
                 config.set('Git', 'GIT_BRANCH', self.GIT_BRANCH)
 
              

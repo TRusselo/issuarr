@@ -20,7 +20,7 @@ Do not just paste a traceback/error.
 **Environment (please complete the following information):**
  - OS: [e.g. Windows10]
  - Install type: [e.g. Docker, source]
- - Branch / commit: [e.g. trusselo/10b24dc, shown on the About page]
+ - Branch / commit: [e.g. main/10b24dc, shown on the About page]
 
 **Additional information**
 Add any other information about the problem here.

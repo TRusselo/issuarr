@@ -384,6 +384,10 @@ class PostProcessor(object):
                 PP_LOCK.release()
         finally:
             archives.RUNS[0] -= 1
+            # Early returns and exceptions skip the unlocks inside the run; a lock left on would
+            # stop the post-processing queue and folder monitor for good.
+            if self.apicall:
+                mylar.APILOCK = False
 
     def _locked_process(self):
         self.extracted = []
@@ -3461,7 +3465,7 @@ class PostProcessor(object):
                 prline = '%s %s' % (series, issuenumOG)
             else:
                 prline = '%s' % (series)
-        prline2 = 'Mylar has downloaded and post-processed: ' + prline
+        prline2 = 'Issuarr has downloaded and post-processed: ' + prline
 
         try:
             if mylar.CONFIG.PROWL_ENABLED:
@@ -3501,7 +3505,7 @@ class PostProcessor(object):
             if mylar.CONFIG.EMAIL_ENABLED and mylar.CONFIG.EMAIL_ONPOST:
                 logger.info("Sending email notification")
                 email = notifiers.EMAIL()
-                email.notify(prline2, "Mylar notification - Processed", module=module)
+                email.notify(prline2, "Issuarr notification - Processed", module=module)
 
             if mylar.CONFIG.GOTIFY_ENABLED:
                 gotify = notifiers.GOTIFY()

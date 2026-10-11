@@ -1,133 +1,122 @@
 <%inherit file="base.html" />
 <%!
-        from mylar import db
-        import mylar
+    import mylar
 %>
 
-<%def name="headerIncludes()">
-	<div id="subhead_container">
-			&nbsp;
-	</div>	
-	<a href="manage" class="back">&laquo; Back to manage overview</a>
-</%def>
-
-
 <%def name="body()">
-        <input type="hidden" id="page_name" value="manage_failed" />
-	<div id="manageheader" class="title">
-		<h1 class="clearfix">Manage Failed Downloads</h1>
-	</div>
+    <input type="hidden" id="page_name" value="manage_failed" />
+    <%
+        rows = sorted(failed, key=lambda f: str(f['DateFailed'] or ''), reverse=True)
+    %>
+    <div class="page">
+        <div class="page-head">
+            <div class="head-text">
+                <h1><span class="page-crumb">Downloads › </span>Failed</h1>
+                <p class="page-sub">Releases that failed once, so Issuarr won't grab them again. Allow one again to let the next search pick it up.</p>
+            </div>
+        </div>
 
-	<form action="markentries" method="get" id="markentries">
-        <div id="markentries" style="top:0;">
-		<select name="action" onChange="doAjaxCall('markentries',$(this),'table',true);" data-error="You didn't select any entries">
-  			<option disabled="disabled" selected="selected">Choose...</option>
-  			<option value="Wanted">Clear Failed locks</option>
-		</select>
-                for selected entries
-		<input type="hidden" value="Go">
-	</div>
+        <section class="section" aria-label="Failed releases">
+            <div class="section-head" style="align-items: flex-end">
+                <span class="muted">${len(rows)} failed ${'release' if len(rows) == 1 else 'releases'}</span>
+                <label class="nowrap" style="display: flex; align-items: center; gap: 8px">
+                    <span class="sr-only">Filter by series, file or provider</span>
+                    <input type="search" id="f-search" placeholder="Filter by series, file or provider" style="min-height: 38px; padding: 0 10px; width: 280px; max-width: 100%" />
+                </label>
+            </div>
 
-        <div class="table_wrapper">
-        
-	<table class="display" id="manage_failed">
-		<thead>
-			<tr>
-				<th id="select"><input type="checkbox" onClick="toggle(this)" class="checkbox" align="left" /></th>
-				<th id="series">Series</th>
-				<th id="issue">Issue</th>
-                                <th id="site">Site</th>
-                                <th id="link">Filename</th>
-                                <th id="datefailed">Attempt</th>
-			</tr>
-		</thead>
-		<tbody>
-		%for f in failed:
+            <div class="bulk-bar" id="f-bulk" hidden>
+                <span class="bulk-count" id="f-bulk-count"></span>
+                <button type="button" class="btn btn-sm" id="f-allow">Allow again</button>
+                <button type="button" class="btn btn-sm btn-ghost" id="f-none">Clear selection</button>
+            </div>
+
+            <div class="dt-wrap">
+                <table class="dt" id="f-table">
+                    <thead>
+                        <tr>
+                            <th scope="col" class="check"><input type="checkbox" id="f-all" aria-label="Select all shown" /></th>
+                            <th scope="col">Series</th>
+                            <th scope="col">Issue</th>
+                            <th scope="col">Provider</th>
+                            <th scope="col">File</th>
+                            <th scope="col">Failed</th>
+                            <th scope="col"><span class="sr-only">Actions</span></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                    %for f in rows:
                         <%
                             f_id = f['ID']
-                            if any([f_id is None, f_id == '']):
-                                f_id = '%s##%s##%s##%s' % (f['IssueID'],f['Provider'],f['FileName'],f['DateFailed'])
+                            if f_id is None or f_id == '':
+                                f_id = '%s##%s##%s##%s' % (f['IssueID'], f['Provider'], f['FileName'], f['DateFailed'])
                         %>
-			<tr>
-				<td id="select"><input type="checkbox" name="${f_id}" class="checkbox" /></td>
-				<td id="series"><a href="comicDetails?ComicID=${f['ComicID']}">${f['Series']}</td>
-				<td id="issue">${f['Issue_Number']}</td>
-				<td id="site">${f['Provider']}</td>
-				<td id="link">${f['FileName']}</a></td>
-				<td id="datefailed">${f['DateFailed']}</td>
-			</tr>
-		%endfor
-		</tbody>
-	</table>
-        </div>
-	</form>
-</%def>
-
-<%def name="headIncludes()">
-	<link rel="stylesheet" href="interfaces/${interface}/css/data_table.css">
+                        <tr data-id="${f_id | h}" data-text="${('%s %s %s' % (f['Series'], f['FileName'], f['Provider'])).lower() | h}">
+                            <td class="check"><input type="checkbox" aria-label="Select ${f['Series'] | h} #${f['Issue_Number'] | h}" /></td>
+                            <td><a href="comicDetails?ComicID=${f['ComicID'] | u}">${f['Series'] | h}</a></td>
+                            <td class="mono nowrap">#${f['Issue_Number'] | h}</td>
+                            <td class="nowrap">${f['Provider'] | h}</td>
+                            <td class="mono muted" style="overflow-wrap: anywhere">${f['FileName'] | h}</td>
+                            <td class="mono muted nowrap">${str(f['DateFailed'])[:16] | h}</td>
+                            <td class="actions"><button type="button" class="btn btn-sm" data-allow>Allow again</button></td>
+                        </tr>
+                    %endfor
+                    %if not rows:
+                        <tr><td colspan="7" class="empty-state">Nothing has failed. Releases land here when a download or post-process fails.</td></tr>
+                    %endif
+                    </tbody>
+                </table>
+            </div>
+        </section>
+    </div>
 </%def>
 
 <%def name="javascriptIncludes()">
-	<script src="js/libs/jquery.dataTables.min.js"></script>
-        <script>
-
-        var lastChecked = null;
-        function initThisPage() {
-                $('#manage_failed').dataTable(
-                        {
-                                "bDestroy": true,
-                                "aoColumnDefs": [
-                                  { 'bSortable': false, 'aTargets': [ 0 , 2 ] },
-                                  { 'bVisible': false, 'aTargets': [2] },
-                                  { 'sType': 'numeric', 'aTargets': [2] },
-                                  { 'columns.orderData': [2], 'aTargets': [3] }
-                                ],
-                                "aLengthMenu": [[10, 25, 50, -1], [10, 25, 50, 'All' ]],
-                                "oLanguage": {
-                                        "sLengthMenu":"Show _MENU_ results per page",
-                                        "sEmptyTable": "No results",
-                                        "sInfo":"Showing _START_ to _END_ of _TOTAL_ results",
-                                        "sInfoEmpty":"Showing 0 to 0 of 0 results",
-                                        "sInfoFiltered":"(filtered from _MAX_ total results)",
-                                        "sSearch" : ""},
-                                "bStateSave": true,
-                                "iDisplayLength": 25,
-                                "sPaginationType": "full_numbers",
-                                "aaSorting": [[1, 'desc'],[2, 'desc']]
-                        });
-                        resetFilters("failed");
-
-                $('#manage_failed tbody').on('click', 'input[type="checkbox"]', function(e){
-                        var chkboxes = Array.from($(":checkbox"));
-                
-                        if (!lastChecked) {
-                                lastChecked = this;
-                        } else {
-                                if (e.shiftKey) {
-                                var start = chkboxes.indexOf(lastChecked);
-                                var end = chkboxes.indexOf(this);
-                
-                                var positive = start < end;
-                
-                                for (var i = (positive ? start: end );
-                                (positive ? i <= end : i <= start); i++) {
-                                        chkboxes[i].checked = lastChecked.checked;
-                                }
-                                lastChecked = null;
-                                }
-                                else {
-                                lastChecked = this;
-                                }
-                        }
-                });
+    <script>
+    (function () {
+        var table = document.getElementById('f-table');
+        var bulk = document.getElementById('f-bulk');
+        function rows() { return Array.prototype.slice.call(table.tBodies[0].querySelectorAll('tr[data-id]')); }
+        function shown() { return rows().filter(function (r) { return !r.hidden; }); }
+        function picked() { return rows().filter(function (r) { return r.querySelector('input').checked; }); }
+        function sync() {
+            var n = picked().length;
+            bulk.hidden = !n;
+            document.getElementById('f-bulk-count').textContent = n + (n === 1 ? ' release selected' : ' releases selected');
+            var s = shown();
+            document.getElementById('f-all').checked = s.length > 0 && s.every(function (r) { return r.querySelector('input').checked; });
         }
-
-        $(document).ready(function(){
-                initThisPage();
+        function allow(trs) {
+            if (!trs.length) return;
+            var q = new URLSearchParams({ action: 'Wanted' });
+            trs.forEach(function (r) { q.append(r.getAttribute('data-id'), 'on'); });
+            fetch('markentries?' + q.toString(), { credentials: 'same-origin' })
+                .then(function (r) {
+                    if (!r.ok) throw new Error(r.status);
+                    trs.forEach(function (tr) { tr.remove(); });
+                    window.Issuarr.toast(trs.length === 1 ? 'Allowed again' : 'Allowed ' + trs.length + ' releases again');
+                    sync();
+                })
+                .catch(function () { window.Issuarr.toast('That didn\'t work. Check the log.', false); });
+        }
+        table.addEventListener('change', function (e) {
+            if (e.target.id === 'f-all') shown().forEach(function (r) { r.querySelector('input').checked = e.target.checked; });
+            sync();
         });
-        $(window).load(function(){
-                initFancybox();
+        table.addEventListener('click', function (e) {
+            var b = e.target.closest('[data-allow]');
+            if (b) allow([b.closest('tr')]);
         });
-        </script>
-
+        document.getElementById('f-allow').addEventListener('click', function () { allow(picked()); });
+        document.getElementById('f-none').addEventListener('click', function () {
+            rows().forEach(function (r) { r.querySelector('input').checked = false; });
+            sync();
+        });
+        document.getElementById('f-search').addEventListener('input', function (e) {
+            var q = e.target.value.trim().toLowerCase();
+            rows().forEach(function (r) { r.hidden = !!q && r.getAttribute('data-text').indexOf(q) < 0; });
+            sync();
+        });
+    })();
+    </script>
 </%def>

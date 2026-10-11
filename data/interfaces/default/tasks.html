@@ -1,0 +1,83 @@
+<%inherit file="base.html"/>
+<%namespace file="importstatus.html" import="panel"/>
+<%!
+    import mylar
+%>
+
+<%def name="body()">
+    <input type="hidden" id="page_name" value="tasks" />
+    <div class="page">
+        <div class="page-head">
+            <div class="head-text">
+                <h1><span class="page-crumb">Tasks › </span>Jobs</h1>
+                <p class="page-sub">What's running, what runs next, and the workers behind them.</p>
+            </div>
+        </div>
+
+        <section class="section" aria-labelledby="t-now">
+            <div class="section-head"><h2 id="t-now">Running now</h2></div>
+            <div class="grid-2">
+                ${panel()}
+                <div class="panel" id="pp-panel">
+                    <div class="panel-head">
+                        <h3 class="panel-title">Folder Monitor and post-processing</h3>
+                        <span class="status is-idle" id="pp-state">Idle</span>
+                    </div>
+                    <dl class="kv">
+                        <dt>Working on</dt><dd id="pp-detail">Nothing</dd>
+                        <dt>Downloading</dt><dd id="pp-download">-</dd>
+                        <dt>Folder Monitor</dt><dd id="pp-monitor">-</dd>
+                        <dt>Last pass</dt><dd id="pp-last">-</dd>
+                        <dt>Unwanted issues go to</dt><dd id="pp-review" class="mono">-</dd>
+                    </dl>
+                </div>
+            </div>
+        </section>
+
+        <section class="section" aria-labelledby="t-sched">
+            <div class="section-head">
+                <h2 id="t-sched">Schedule</h2>
+                <p class="section-note">A job can start up to a minute late while other work finishes.</p>
+            </div>
+            <div class="dt-wrap">
+                <table class="dt" id="jobs-table">
+                    <thead>
+                        <tr>
+                            <th scope="col">Job</th>
+                            <th scope="col">Status</th>
+                            <th scope="col">Every</th>
+                            <th scope="col">Next run</th>
+                            <th scope="col">Last run</th>
+                            <th scope="col"><span class="sr-only">Actions</span></th>
+                        </tr>
+                    </thead>
+                    <tbody></tbody>
+                </table>
+            </div>
+        </section>
+
+        <section class="section" aria-labelledby="t-workers">
+            <div class="section-head">
+                <h2 id="t-workers">Workers</h2>
+                <p class="section-note">Workers start only when your settings need them. A worker that's down comes back after a restart.</p>
+            </div>
+            <div class="dt-wrap">
+                <table class="dt" id="workers-table">
+                    <thead>
+                        <tr>
+                            <th scope="col">Worker</th>
+                            <th scope="col" class="num">Waiting</th>
+                            <th scope="col">State</th>
+                        </tr>
+                    </thead>
+                    <tbody></tbody>
+                </table>
+            </div>
+        </section>
+    </div>
+</%def>
+
+<%def name="javascriptIncludes()">
+    <script>var tasksInitial = ${tasks_initial};</script>
+    <script src="js/tasks.js?v=${mylar.CURRENT_VERSION}"></script>
+</%def>

@@ -381,16 +381,9 @@ class Api(object):
         else:
             select_status_clause = "w.STATUS = 'Wanted'"
 
-        # Days in a new year that precede the first Sunday will look to the previous Sunday for week and year.
-        today = datetime.date.today()
-        if today.strftime('%U') == '00':
-            weekday = 0 if today.isoweekday() == 7 else today.isoweekday()
-            sunday = today - datetime.timedelta(days=weekday)
-            week = sunday.strftime('%U')
-            year = sunday.strftime('%Y')
-        else:
-            week = today.strftime('%U')
-            year = today.strftime('%Y')
+        # This week, numbered the way the pull list (TalkHard) numbers it.
+        week, year = helpers.release_week(datetime.date.today())
+        week, year = '%02d' % week, str(year)
 
         self.data = self._resultsFromQuery(
             "SELECT w.COMIC AS ComicName, w.ISSUE AS IssueNumber, w.ComicID, w.IssueID, w.SHIPDATE AS IssueDate, w.STATUS AS Status, c.ComicName AS DisplayComicName \

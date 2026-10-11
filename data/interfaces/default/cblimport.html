@@ -6,68 +6,60 @@
 %>
 <%def name="body()">
     <input type="hidden" id="page_name" value="cblimport" />
-    <div id="paddingheader">
-		<h1 class="clearfix">CBL Import</h1>
-	</div>
-    <ul>
-        <li>Import a CBL reading list and add volumes/issues to your wanted list.  It expects a CBL to contain ComicVine IDs such as in those on the <a href="https://github.com/DieselTech/CBL-ReadingLists" target="_blank" >CBL-ReadingLists</a> repository.</li>
-        <li>Issues that already exist in a state of Downloaded/Wanted/Snatched will not be affected.</li>
-        <li>Adding of volumes and updating issue status will happen in the background, so you can leave this page once submitted for processing.</li>        
-    </ul>
-    <br >
-	<hr />
-    <div class="configtable" style="width:960px;height:225px;">
-        <div style="float:right;margin-right:25px;width:400px;">
-            <legend>Import Status</legend>
-            <div id="status_text" style="display: inline">
-                No reading list loaded
+    <div class="page cbl">
+        <div class="page-head">
+            <div class="head-text">
+                <h1><span class="page-crumb">Story Arcs › </span>CBL import</h1>
+                <p class="page-sub">Import a CBL reading list: its series are added to your library and its issues marked wanted. Issues already Downloaded, Wanted or Snatched are left as they are.
+                    The list needs ComicVine IDs, like the lists in <a href="https://github.com/DieselTech/CBL-ReadingLists" target="_blank" rel="noopener">CBL-ReadingLists</a>.</p>
             </div>
-
         </div>
-        <div id="list_select">
-            <legend>Control</legend>
-            <input type="file" id="cblfileinput" name="cblfile" accept=".cbl" style="display:none" />
-            <input id="cblfileselectbutton" type="button"  value="Upload A CBL File" />
-            <span id="cblfilenamelabel" style="display:inline; width: 300px">No file selected</span><br >
-            <span id="cblfilenameerror" style="width: 300px; color: red"></span>
-            
-            <br >
-            <br >
 
-            <div class="row checkbox">
-                <input type="checkbox" ${'' if mylar.CONFIG.AUTOWANT_ALL else 'disabled'} name="issuesonly" style="vertical-align: middle; margin: 3px; margin-top: -1px;" id="issuesonly" value="1" ${checked(mylar.CONFIG.CBL_IMPORT_ISSUESONLY)} />
-                <label for="issuesonly" style="width:200px;">Only mark issues from list as wanted</label>
-                <%
-                    tooltip = "Overrides the 'Automatically Mark All Issues as Wanted' setting when adding a new volume"
-                %>
-                <a href="#" title="${tooltip}"><img src="images/info32.png" height="16" alt="" /></a>
-            </div>
-            <div class="row checkbox">
-                <input type="checkbox" name="ignorearchived" style="vertical-align: middle; margin: 3px; margin-top: -1px;" id="ignorearchived" value="1" ${checked(mylar.CONFIG.CBL_IMPORT_IGNOREARCHIVED)} />
-                <label for="ignorearchived" style="width:200px;">Do not mark Archived issues as Wanted</label>                    
-            </div>
-            
+        <div class="tools-grid">
+            <section class="panel tools-form" id="list_select">
+                <h2 class="panel-title">Choose a list</h2>
+                <input type="file" id="cblfileinput" name="cblfile" accept=".cbl" style="display:none" />
+                <div class="btn-row">
+                    <button id="cblfileselectbutton" type="button" class="btn">Choose a .cbl file</button>
+                    <span id="cblfilenamelabel" class="mono muted cbl-file">No file chosen</span>
+                </div>
+                <span id="cblfilenameerror" class="cbl-error"></span>
+                <div class="switch-list">
+                    <label class="switch-row">
+                        <input type="checkbox" ${'' if mylar.CONFIG.AUTOWANT_ALL else 'disabled'} name="issuesonly" id="issuesonly" value="1" ${checked(mylar.CONFIG.CBL_IMPORT_ISSUESONLY)} />
+                        <span><b>Only mark the issues in the list as wanted</b>
+                        <small>For series this adds, mark only the listed issues instead of every issue. Only applies while "Mark all issues as wanted" is on in Settings${'' if mylar.CONFIG.AUTOWANT_ALL else ', which it isn\'t'}.</small></span>
+                    </label>
+                    <label class="switch-row">
+                        <input type="checkbox" name="ignorearchived" id="ignorearchived" value="1" ${checked(mylar.CONFIG.CBL_IMPORT_IGNOREARCHIVED)} />
+                        <span><b>Leave Archived issues alone</b><small>Don't mark issues you've archived as wanted.</small></span>
+                    </label>
+                </div>
+                <div class="btn-row">
+                    <button id="processlistbutton" type="button" class="btn btn-primary" style="display:none">Import the reading list</button>
+                    <span id="processlistconfirm" class="status is-have" style="display:none">Submitted. It runs in the background; you can leave this page.</span>
+                </div>
+            </section>
+            <section class="panel">
+                <h2 class="panel-title">What's in it</h2>
+                <div id="status_text" class="muted">No reading list loaded</div>
+            </section>
         </div>
-        <br >
-        <input id="processlistbutton" type="button" value="Import Reading List" style="display:none" />   
-        <label id="processlistconfirm" style="display:none">Reading List Submitted for Processing</label>
-    </div>
-    
-    <br >
-    <hr />
-    <div class="table_wrapper">
-        <table class="display" id="cblimporttable">
-            <thead>
+
+        <div class="table_wrapper">
+            <table class="display" id="cblimporttable">
+                <thead>
                     <tr>
-                            <th class="list_index">Entry</th>
-                            <th class="volume">Volume</th>
-                            <th class="issue">Issue #</th>
-                            <th class="status">Status</th>
-                            <th class="action">Action</th>
+                        <th class="list_index">#</th>
+                        <th class="volume">Series</th>
+                        <th class="issue">Issue</th>
+                        <th class="status">Status</th>
+                        <th class="action">What happens</th>
                     </tr>
-            </thead>
-            <tbody></tbody>
-        </table>
+                </thead>
+                <tbody></tbody>
+            </table>
+        </div>
     </div>
 </%def>
 <%def name="headIncludes()">

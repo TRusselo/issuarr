@@ -107,6 +107,7 @@ _CONFIG_DEFINITIONS = OrderedDict({
     'SECURE_DIR': (str, 'General', None),
     'ENCRYPT_PASSWORDS': (bool, 'General', False),
     'BACKUP_ON_START': (bool, 'General', False),
+    'DB_JOURNAL_MODE': (str, 'General', 'auto'),   # auto, wal or delete
     'BACKUP_LOCATION': (str, 'General', None),
     'BACKUP_RETENTION': (int, 'General', 4),
     'BACKFILL_LENGTH': (int, 'General', 8),  # weeks
@@ -153,6 +154,9 @@ _CONFIG_DEFINITIONS = OrderedDict({
     'ALPHAINDEX': (bool, 'Interface', True),
     'CHERRYPY_LOGGING': (bool, 'Interface', False),
     'INSTANCE_NAME': (str, 'Interface', None),
+    'UI_THEME': (str, 'Interface', 'dark'),
+    'CUSTOM_CSS_ENABLED': (bool, 'Interface', False),
+    'CUSTOM_CSS_URL': (str, 'Interface', None),
 
     'API_ENABLED' : (bool, 'API', False),
     'API_KEY' : (str, 'API', None),
@@ -174,7 +178,8 @@ _CONFIG_DEFINITIONS = OrderedDict({
     'LOG_LEVEL': (int, 'Logs', 1),
 
     'GIT_PATH' : (str, 'Git', None),
-    'GIT_USER' : (str, 'Git', 'MylarComics'),
+    'GIT_USER' : (str, 'Git', 'TRusselo'),
+    'GIT_REPO' : (str, 'Git', 'Issuarr'),
     'GIT_TOKEN' : (str, 'Git', None),
     'GIT_BRANCH' : (str, 'Git', None),
     'CHECK_GITHUB' : (bool, 'Git', False),
@@ -531,7 +536,7 @@ class Config(object):
                 count = 0
 
             #this is the current version at this particular point in time.
-            self.newconfig = 19
+            self.newconfig = 20
 
             OLDCONFIG_VERSION = 0
             if count == 0:
@@ -953,6 +958,20 @@ class Config(object):
             logger.info('Ensuring release provider is set to TalkHard')
             self.RELEASE_PROVIDER_URL = 'https://talkhard.notaninja.party'
             config.set('Release Provider', 'release_provider_url', self.RELEASE_PROVIDER_URL)
+
+        if self.CONFIG_VERSION < 20:
+            # Issuarr: update checks follow TRusselo/Issuarr, not the retired upstream repos
+            if self.GIT_USER in (None, '', 'None', 'mylar3', 'MylarComics'):
+                logger.info('Update checks now follow TRusselo/Issuarr')
+                self.GIT_USER = 'TRusselo'
+                config.set('Git', 'GIT_USER', self.GIT_USER)
+            elif self.GIT_USER != 'TRusselo':
+                # someone's own fork keeps its Mylar3-era repository name
+                self.GIT_REPO = 'mylar3'
+                config.set('Git', 'GIT_REPO', self.GIT_REPO)
+            if self.GIT_BRANCH in ('stable', 'nightly', 'master', 'python3-dev', '1000papercuts'):
+                self.GIT_BRANCH = 'trusselo'
+                config.set('Git', 'GIT_BRANCH', self.GIT_BRANCH)
 
              
         logger.info('Configuration upgraded to version %s' % self.newconfig)

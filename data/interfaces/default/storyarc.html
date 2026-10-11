@@ -1,247 +1,188 @@
 <%inherit file="base.html"/>
 <%!
-        import os
-        import mylar
-	from mylar import db
-        from mylar.helpers import checked
+    from urllib.parse import urlencode
+    import mylar
+    from mylar.helpers import checked
 %>
 
-<%def name="headerIncludes()">
-	<div id="subhead_container">
-		<div id="subhead_menu">
-            <a id="menu_link_refresh" href="cblimport">CBL Import</a>            
-            <a id="menu_link_refresh" href="readlist">Reading List Management</a>
-		</div>
-	</div>	
-</%def>
-
 <%def name="body()">
-        <input type="hidden" id="page_name" value="storyarcs_index" />
-	<div id="paddingheader">
-		<h1 class="clearfix"><img src="${icons['ReadingList-icon']}" height="26" width="26" alt="Reading List"/>Story Arc Management</h1>
-	</div>
-        <div id="tabs">
-                <ul>
-                        <li><a href="#tabs-1">Options</a></li>
-                </ul>
+    <input type="hidden" id="page_name" value="storyarcs_index" />
+    <%
+        def bar(have, wanted, total):
+            try:
+                total = int(total)
+            except (TypeError, ValueError):
+                total = 0
+            have = min(have or 0, total) if total else (have or 0)
+            wanted = min(wanted or 0, max(total - have, 0))
+            rest = max(total - have - wanted, 0)
+            segs = [('seg-have', have), ('seg-wanted', wanted), ('seg-missing', rest)]
+            return ''.join('<span class="%s" style="flex: %d 1 0"></span>' % (c, n) for c, n in segs if n)
+        arcs = sorted(arclist, key=lambda a: (a['StoryArc'] or '').lower())
+    %>
+    <div class="page arcs">
+        <div class="page-head">
+            <div class="head-text">
+                <h1>Story Arcs</h1>
+                <p class="page-sub">Crossovers and events across several series, in reading order. Issues of series outside your library can still be grabbed for an arc.</p>
+            </div>
+            <form class="btn-row arc-add" action="searchit" method="get" role="search">
+                <input type="hidden" name="search_type" value="story_arc" />
+                <label class="lib-search">
+                    <span class="sr-only">Story arc name</span>
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+                    <input type="search" name="name" data-ui placeholder="Find an arc on ComicVine" required autocomplete="off" />
+                </label>
+                <button type="submit" class="btn btn-primary">Add arc</button>
+            </form>
+        </div>
 
-          <div id="tabs-1">
-            <table class="configtable">
-             <tr>
-             <td>
-              <form action="searchit" method="get">
-               <fieldset>
-                <legend>Add StoryArc</legend>
-                    <input type="hidden" id="search_type" name="search_type" value="story_arc">
-                    <input type="text" value="" id="name" placeholder="Search for Story Arc" onfocus="if(this.value==this.defaultValue)  this.value='';" name="name" />
-                    <span class="mini-icon"></span>
-                    <input type="submit" value="Search" onclick="flippylogo();">
-                    <span id="loading_spinner" style="position:relative;display:none;float:right;"><img src="images/loader_black.gif"  alt="loading"/></span>
-               </fieldset>
-              </form>
-<!--
-              <form action="importReadlist" method="get">
-               <fieldset>
-                    <input type="text" value="" runat="server" placeholder="Enter full path to .cbl file to import" onfocus="if
-                    (this.value==this.defaultValue) this.value='';" name="filename" size="45" />
-                    <input type="submit" value="Import">
-               </fieldset>
-              </form>
--->
-             </td>
-             <td>
-                 <form action="arcOptions" id="chkoptions" method="GET">
-                   <fieldset>
-                     <legend>Global StoryArc Options</legend>
-                         <div class="row checkbox left clearfix">
-                         <%
-                             storyarcdest = mylar.CONFIG.STORYARC_LOCATION
-                         %>
-                             <input type="checkbox" style="vertical-align: middle; margin: 3px; margin-top: -1px;" onclick="getOption(this)" name="storyarcdir" id="storyarcdir" value="1" ${checked(mylar.CONFIG.STORYARCDIR)} /><label>Arcs in StoryArc Directory </br><small>(${storyarcdest})</small></label>
-                         </div>
-                         <div id="arc_options">
-                           <div class="row">
-                               <label>Arc Folder Format</label>
-                               <input type="text" title="$publisher, $spanyears, $arc" name="arc_folderformat" value="${mylar.CONFIG.ARC_FOLDERFORMAT}" size="25" />
-                           </div>
-                           <input type="checkbox" style="vertical-align: middle; margin: 3px; margin-top: -1px;" name="read2filename" id="read2filename" value="1" ${checked(mylar.CONFIG.READ2FILENAME)} /><label>Prepend Reading # to filename</label></br>
-                         </div>
-                         <input type="checkbox" style="vertical-align: middle; margin: 3px; margin-top: -1px;" name="copy2arcdir" id="copy2arcdir" value="1" ${checked(mylar.CONFIG.COPY2ARCDIR)} />
-                                        <select name="arc_fileops" id="arc_fileops">
-                                         <%
-                                               if 'windows' in mylar.OS_DETECT.lower():
-                                                   optionlist = ['move', 'copy']
-                                               else:
-                                                   optionlist = ['move', 'copy', 'hardlink', 'softlink']
-                                         %>
-                                         %for x in optionlist:
-                                             <%
-                                                    if mylar.CONFIG.ARC_FILEOPS == x:
-                                                        outputselect = 'selected'
-                                                    else:
-                                                        outputselect = ''
-                                              %>
-                                              <option value=${x} ${outputselect}>${x}</option>
-                                         %endfor
-                                        </select><label> watchlisted issues to <span id="arcopts"></span> Directory</label>
-                             <div id="arc_fileops_options">
-                                 <input type="checkbox" style="vertical-align: middle; margin: 3px; margin-top: -1px;" name="arc_fileops_softlink_relative" id="arc_fileops_softlink_relative" value="1" ${checked(mylar.CONFIG.ARC_FILEOPS_SOFTLINK_RELATIVE)} /><label>Create relative softlink <span style="font-size:10px;color:#999;">(default: absolute)</span></label>
-                                 </div>
-                             </div>
-                         </div>
-                   </fieldset>
-                   <div>
-                        <input type="submit" value="Update"/>
-                   </div>
-                 </form>
-              </td>
-             </tr>
+        %if arcs:
+        <div class="btn-row lib-tools">
+            <label class="lib-search">
+                <span class="sr-only">Filter your arcs</span>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+                <input type="search" id="arc-q" data-ui placeholder="Filter your arcs" autocomplete="off" />
+            </label>
+            <span class="muted" id="arc-count">${len(arcs)} arc${'s' if len(arcs) != 1 else ''}</span>
+        </div>
+        %endif
+
+        <div class="dt-wrap">
+            <table class="dt" id="arc-table">
+                <thead>
+                    <tr>
+                        <th scope="col">Arc</th>
+                        <th scope="col">Years</th>
+                        <th scope="col" style="min-width: 220px">Issues</th>
+                        <th scope="col"><span class="sr-only">Actions</span></th>
+                    </tr>
+                </thead>
+                <tbody>
+                %for a in arcs:
+                    <tr data-name="${(a['StoryArc'] or '').lower() | h}">
+                        <td><a href="detailStoryArc?${urlencode({'StoryArcID': a['StoryArcID'], 'StoryArcName': a['StoryArc']}) | h}">${a['StoryArc'] | h}</a>
+                            %if a.get('Publisher'):
+                            <div class="muted arc-pub">${a['Publisher'] | h}</div>
+                            %endif
+                        </td>
+                        <td class="mono nowrap">${a['SpanYears'] or '-' | h}</td>
+                        <td>
+                            <div class="lib-issues">
+                                <div class="collection-bar" title="${'%s of %s on disk%s' % (a['Have'], a['Total'], (', %s wanted' % a['Wanted']) if a.get('Wanted') else '') | h}">${bar(a['Have'], a.get('Wanted'), a['Total'])}</div>
+                                <span class="card-count">${a['Have']}/${a['Total']}
+                                %if a.get('Wanted'):
+                                 <b class="is-wanted">${a['Wanted']} wanted</b>
+                                %endif
+                                </span>
+                            </div>
+                        </td>
+                        <td class="actions">
+                            %if a['CV_ArcID']:
+                            <button type="button" class="btn btn-sm" data-act="addStoryArc_thread?${urlencode({'arcid': a['StoryArcID'], 'cvarcid': a['CV_ArcID'], 'storyarcname': a['StoryArc'], 'arcrefresh': 'True'}) | h}"
+                                    data-done="Refreshing ${a['StoryArc'] | h} from ComicVine.">Refresh</button>
+                            %endif
+                            <button type="button" class="btn btn-sm btn-ghost" data-remove="removefromreadlist?${urlencode({'ArcName': a['StoryArc'], 'StoryArcID': a['StoryArcID']}) | h}"
+                                    data-name="${a['StoryArc'] | h}">Remove</button>
+                        </td>
+                    </tr>
+                %endfor
+                %if not arcs:
+                    <tr><td colspan="4" class="empty-state">No story arcs yet. Find one on ComicVine with Add arc, or import a reading list with <a href="cblimport">CBL import</a>.</td></tr>
+                %endif
+                </tbody>
             </table>
-          </div>
-         </div>
+        </div>
 
-                <div class="table_wrapper">
-
-                  <table class="display" id="storyarcs">
-
-                      <thead>
-                            <tr>
-                                <th id="storyarc">Story Arc</th>
-                                <th id="years">Span Years</th>
-                                <th id="have">Have</th>
-                                <th id="options">Options</th>
-                            </tr>
-                     </thead>
-                     <tbody>
-                         %for item in arclist:
-                                 <%
-                                         if item['percent'] == 101:
-                                                 css = '<div class=\"progress-container warning\">'
-                                         if item['percent'] == 100:
-                                                 css = '<div class=\"progress-container complete\">'
-                                         if item['percent'] < 100:
-                                                 css = '<div class=\"progress-container missing\">'
-
-                                         grade = 'Z'
-
-                                  %>
-
-                            <tr class="grade${grade}">
-                                <td id="storyarc"><a href="detailStoryArc?StoryArcID=${item['StoryArcID']}&StoryArcName=${item['StoryArc']| u}">${item['StoryArc']}</a></td>
-                                <td id="years">${item['SpanYears']}</td>
-                                <td id="have"><span title="${item['percent']}"></span>${css}<div style="width:${item['percent']}%"><span class="progressbar-front-text">${item['Have']}/${item['Total']}</span></div></td>
-                                <td id="options">
-                                   <a title="Remove Arc from Watchlist" onclick="doAjaxCall('removefromreadlist?ArcName=${item['StoryArc']| u}&StoryArcID=${item['StoryArcID']}',$(this),'table')" data-success='Successfully deleted ${item['StoryArc']}'><img src="images/skipped_icon.png" height="25" width="25" /></a>
-                                   %if item['CV_ArcID']:
-                                       <a title="Refresh Series" onclick="doAjaxCall('addStoryArc_thread?arcid=${item['StoryArcID']}&cvarcid=${item['CV_ArcID']}&storyarcname=${item['StoryArc']| u}&arcrefresh=True',$(this),'table')" data-success="Now refreshing ${item['StoryArc']}."><img src="images/refresh.png" height="25" width="25" /></a>
-                                   %endif
-                                </td>
-                            </tr>
-                         %endfor
-                     </tbody>
-             </table>
-           </div>
-</%def>
-
-<%def name="headIncludes()">
-	<link rel="stylesheet" href="interfaces/${interface}/css/data_table.css">
+        <details class="panel arc-opts">
+            <summary class="panel-title">Arc files</summary>
+            <form action="arcOptions" id="chkoptions" method="get" class="tools-form">
+                <div class="switch-list">
+                    <label class="switch-row">
+                        <input type="checkbox" name="storyarcdir" id="storyarcdir" value="1" ${checked(mylar.CONFIG.STORYARCDIR)} />
+                        <span><b>Keep arcs in their own folders</b><small>Under ${(mylar.CONFIG.STORYARC_LOCATION or 'StoryArcs in your comic location') | h}. When off, arc issues go to the GrabBag folder.</small></span>
+                    </label>
+                    <div class="switch-row arc-sub" id="arc_options">
+                        <label class="field" style="flex: 1">
+                            <span class="field-label">Arc folder name</span>
+                            <input type="text" name="arc_folderformat" value="${mylar.CONFIG.ARC_FOLDERFORMAT or '' | h}" placeholder="($arc) ($spanyears)" />
+                            <small>Use $arc, $spanyears and $publisher.</small>
+                        </label>
+                    </div>
+                    <label class="switch-row arc-sub" id="arc_read2">
+                        <input type="checkbox" name="read2filename" id="read2filename" value="1" ${checked(mylar.CONFIG.READ2FILENAME)} />
+                        <span><b>Start file names with the reading order</b><small>For example 003 - Secret Wars #3.cbz</small></span>
+                    </label>
+                    <label class="switch-row">
+                        <input type="checkbox" name="copy2arcdir" id="copy2arcdir" value="1" ${checked(mylar.CONFIG.COPY2ARCDIR)} />
+                        <span><b>Put issues from your library into the arc folder too</b>
+                            <small class="arc-fileops">By
+                            <%
+                                ops = ['move', 'copy'] if 'windows' in (mylar.OS_DETECT or '').lower() else ['move', 'copy', 'hardlink', 'softlink']
+                            %>
+                            <select name="arc_fileops" id="arc_fileops">
+                                %for x in ops:
+                                <option value="${x}" ${'selected' if mylar.CONFIG.ARC_FILEOPS == x else ''}>${x}</option>
+                                %endfor
+                            </select>
+                            </small></span>
+                    </label>
+                    <label class="switch-row arc-sub" id="arc_fileops_options">
+                        <input type="checkbox" name="arc_fileops_softlink_relative" id="arc_fileops_softlink_relative" value="1" ${checked(mylar.CONFIG.ARC_FILEOPS_SOFTLINK_RELATIVE)} />
+                        <span><b>Make the links relative</b><small>Absolute links are used when this is off.</small></span>
+                    </label>
+                </div>
+                <div class="btn-row"><button type="submit" class="btn btn-primary">Save</button></div>
+            </form>
+        </details>
+    </div>
 </%def>
 
 <%def name="javascriptIncludes()">
-        <script src="js/libs/jquery.dataTables.min.js"></script>
-        <script>
-        function openDelete(StoryArc, StoryArcID) {
-            alert('test');
-            $("#dialogit").dialog({
-                modal:true
-                }).data({storyarc: StoryArc, storyarcid: StoryArcID});
-        };
-        </script>
-        <script type="text/javascript">
-        function getOption(sel){
-            if (sel.checked) {
-                document.getElementById('arcopts').innerHTML = 'StoryArc';
-            } else {
-                document.getElementById('arcopts').innerHTML = 'GrabBag';               
+    <script>
+    (function () {
+        function $(id) { return document.getElementById(id); }
+        function sync() {
+            var dir = $('storyarcdir').checked;
+            $('arc_options').hidden = !dir;
+            $('arc_read2').hidden = !dir;
+            $('arc_fileops_options').hidden = $('arc_fileops').value !== 'softlink' || !$('copy2arcdir').checked;
+        }
+        ['storyarcdir', 'copy2arcdir', 'arc_fileops'].forEach(function (id) { $(id).addEventListener('change', sync); });
+        sync();
+
+        var q = $('arc-q');
+        if (q) q.addEventListener('input', function () {
+            var v = q.value.trim().toLowerCase(), n = 0;
+            document.querySelectorAll('#arc-table tbody tr[data-name]').forEach(function (tr) {
+                tr.hidden = v && tr.getAttribute('data-name').indexOf(v) < 0;
+                if (!tr.hidden) n++;
+            });
+            $('arc-count').textContent = n + (n === 1 ? ' arc' : ' arcs');
+        });
+
+        document.addEventListener('click', function (e) {
+            var act = e.target.closest('[data-act]');
+            if (act) {
+                act.disabled = true;
+                fetch(act.getAttribute('data-act'), { credentials: 'same-origin' })
+                    .then(function (r) { if (!r.ok) throw new Error(r.status); Issuarr.toast(act.getAttribute('data-done')); })
+                    .catch(function () { act.disabled = false; Issuarr.toast('That didn\'t work. Check the log.', false); });
+                return;
             }
-        };
-        </script>
-        <script type="text/javascript">
-        $("#menu_link_scan").click(function() {
-            $('#chkoptions').submit();
-            return true;
+            var rm = e.target.closest('[data-remove]');
+            if (rm) {
+                if (!window.confirm('Remove the arc "' + rm.getAttribute('data-name') + '"? Its reading order is removed from Issuarr. Issues and files in your library stay.')) return;
+                rm.disabled = true;
+                fetch(rm.getAttribute('data-remove'), { credentials: 'same-origin' })
+                    .then(function (r) {
+                        if (!r.ok) throw new Error(r.status);
+                        Issuarr.toast('Removed ' + rm.getAttribute('data-name') + '.');
+                        rm.closest('tr').remove();
+                    })
+                    .catch(function () { rm.disabled = false; Issuarr.toast('That didn\'t work. Check the log.', false); });
+            }
         });
-
-        function showspinner() {
-            console.log('SPINNNER');
-            //$('img.mylarload').addClass('spinny').removeClass('lastgood').removeClass('lastbad');
-            document.getElementById("loading_spinner").style.display = "block";
-        }
-        </script>
-        <script>
-        function initThisPage() {
-
-                if ($("#storyarcdir").is(":checked"))
-                        {
-                            $("#arc_options").show();
-                            document.getElementById('arcopts').innerHTML = 'StoryArc';
-                        }
-                else
-                        {
-                            $("#arc_options").hide();
-                            document.getElementById('arcopts').innerHTML = 'GrabBag';
-                        }
-                if (document.getElementById("arc_fileops").value == 'softlink')
-                        {
-                            $("#arc_fileops_options").show();
-                        }
-                else
-                        {
-                            $("#arc_fileops_options").hide();
-                        }
-                $("#storyarcdir").click(function(){
-                        if ($("#storyarcdir").is(":checked"))
-                        {
-                            $("#arc_options").slideDown();
-                        }
-                        else
-                        {
-                            $("#arc_options").slideUp();
-                        }
-                });
-                $("#arc_fileops").change(function(){
-                        if (document.getElementById("arc_fileops").value == 'softlink')
-                        {
-                            $("#arc_fileops_options").slideDown();
-                        }
-                        else
-                        {
-                            $("#arc_fileops_options").slideUp();
-                        }
-                });
-                $(function() {
-                        $( "#tabs" ).tabs();
-                });
-                initActions();
-                $('#storyarcs').dataTable({
-                        "bDestroy": true,
-                        "oLanguage": {
-                                "sLengthMenu":"Show _MENU_ items per page",
-                                "sEmptyTable": "<em>No History to Display</em>",
-                                "sInfo":"Showing _START_ to _END_ of _TOTAL_ items",
-                                "sInfoEmpty":"Showing 0 to 0 of 0 items",
-                                "sInfoFiltered":"(filtered from _MAX_ total items)"},
-                        "iDisplayLength": 25,
-                        "sPaginationType": "full_numbers",
-                        "aaSorting": []
-
-                });
-                resetFilters("arclist");
-        }
-
-        $(document).ready(function() {
-                initThisPage();
-                initActions();
-        });
-        </script>
+    })();
+    </script>
 </%def>

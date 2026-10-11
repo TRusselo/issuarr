@@ -3,59 +3,54 @@
     import mylar
 %>
 
-<%def name="headerIncludes()">
-	<div id="subhead_container">
-		<div id="subhead_menu">
-			<a id="menu_link_refresh" href="upcoming">Wanted list</a>
-			<a id="menu_link_refresh" href="history">History</a>
-		</div>
-	</div>
-</%def>
-
 <%def name="headIncludes()">
 	<link rel="stylesheet" type="text/css" href="css/ledger.css?v=${mylar.CURRENT_VERSION}" />
 </%def>
 
 <%def name="body()">
+<input type="hidden" id="page_name" value="ledger" />
 <div class="lg">
-	<div class="lg-head">
-		<div>
+	<div class="page-head">
+		<div class="head-text">
 			<h1 class="lg-title">Ledger</h1>
-			<p class="lg-sub" id="lg-sub">Issues in your watched series that have no file, and how your trades overlap your singles.</p>
+			<p class="page-sub" id="lg-sub">Issues missing from the series you follow.</p>
 		</div>
 		<div class="lg-tabs" role="tablist" aria-label="Ledger view">
-			<button role="tab" id="lg-tab-missing" aria-selected="true">Missing issues</button>
-			<button role="tab" id="lg-tab-collected" aria-selected="false">Trade Management</button>
+			<button role="tab" data-ui id="lg-tab-missing" aria-selected="true">Missing issues</button>
+			<button role="tab" data-ui id="lg-tab-collected" aria-selected="false">Trades</button>
 		</div>
 	</div>
 
-	<div class="lg-tiles" id="lg-tiles" role="group" aria-label="Filter by kind"></div>
+	<section class="lg-sum" id="lg-sum" aria-label="Totals" hidden></section>
+
+	<p class="lg-label" id="lg-tiles-label">Where the missing issues sit</p>
+	<div class="lg-tiles" id="lg-tiles" role="group" aria-labelledby="lg-tiles-label"></div>
 
 	<div class="lg-controls">
-		<div class="lg-seg" role="group" aria-label="Group by">
-			<button id="lg-by-issue" aria-pressed="true">Issues</button>
-			<button id="lg-by-series" aria-pressed="false">By series</button>
-		</div>
-		<input id="lg-q" type="search" placeholder="Search series or title" aria-label="Search series or title">
+		<input id="lg-q" type="search" data-ui placeholder="Filter by series or title" aria-label="Filter by series or title">
 		<select id="lg-pub" aria-label="Publisher"></select>
 		<select id="lg-dec" aria-label="Release decade"></select>
 		<select id="lg-stat" aria-label="Status"></select>
-		<label class="lg-cutoff" id="lg-cutoff-wrap">Collection ended
+		<label class="lg-cutoff" id="lg-cutoff-wrap" title="Issues released after this date count as After collection ended">Collection ended
 			<input id="lg-cutoff" type="date" aria-label="Date your collection stopped">
 		</label>
+		<div class="lg-seg" role="group" aria-label="Group by">
+			<button type="button" data-ui id="lg-by-series" aria-pressed="false">Series</button>
+			<button type="button" data-ui id="lg-by-issue" aria-pressed="true">Issues</button>
+		</div>
 		<span class="lg-count" id="lg-count"></span>
 	</div>
 
 	<div class="lg-build" id="lg-build" hidden>
 		<span id="lg-build-text"></span>
-		<button id="lg-build-btn" class="lg-btn">Read trade contents</button>
-		<button id="lg-rebuild-btn" class="lg-btn lg-quiet">Re-read all</button>
+		<button type="button" id="lg-build-btn" class="btn btn-sm btn-primary">Read trade contents</button>
+		<button type="button" id="lg-rebuild-btn" class="btn btn-sm btn-ghost">Re-read all</button>
 	</div>
 
 	<div class="lg-actions" id="lg-actions" hidden></div>
 
 	<div class="lg-tablebox"><table class="lg-table" id="lg-table"><thead></thead><tbody></tbody></table></div>
-	<div class="lg-more"><button class="lg-btn lg-quiet" id="lg-more" hidden>Show 300 more</button></div>
+	<div class="lg-more"><button type="button" class="btn" id="lg-more" hidden>Show 300 more</button></div>
 	<p class="lg-note" id="lg-note"></p>
 </div>
 </%def>

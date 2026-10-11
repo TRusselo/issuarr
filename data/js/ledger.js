@@ -4,7 +4,7 @@
   var MH = ['Owned issues on both sides', 'Series has files Mylar can\'t match', 'Past your last owned issue', 'Before your first owned issue', 'Released after your cutoff date', 'Series where you have every issue'];
   var COMPLETE = 5;
   var CK = ['fills_gaps', 'covered', 'partly', 'not_in_library', 'unknown'];
-  var CC = ['--lg-gap', '--lg-done', '--lg-after', '--lg-before', '--lg-cut'];
+  var CC = ['--lg-c-fills', '--lg-c-dupe', '--lg-c-part', '--lg-c-out', '--lg-c-unknown'];
   var CL = ['Fills gaps', 'Duplicates singles', 'Partly covered', 'Not in library', 'No contents info'];
   var CH = ['Collects issues you don\'t have as singles', 'You own every tracked issue it collects', 'Its own series has issues Mylar doesn\'t track', 'Collects series you don\'t track', 'No source lists what it collects'];
   var BOOK = '<svg class="lg-ico" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 4.2C6.6 3 4.4 2.6 1.5 2.8v9.6c2.9-.2 5.1.2 6.5 1.4 1.4-1.2 3.6-1.6 6.5-1.4V2.8c-2.9-.2-5.1.2-6.5 1.4zM8 4.2v9.6"/></svg>';
@@ -24,8 +24,65 @@
 
   function load(view, cb) {
     $id('lg-count').textContent = 'Loading…';
-    $.getJSON('ledger_data', { view: view }, cb);
+    $.getJSON('ledger_data', { view: view }, function (d) { if (view === 'missing') prep(d); cb(d); });
   }
+
+  // Per series, how its missing issues split by status (all kinds, before any filter).
+  function prep(d) {
+    d.sc = {};
+    d.rows.forEach(function (r) {
+      var c = d.sc[r[1]] || (d.sc[r[1]] = { w: 0, s: 0, f: 0, m: 0 });
+      if (r[7] === 'Wanted') c.w++; else if (r[7] === 'Snatched') c.s++; else if (r[7] === 'Failed') c.f++; else c.m++;
+    });
+    return d;
+  }
+
+  // One bar per series, by status: on disk, wanted, snatched, failed, missing and not wanted, and the rest
+  // (Ignored issues aren't listed as missing, so they make up most of it).
+  var SEGS = [['have', 'seg-have', 'On disk'], ['w', 'seg-wanted', 'Wanted'], ['s', 'seg-snatched', 'Snatched'], ['f', 'seg-failed', 'Failed'],
+              ['m', 'seg-missing', 'Missing, not wanted'], ['rest', 'seg-ignored', 'Ignored or not listed']];
+  function counts(si) {
+    var S = M.series[si], c = M.sc[si] || { w: 0, s: 0, f: 0, m: 0 }, tot = S[3] || 0, have = tot ? Math.min(S[2], tot) : S[2];
+    return { have: have, w: c.w, s: c.s, f: c.f, m: c.m, rest: Math.max(tot - have - c.w - c.s - c.f - c.m, 0) };
+  }
+  function bar(c) {
+    var title = SEGS.filter(function (x) { return c[x[0]]; }).map(function (x) { return x[2] + ': ' + fmt(c[x[0]]); }).join(' · ');
+    return '<div class="collection-bar" title="' + esc(title) + '">' + SEGS.map(function (x) {
+      return c[x[0]] ? '<span class="' + x[1] + '" style="flex: ' + c[x[0]] + ' 1 0"></span>' : '';
+    }).join('') + '</div>';
+  }
+  // A series' issues in number order as runs: on disk, wanted, missing and so on, so each gap shows where it is.
+  var RUN = { h: ['seg-have', 'on disk'], w: ['seg-wanted', 'wanted'], s: ['seg-snatched', 'snatched'], f: ['seg-failed', 'failed'],
+              i: ['seg-ignored', 'ignored'], m: ['seg-missing', 'missing'] };
+  function runsBar(runs) {
+    if (!runs || !runs.length) return '<div class="collection-bar"></div>';
+    var tot = {}, n = 0;
+    var spans = runs.map(function (r) {
+      var k = RUN[r[0]] || RUN.m;
+      tot[k[1]] = (tot[k[1]] || 0) + r[1]; n += r[1];
+      var which = r[1] === 1 ? '#' + r[2] : '#' + r[2] + '–#' + r[3];
+      return '<span class="' + k[0] + '" style="flex: ' + r[1] + ' 1 0" title="' + esc(which + ' ' + k[1]) + '"></span>';
+    }).join('');
+    var label = n + ' issues: ' + Object.keys(tot).map(function (k) { return tot[k] + ' ' + k; }).join(', ');
+    return '<div class="collection-bar is-runs" role="img" aria-label="' + esc(label) + '">' + spans + '</div>';
+  }
+
+  function renderSum() {
+    var box = $id('lg-sum');
+    box.hidden = st.tab !== 'missing' || !M;
+    if (box.hidden) return;
+    var seen = {}, t = { have: 0, w: 0, s: 0, f: 0, m: 0, rest: 0 }, tracked = 0;
+    M.rows.forEach(function (r) { seen[r[1]] = 1; });
+    var ids = Object.keys(seen);
+    ids.forEach(function (si) { var c = counts(si); Object.keys(t).forEach(function (k) { t[k] += c[k]; }); tracked += M.series[si][3] || 0; });
+    var missing = t.w + t.s + t.f + t.m;
+    box.innerHTML = '<div class="lg-sum-line"><span><b>' + fmt(ids.length) + '</b> series with missing issues · <b>' + fmt(missing) + '</b> missing of <b>' + fmt(tracked) + '</b> tracked</span>' +
+      '<span class="is-wanted"><b>' + fmt(t.w) + '</b> wanted</span></div>' + bar(t) +
+      '<div class="legend">' + SEGS.map(function (x) { return '<span><i class="' + x[1].replace('seg-', 'is-') + '"></i>' + x[2] + ' <b>' + fmt(t[x[0]]) + '</b></span>'; }).join('') + '</div>';
+  }
+
+  var PILL = { Wanted: 'is-wanted', Snatched: 'is-snatched', Failed: 'is-failed', Downloaded: 'is-have', Archived: 'is-have', Ignored: 'is-ignored', Skipped: 'is-idle' };
+  function statusPill(v) { return '<span class="status ' + (PILL[v] || 'is-idle') + '">' + esc(v) + '</span>'; }
 
   function tiles() {
     var counts, L, H, K, keys = st.kinds[st.tab];
@@ -37,7 +94,7 @@
     }
     $id('lg-tiles').innerHTML = L.map(function (l, i) {
       if (st.tab === 'missing' && i === 4 && !M.cutoff) return '';
-      return '<button class="lg-tile" style="--c:var(' + K[i] + ')" data-k="' + i + '" aria-pressed="' + (keys.indexOf(i) >= 0) + '"><b>' + fmt(counts[i]) + '</b><span>' + l + '</span><small>' + H[i] + '</small>' + (wanted[i] ? '<em class="lg-tile-w">' + fmt(wanted[i]) + ' already Wanted</em>' : '') + '</button>';
+      return '<button type="button" class="lg-tile" style="--c:var(' + K[i] + ')" data-k="' + i + '" aria-pressed="' + (keys.indexOf(i) >= 0) + '" title="' + esc(H[i]) + '"><b>' + fmt(counts[i]) + '</b><span>' + l + '</span><small>' + H[i] + '</small>' + (wanted[i] ? '<em>' + fmt(wanted[i]) + ' wanted</em>' : '') + '</button>';
     }).join('');
   }
 
@@ -81,10 +138,20 @@
     });
   });
 
+  // The sidebar opens this page as Ledger (no hash) or Library > Trades (#trades).
+  function tabFromHash() { return location.hash === '#trades' ? 'collected' : 'missing'; }
   function setTab(t) {
     st.tab = t; st.sel = {}; st.limit = 300; st.sort = null; save();
     $id('lg-tab-missing').setAttribute('aria-selected', t === 'missing');
     $id('lg-tab-collected').setAttribute('aria-selected', t === 'collected');
+    if (tabFromHash() !== t) history.replaceState(null, '', t === 'collected' ? '#trades' : location.pathname + location.search);
+    if (window.issuarrMarkNav) window.issuarrMarkNav();
+    $('.lg-title').html(t === 'collected' ? '<span class="page-crumb">Library › </span>Trades' : 'Ledger');
+    document.title = document.title.replace(/ - [^-]*$/, ' - ' + (t === 'collected' ? 'Trades' : 'Ledger'));
+    $id('lg-sub').textContent = t === 'collected'
+      ? 'Trade paperbacks in your library, and how they overlap the single issues you own.'
+      : 'Issues missing from the series you follow, where they sit in each run, and which ones you\'ve asked for.';
+    $id('lg-tiles-label').textContent = t === 'collected' ? 'What each trade covers' : 'Where the missing issues sit';
     var go = function () { tiles(); filters(); render(); buildBar(); };
     if (t === 'missing') { if (M) go(); else load('missing', function (d) { M = d; go(); }); }
     else { if (C) go(); else load('collected', function (d) { C = d; go(); }); }
@@ -103,7 +170,7 @@
   }
   $('#lg-table').on('click', 'th[data-key]', function () {
     var k = this.getAttribute('data-key'); if (k === 'mix' || k === 'lack') return;
-    st.sort = st.sort && st.sort.key === k ? { key: k, dir: -st.sort.dir } : { key: k, dir: ['gap', 'other', 'own', 'found', 'lacking'].indexOf(k) >= 0 ? -1 : 1 };
+    st.sort = st.sort && st.sort.key === k ? { key: k, dir: -st.sort.dir } : { key: k, dir: ['miss', 'own', 'w', 'found', 'lacking'].indexOf(k) >= 0 ? -1 : 1 };
     render();
   });
   $('#lg-table').on('keydown', 'th[data-key]', function (e) { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); $(this).click(); } });
@@ -159,6 +226,7 @@
   function render() {
     if (st.tab === 'missing') { if (st.by === 'issue') renderIssues(); else renderSeries(); }
     else renderTrades();
+    renderSum();
     selBar();
     syncAll();
   }
@@ -185,7 +253,7 @@
         '<td><a href="comicDetails?ComicID=' + S[5] + '">' + esc(S[0]) + '</a> <span class="lg-dim">(' + esc(S[1]) + ')</span><br><small class="lg-dim">' + esc(M.pubs[S[4]]) + '</small></td>' +
         '<td class="num lg-mono"><a href="https://comicvine.gamespot.com/issue/4000-' + r[6] + '/" target="_blank" rel="noopener">' + esc(r[2]) + '</a></td>' +
         '<td class="lg-dim lg-title-cell">' + (esc(r[4]) || '—') + '</td><td class="lg-mono">' + (r[5] || '—') + '</td>' +
-        '<td><span class="lg-status lg-st-' + esc(r[7]) + '">' + esc(r[7]) + '</span></td><td class="lg-trades">' + tradeCell(r[8]) + '</td><td class="num lg-mono">' + S[2] + ' / ' + S[3] + '</td></tr>';
+        '<td>' + statusPill(r[7]) + '</td><td class="lg-trades">' + tradeCell(r[8]) + '</td><td class="num lg-mono">' + S[2] + ' / ' + S[3] + '</td></tr>';
     }).join('') : '<tr><td class="lg-empty" colspan="9">' + (st.kinds.missing.length === 1 && st.kinds.missing[0] === COMPLETE ? 'Complete series are listed in the By series view.' : 'No issues match. Turn on more kinds above or clear the search.') + '</td></tr>');
     countLine(Math.min(st.limit, f.length), f.length, 'issues', sf.wanted);
     $id('lg-more').hidden = f.length <= st.limit;
@@ -194,30 +262,45 @@
 
   function renderSeries() {
     var sf = statusFilter(missingRows()), f = sf.rows, g = {};
-    f.forEach(function (r) { var x = g[r[1]] || (g[r[1]] = { s: r[1], c: [0, 0, 0, 0, 0], ids: [], w: 0 }); x.c[r[0]]++; x.ids.push(r[6]); if (r[7] === 'Wanted') x.w++; });
-    var s = st.sort || { key: 'gap', dir: -1 };
+    f.forEach(function (r) {
+      var x = g[r[1]] || (g[r[1]] = { s: r[1], p: [0, 0, 0], none: 0, ids: [], w: 0 });
+      if (r[9] < 0) x.none++; else x.p[r[9]]++;
+      x.ids.push(r[6]); if (r[7] === 'Wanted') x.w++;
+    });
+    var s = st.sort || { key: 'miss', dir: -1 };
     if (st.kinds.missing.indexOf(COMPLETE) >= 0) M.complete.forEach(function (si) {
       var S = M.series[si];
       if (g[si] || (st.pub && M.pubs[S[4]] !== st.pub) || (st.q && S[0].toLowerCase().indexOf(st.q) < 0)) return;
-      g[si] = { s: si, c: [0, 0, 0, 0, 0], ids: [], w: 0, done: true };
+      g[si] = { s: si, p: [0, 0, 0], none: 0, ids: [], w: 0, done: true };
     });
-    var list = Object.keys(g).map(function (k) { var x = g[k], S = M.series[x.s]; x.series = S[0].toLowerCase(); x.pub = M.pubs[S[4]]; x.own = S[2] / (S[3] || 1); x.gap = x.c[0]; x.other = x.c[1] + x.c[2] + x.c[3] + x.c[4]; x.tr = -(S[6] || []).length; return x; });
+    var list = Object.keys(g).map(function (k) { var x = g[k], S = M.series[x.s]; x.series = S[0].toLowerCase(); x.pub = M.pubs[S[4]]; x.own = S[2] / (S[3] || 1); x.total = x.p[0] + x.p[1] + x.p[2] + x.none; x.miss = x.p[1] * 1e6 + x.total; x.tr = -(S[6] || []).length; return x; });
     list.sort(function (a, b) { return s.dir * cmp(a[s.key], b[s.key]) || cmp(a.series, b.series); });
-    head([['series', 'Series'], ['pub', 'Publisher'], ['own', 'Owned', 'num'], ['gap', 'Gaps', 'num'], ['other', 'Other missing', 'num'], ['w', 'Wanted', 'num'], ['tr', 'Trades'], ['mix', 'Breakdown']], true);
+    head([['series', 'Series'], ['mix', 'Collection'], ['own', 'Owned', 'num'], ['miss', 'Missing <small class="lg-dim">before / gap / after</small>', 'num'], ['w', 'Wanted', 'num'], ['tr', 'Trades']], true);
     var page = list.slice(0, st.limit);
     $('#lg-table tbody').html(page.length ? page.map(function (x) {
-      var S = M.series[x.s], tot = S[3] || 1, all = x.ids.every(function (i) { return st.sel[i]; });
-      var seg = function (n, c) { return n ? '<i style="width:' + (100 * n / tot) + '%;background:var(' + c + ')" title="' + n + '"></i>' : ''; };
+      var S = M.series[x.s], all = x.ids.every(function (i) { return st.sel[i]; });
       if (x.done) all = false;
       return '<tr class="' + (all ? 'lg-on' : '') + (x.done ? ' lg-complete' : '') + '"><td class="lg-chk">' + (x.done ? '' : '<input type="checkbox" data-ids="' + x.ids.join(',') + '"' + (all ? ' checked' : '') + ' aria-label="Select all missing issues in this series">') + '</td>' +
-        '<td><a href="comicDetails?ComicID=' + S[5] + '">' + esc(S[0]) + '</a> <span class="lg-dim">(' + esc(S[1]) + ')</span></td><td>' + esc(M.pubs[S[4]]) + '</td>' +
-        '<td class="num lg-mono">' + S[2] + ' / ' + S[3] + '</td><td class="num lg-mono lg-strong">' + (x.gap || '') + '</td><td class="num lg-mono">' + (x.done ? '<span class="lg-pill" style="--c:var(--lg-done)">Complete</span>' : (x.other || '')) + '</td>' +
-        '<td class="num lg-mono lg-st-Wanted">' + (x.w || '') + '</td>' +
-        '<td class="lg-trades">' + seriesTrades(S[6]) + '</td><td><div class="lg-bar">' + seg(S[2], '--lg-done') + x.c.map(function (n, i) { return seg(n, MK[i]); }).join('') + '</div></td></tr>';
+        '<td><a href="comicDetails?ComicID=' + S[5] + '">' + esc(S[0]) + '</a> <span class="lg-dim">(' + esc(S[1]) + ')</span><br><small class="lg-dim">' + esc(M.pubs[S[4]]) + '</small></td>' +
+        '<td class="lg-cbar-cell">' + runsBar(S[7]) + '</td>' +
+        '<td class="num lg-mono">' + S[2] + ' / ' + S[3] + '</td><td class="num lg-mono">' + missCell(x) + '</td>' +
+        '<td class="num lg-mono is-wanted">' + (x.w || '') + '</td>' +
+        '<td class="lg-trades">' + seriesTrades(S[6]) + '</td></tr>';
     }).join('') : '<tr><td class="lg-empty" colspan="9">No series match these filters.</td></tr>');
     countLine(Math.min(st.limit, list.length), list.length, 'series', sf.wanted);
     $id('lg-more').hidden = list.length <= st.limit;
     $id('lg-note').textContent = KEYS + ' Selecting a series selects all of its missing issues that match the filters.';
+  }
+
+  function missCell(x) {
+    if (x.done) return '<span class="lg-pill" style="--c:var(--lg-done)">Complete</span>';
+    if (x.none && !x.total) return '';
+    if (x.none === x.total) return M.series[x.s][2] > 0
+      ? '<span class="lg-dim" title="This series has files, but none are matched to an issue, so gaps can\'t be placed">files not matched</span> ' + x.none
+      : '<span class="lg-dim" title="No issues of this series are on disk">none on disk</span> ' + x.none;
+    var v = function (n, cls, t) { return '<span class="' + cls + '" title="' + t + '">' + (n || '—') + '</span>'; };
+    return '<span class="lg-miss">' + v(x.p[0], '', 'Before your first owned issue') + '<i>/</i>' + v(x.p[1], 'lg-strong', 'In gaps between issues you own') +
+      '<i>/</i>' + v(x.p[2], '', 'After your last owned issue') + '</span>';
   }
 
   function renderTrades() {
@@ -240,7 +323,7 @@
         '<td class="lg-dim lg-title-cell">' + (esc(t.collects) || '—') + (t.extras && t.extras.length ? '<br><small>Tie-ins not tracked: ' + esc(t.extras.join(', ')) + '</small>' : '') + '</td>' +
         '<td class="num lg-mono">' + (t.found ? t.own + ' / ' + t.found : '—') + (t.unresolved ? '<br><small class="lg-dim">+' + t.unresolved + ' not tracked</small>' : '') + '</td>' +
         '<td class="num lg-mono">' + (t.lacking.length ? '<button class="lg-link" data-open="' + t.iid + '" aria-expanded="' + !!open + '">' + t.lacking.length + '</button>' : '') + '</td>' +
-        '<td><span class="lg-status lg-st-' + esc(t.tstatus) + '">' + esc(t.tstatus) + '</span></td></tr>';
+        '<td>' + statusPill(t.tstatus) + '</td></tr>';
       if (open) row += '<tr class="lg-sub-row"><td></td><td colspan="6">' + t.lacking.map(function (l) { return '<span class="lg-chip">' + esc(l[1]) + ' (' + esc(l[2]) + ') #' + esc(l[3]) + ' <em>' + esc(l[4]) + '</em></span>'; }).join('') + '</td></tr>';
       return row;
     }).join('') : '<tr><td class="lg-empty" colspan="7">' + (C.trades.length ? 'No trades match these filters.' : 'Trade contents haven\'t been read yet. Use the button above.') + '</td></tr>');
@@ -279,7 +362,7 @@
   function ids(el) { var a = el.getAttribute('data-ids'); return a ? a.split(',') : [el.getAttribute('data-id')]; }
 
   function btn(id, label, n, why) {
-    return '<button class="lg-btn" data-do="' + id + '"' + (n ? '' : ' disabled title="' + esc(why) + '"') + '>' + label + (n ? ' <span class="lg-n">' + fmt(n) + '</span>' : '') + '</button>';
+    return '<button type="button" class="btn btn-sm" data-do="' + id + '"' + (n ? '' : ' disabled title="' + esc(why) + '"') + '>' + label + (n ? ' <span class="lg-n">' + fmt(n) + '</span>' : '') + '</button>';
   }
   function selTrades() { return C ? C.trades.filter(function (t) { return st.sel[t.iid]; }) : []; }
   function lackingIds(list) { var o = {}; list.forEach(function (t) { t.lacking.forEach(function (l) { o[l[0]] = 1; }); }); return Object.keys(o); }
@@ -306,7 +389,7 @@
         '<span class="lg-grp"><small>Singles it duplicates</small>' +
         btn('remove', 'Remove them…', dupes, owned.length ? 'No single issue files of these trades are left in your library' : 'Only trades you have can replace singles') + '</span>';
     }
-    html += '<button class="lg-btn lg-quiet" data-do="clear">Clear selection</button>';
+    html += '<button type="button" class="btn btn-sm btn-ghost" data-do="clear">Clear selection</button>';
     if (st.confirm) html += '<div class="lg-confirm">' + st.confirm + '</div>';
     bar.innerHTML = html;
     try { document.documentElement.style.setProperty('--lg-bar-h', bar.offsetHeight + 'px'); } catch (e) {}
@@ -339,8 +422,8 @@
         st.confirm = r.count
           ? 'Move <b>' + fmt(r.count) + ' single issue files</b> (' + size(r.bytes) + ') to <code>' + esc(r.dest) + '</code>? They stay counted as owned (Archived), and an undo list is saved in that folder. ' +
             (r.skipped.length ? '<br><small>Skipped: ' + esc(r.skipped.join('; ')) + '</small> ' : '') +
-            '<button class="lg-btn lg-danger" data-do="move">Move ' + fmt(r.count) + ' files</button><button class="lg-btn lg-quiet" data-do="cancel">Cancel</button>'
-          : 'No single issue files to move.' + (r.skipped.length ? ' <small>' + esc(r.skipped.join('; ')) + '</small>' : '') + ' <button class="lg-btn lg-quiet" data-do="cancel">OK</button>';
+            '<button type="button" class="btn btn-sm btn-danger" data-do="move">Move ' + fmt(r.count) + ' files</button><button type="button" class="btn btn-sm btn-ghost" data-do="cancel">Cancel</button>'
+          : 'No single issue files to move.' + (r.skipped.length ? ' <small>' + esc(r.skipped.join('; ')) + '</small>' : '') + ' <button type="button" class="btn btn-sm btn-ghost" data-do="cancel">OK</button>';
         selBar();
       }, 'json');
       return;
@@ -381,5 +464,6 @@
 
   $id('lg-by-issue').setAttribute('aria-pressed', st.by === 'issue');
   $id('lg-by-series').setAttribute('aria-pressed', st.by === 'series');
-  setTab(st.tab);
+  setTab(tabFromHash());
+  window.addEventListener('hashchange', function () { if (tabFromHash() !== st.tab) setTab(tabFromHash()); });
 })();

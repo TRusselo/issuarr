@@ -465,7 +465,7 @@ def pullit(forcecheck=None, weeknumber=None, year=None):
             weektmp = datetime.date(*(int(s) for s in pulldate.split('-')))
         except TypeError:
             weektmp = datetime.date.today()
-        weeknumber = weektmp.strftime("%U")
+        weeknumber = str(helpers.release_week(weektmp)[0])
 
         logger.info("Populating the NEW Weekly Pull list into Mylar for week " + str(weeknumber))
 
@@ -1163,7 +1163,7 @@ def new_pullcheck(weeknumber, pullyear, comic1off_name=None, comic1off_id=None, 
 
                     logger.fdebug("Watchlist hit for : " + week['ComicName'] + " #: " + str(week['issue']))
                     if mylar.CURRENT_WEEKNUMBER is None:
-                        mylar.CURRENT_WEEKNUMBER = todaydate.strftime("%U")
+                        mylar.CURRENT_WEEKNUMBER = str(helpers.release_week(todaydate.date())[0])
 
 #                   if int(mylar.CURRENT_WEEKNUMBER) == int(weeknumber):
                     # here we add to upcoming table...

@@ -7,11 +7,11 @@
 <%def name="headerIncludes()">
     <div id="subhead_container">
         <div id="subhead_menu">
-            <a id="menu_link_delete" href="#" onclick="doAjaxCall('clearLogs',$(this),'table')" data-success="All logs cleared">Clear Log</a>
+            <a id="menu_link_delete" href="#" onclick="if (confirm('Clear the whole log? This can\'t be undone.')) { doAjaxCall('clearLogs',$(this),'table'); } return false;" data-success="All logs cleared">Clear log</a>
             <a id="menu_link_searchmissing" href="toggleVerbose"><span id="toggle_check"></span></a>
-                        <a id="menu_link_edit" title="Manage Exceptions" href="javascript:void(0)" onclick="manageTheExceptions()">Exceptions / Tracebacks</a>
+                        <a id="menu_link_edit" title="Manage Exceptions" href="javascript:void(0)" onclick="manageTheExceptions()">Exceptions and tracebacks</a>
                         <div id="manage_exceptions_dialog" title="View currently logged tracebacks / exceptions" style="display:none">
-                            <input type="button" id="delete_all_specific" value="Clear ALL Specific Logs" style="padding:5px;float:right;position:relative;" />
+                            <input type="button" id="delete_all_specific" value="Clear every entry" style="padding:5px;float:right;position:relative;" />
                             <input id="listview" value="${icons['listview_icon']}" style="display:none;" />
                             <input id="delete" value="${icons['delete_icon']}" style="display:none;" />
                             <input id="deleteall" value="${icons['deleteall_icon']}" style="display:none;" />
@@ -23,7 +23,7 @@
                                     <th id="func_name">Function</th>
                                     <th id="filename">Filename</th>
                                     <th id="error">Error</th>
-                                    <th id="times" title="number of occurances with different timestamps"># Times</th>
+                                    <th id="times" title="number of occurrences with different timestamps"># Times</th>
                                     <th id="error_text">Error Text</th>
                                     <th id="options">Options</th>
                                 </tr>
@@ -31,12 +31,12 @@
                                 <tbody id="exception_table_body" value="There is nothing logged to the excptions db currently">
                                 </tbody>
                             </table>
-                            <div id="deleteConfirm" title="Delete all occurances confirmation" style="display:none" class="configtable">
+                            <div id="deleteConfirm" title="Delete all occurrences confirmation" style="display:none" class="configtable">
                                   <p id="err_text"></p>
                                   <input type="text" value="" id="log_id" name="log_id" hidden/>
                                   <input type="text" value="all" id="all" name="all" hidden/>
                                   <form action="#" onsubmit="javascript:delete_log()" method="GET" style="vertical-align: middle; text-align: center">
-                                  </br><input type="submit" value="Delete all occurances" />
+                                  </br><input type="submit" value="Delete every occurrence" />
                               </form>
                            </div>
                         </div>
@@ -48,17 +48,17 @@
 
 <%def name="body()">
 	<div class="title">
-		<h1 class="clearfix"><img src="images/icon_logs.png" alt="Logs"/>Logs</h1>
+		<h1 class="clearfix"><span class="page-crumb">Tasks › </span>Logs</h1>
 	</div>
-        <div align="center">Refresh rate:
+        <div class="log-toolbar"><label for="refreshrate">Refresh every</label>
         <select id="refreshrate" onchange="setRefresh()">
-        <option value="0" selected="selected">No Refresh</option>
-        <option value="5">5 Seconds</option>
-        <option value="15">15 Seconds</option>
-        <option value="30">30 Seconds</option>
-        <option value="60">60 Seconds</option>
-        <option value="300">5 Minutes</option>
-        <option value="600">10 Minutes</option>
+        <option value="0" selected="selected">Never</option>
+        <option value="5">5 seconds</option>
+        <option value="15">15 seconds</option>
+        <option value="30">30 seconds</option>
+        <option value="60">1 minute</option>
+        <option value="300">5 minutes</option>
+        <option value="600">10 minutes</option>
         </select></div>
 	<table class="display_log" id="log_table">
 		<thead>
@@ -98,7 +98,7 @@
                                         document.getElementById("exception_table_body").innerHTML = '';
                                         for( var i = 0, len = data.length; i < len; i++ ) {
                                                 if (data[i].count > 1) {
-                                                    $('#exception_table_body').append('<tr><td id="date">'+data[i].date+'</a></td><td id="line_num">'+data[i].line_num+'</td><td id="func_name">'+data[i].func_name+'</td><td id="filename">'+data[i].filename+'</td><td id="error">'+data[i].error + '</td><td id="times">' + data[i].count + '</td><td id="error_text">'+data[i].error_text+'</td><td id="options"><a id="delete" onclick="delete_log(' + data[i].id + ', \'' + data[i].id + '\')" name="delete" href="#"><img style="padding:3px;" src="' + del_icon + '" height="20" width="20" title="delete latest entry" class="highqual" /></a><a id="delete_all" onclick="openDelete(' + data[i].id + ')" name="delete_all" href="#"><img style="padding:3px;" src="' + delall_icon + '" height="25" width="25" title="delete all occurances of this specific error" class="highqual" /></a><a id="view" onclick="view_log(' + data[i].id + ')" name="view" class="view" href="#"><img style="padding:3px;" src="' + listview_icon + '" height="20" title="view latest log snippet" width="20" class="highqual" /></a></td></tr>');
+                                                    $('#exception_table_body').append('<tr><td id="date">'+data[i].date+'</a></td><td id="line_num">'+data[i].line_num+'</td><td id="func_name">'+data[i].func_name+'</td><td id="filename">'+data[i].filename+'</td><td id="error">'+data[i].error + '</td><td id="times">' + data[i].count + '</td><td id="error_text">'+data[i].error_text+'</td><td id="options"><a id="delete" onclick="delete_log(' + data[i].id + ', \'' + data[i].id + '\')" name="delete" href="#"><img style="padding:3px;" src="' + del_icon + '" height="20" width="20" title="delete latest entry" class="highqual" /></a><a id="delete_all" onclick="openDelete(' + data[i].id + ')" name="delete_all" href="#"><img style="padding:3px;" src="' + delall_icon + '" height="25" width="25" title="delete all occurrences of this specific error" class="highqual" /></a><a id="view" onclick="view_log(' + data[i].id + ')" name="view" class="view" href="#"><img style="padding:3px;" src="' + listview_icon + '" height="20" title="view latest log snippet" width="20" class="highqual" /></a></td></tr>');
                                                 } else { 
                                                     $('#exception_table_body').append('<tr><td id="date">'+data[i].date+'</a></td><td id="line_num">'+data[i].line_num+'</td><td id="func_name">'+data[i].func_name+'</td><td id="filename">'+data[i].filename+'</td><td id="error">'+data[i].error + '</td><td id="count"></td><td id="error_text">'+data[i].error_text+'</td><td id="options"><a id="delete" onclick="delete_log(' + data[i].id + ', ' + data[i].id + ')" name="delete" href="#"><img style="padding:10px;" src="' + del_icon + '" height="20" width="20" title="delete entry" class="highqual" /></a> <a id="view" onclick="view_log(' + data[i].id + ')" name="view" class="view" href="#"><img style="padding:10px;" src="' + listview_icon + '" height="20" title="view log snippet" width="20" class="highqual" /></a></td></tr>');
                                                 }
@@ -230,9 +230,9 @@
         function checkloglevel(){
             var loglevel = "${log_level}";
             if (loglevel != 2){
-                document.getElementById("toggle_check").innerHTML = 'Enable Debug Logging';
+                document.getElementById("toggle_check").innerHTML = 'Turn on debug logging';
             } else {
-                document.getElementById("toggle_check").innerHTML = 'Disable Debug Logging';
+                document.getElementById("toggle_check").innerHTML = 'Turn off debug logging';
             }
         }
 

@@ -2,569 +2,175 @@
 <%namespace file="importstatus.html" import="panel"/>
 <%!
 	import mylar
-	from mylar import importstatus
 	from mylar.helpers import checked
 %>
-<%def name="headerIncludes()">
-	<div id="subhead_container">
-		<div id="subhead_menu">
-			<a id="menu_link_edit" href="manageComics">Manage Comics</a>
-			<a id="menu_link_edit" href="manageIssues?status=Wanted">Manage Issues</a>
-			<a id="menu_link_edit" href="manageFailed">Manage Failed Links</a>
-			<a id="menu_link_edit" href="queueManage">Manage DDL Queue</a>
-			<a id="menu_link_edit" href="webpConvert">WebP conversion</a>
-		</div>
-	</div>	
-</%def>
-
 <%def name="body()">
-	<div id="paddingheader">
-		<h1 class="clearfix">Manage</h1>
-	</div>
-	<div id="tabs">
-		<ul>
-			<li><a href="#tabs-1">Scan Comic Library</a></li>
-                        <li><a href="#tabs-2">Manual Post-Processing</a></li>
-                        <li><a href="#tabs-3">Advanced Options</a></li>
-                        <li><a href="#tabs-4" title="jobs">Activity / Jobs</a></li>
-		</ul>
-		<div id="tabs-1" class="configtable">
-                               <div style="float:right;position:absolute;right:0;top;0;margin-right:50px;">
-                                  <legend>Current Import Status</legend>
-                                     %if mylar.IMPORT_STATUS:
-                                         %if mylar.IMPORT_STATUS == 'Import completed.':
-                                             <input type="text" name="importstatus" id="importstatus" style="text-align:center; font-size:11px;" size="60" DISABLED /></br>
-                                             <script>
-                                             $(function() {
-                                               turnitoff();
-                                             });
-                                             </script>
-                                         %else:
-                                             <input type="text" name="importstatus" id="importstatus" style="text-align:center; font-size:11px;" size="60" DISABLED /></br>
-                                             <script>
-                                             $(function() {
-                                               turniton();
-                                             });
-                                             </script>
-                                         %endif
-                                     %else:
-                                         <script>
-                                         $(function() {
-                                           turnitoff();
-                                         });
-                                         </script>
-                                         <input type="text" name="importstatus" id="importstatus" style="text-align:center; font-size:11px;" size="60" value="Import is currently not running" DISABLED /></br>
-                                     %endif
-                                     <label>Number of valid files to process:&nbsp</label>${mylar.IMPORT_TOTALFILES}
-                                     %if int(mylar.IMPORT_FILES) != int(mylar.IMPORT_TOTALFILES):
-                                          / ${mylar.IMPORT_FILES}
-                                     %endif
-                                     </br>
-                                     <label>Files with ComicID's present:&nbsp</label>${mylar.IMPORT_CID_COUNT}</br>
-                                     <label>Files that were parsed:&nbsp</label>${mylar.IMPORT_PARSED_COUNT}</br>
-                                     <label>Files that couldn't be parsed:&nbsp</label>${mylar.IMPORT_FAILURE_COUNT}</br>
+    <input type="hidden" id="page_name" value="manage" />
+    <div class="page tools">
+        <div class="page-head">
+            <div class="head-text">
+                <h1>Tools</h1>
+            </div>
+        </div>
 
-                                     %if mylar.IMPORTLOCK or importstatus.running():
-                                         </br>
-                                         <small>A scan or import is currently running - see <a href="#tabs-4" onclick="$('#tabs').tabs('select', 3);return false;">Activity / Jobs</a> to follow or stop it.</small>
-                                     %endif
-                                </div>
-				<form action="comicScan" method="GET" id="comicScan">
-                                   <fieldset>
-					<legend>Scan Comic Library</legend>
-					<p><strong>Where are the comics you want scanned in located?</strong></p>
-					<p>You can put in any directory, and it will scan for comics</br>
-                                        in that folder (including all subdirectories). <br/>
-                                        <small>For example: '/Users/name/Comics'</small></p>	
-					<p>
-					It may take a while depending on how many files you have.</br>
-                                        You can navigate away from the page as soon as you click 'Save changes'
-					</p>	
-					<br/>
-					<div class="row">
-                                           <label for="">Path to directory</label>
-                                           %if mylar.CONFIG.COMIC_DIR:
-                                               <input type="text" value="${mylar.CONFIG.COMIC_DIR}" name="path" size="70" />
-                                           %else:
-                                               <input type="text" value="Enter a Comic Directory to scan" onfocus="if
-                                               (this.value==this.defaultValue) this.value='';" name="path" size="70" />
-                                           %endif
-                                        </div>
-                                        <div class="row checkbox">
-                                           <input type="checkbox" name="autoadd" id="autoadd" value="1" ${scan_info['autoadd']} /><label>Auto-add new series</label>
-                                        </div>
-                                        <div class="row checkbox">
-                                             <input type="checkbox" style="vertical-align: middle; margin: 3px; margin-top: -1px;" name="imp_metadata" id="imp_metadata" value="1" ${scan_info['imp_metadata']} /><label>Use existing Metadata</label>
-                                             <small>Use existing Metadata to better locate series for import</small>
-                                        </div>
-                                        <div class="row checkbox">
-                                           <input type="checkbox" style="vertical-align: middle; margin: 3px; margin-top: -1px;" name="imp_seriesfolders" id="imp_seriesfolders" value="1" ${scan_info['imp_seriesfolders']} /><label>Folder for each Series</label>
-                                           <small>Do the comics reside in their own directories, or is there no organizaiton to the directories?</small>
-                                           </br>
-                                        </div>
-                                        <div class="row checkbox">
-                                           <input type="checkbox" style="vertical-align: middle; margin: 3px; margin-top: -1px;" name="imp_move" id="imps" value="1" ${scan_info['imp_move']} /><label>Move files</label>
-                                           <small>Unchecked will not move anything, but will mark the issues as Archived</small>
-                                           </br>
-                                        </div>
-                                        <div id="move_options" class="row checkbox">
-                                           <input type="checkbox" style="vertical-align: middle; margin: 3px; margin-top: -1px;" name="imp_rename" id="imp_rename" value="1" ${scan_info['imp_rename']} /><label>Rename Files</label>
-                                           <small>Rename files to configuration settings</small>
-                                        </div>
-                                        <div id="path_options" class="row checkbox">
-                                               <input type="checkbox" style="vertical-align: middle; margin: 3px; margin-top: -1px;" name="imp_paths" id="imp_paths" value="1" ${scan_info['imp_paths']} /><label>Set import paths to series location paths</label>
-                                               <small>Use the folder paths during import as the series location path</small>
-                                        </div>
-                                        <br/>
-                                      <input type="button" value="Save Changes and Scan" onclick="addScanAction();doAjaxCall('comicScan',$(this),'tabs',true);return true;" data-success="Import Scan now submitted." data-error="Unable to start the scan. Check the logs." />
-                                      <input type="button" value="Save Changes without Scanning Library" onclick="doAjaxCall('comicScan',$(this),'tabs',true);return false;" data-success="Changes Saved Successfully" data-error="Unable to save settings. Check the logs." />
-                                      %if mylar.IMPORTBUTTON:
-                                          <input type="button" value="Import Results Management" style="float: right;" onclick="location.href='importResults';" />
-                                      %endif
-                                   </fieldset>
-                              </form>
-		</div>
-                <div id="tabs-2" class="configtable">
-                  <tr>
-                    <td>
-                       <form>
-                                        <legend>Manual Run</legend>
-                                        <p><strong>Manual Post-Processing</strong></p>
-                                        <p>You can put in any directory, and it will scan for comic files in that folder
-                                        (including all subdirectories) that exist on your watchlist.
-                                        <br/><small>For example: '/Users/name/Comics'</small></p>
-                                        <p>
-                                        It may take a while depending on how many files you have. You can navigate away from this
-                                        as soon as you click 'Go'.
-                                        </p>
-                                        <br/>
-                                        <p><strong>Only series' that exist on your watchlist will be post-processed with your current
-                                        post-processing options.<br/> The remainder will not be moved from the given directory</strong></p></br>
+        <div id="tabs">
+            <ul>
+                <li><a href="#tabs-1">Import &amp; scan</a></li>
+                <li><a href="#tabs-2">Post-processing</a></li>
+                <li><a href="#tabs-3">Export</a></li>
+            </ul>
 
-                                         <%
-                                            if mylar.CONFIG.MANUAL_PP_FOLDER is not None:
-                                                if len(mylar.CONFIG.MANUAL_PP_FOLDER) > 60:
-                                                    manual_title = mylar.CONFIG.MANUAL_PP_FOLDER
-                                                    manual_size = "60em"
-                                                else:
-                                                    manual_title = None
-                                                    manual_size = "%s%s" % (len(mylar.CONFIG.MANUAL_PP_FOLDER)+5,"em") 
-                                          %>
-
-                                        <div class="row_nomax">
-                                            <label for="">Path to Manually Run</label></br>
-                                            %if mylar.CONFIG.MANUAL_PP_FOLDER is not None:
-                                                <input type="text" value="${mylar.CONFIG.MANUAL_PP_FOLDER}" title="${manual_title}" name="nzb_folder" id="nzb_folder" size="${manual_size}" />
-                                            %else:
-                                                <input type="text" value="Enter the full path to post-process" onfocus="if
-                                                (this.value==this.defaultValue) this.value='';" name="nzb_folder" id="nzb_folder" size="60" />
-                                            %endif
-                                            <img name="manualpp_statusicon" id="manualpp_statusicon" src="images/success.png" style="visibility:hidden;" height="20" width="20" />
-                                            <span id="manual_status" style="font-size:11px;text-align:center" align="center"></span>
-                                        </div>
-                                        <input type="button" value="Automated Manual Run!" id="manual_process" style="float:center;">
-<!--
-                                        <input type="button" value="Interactive Manual Run!" onclick="interactive_paging()" style="float:center;"/></br>
--->
-                                        <input type="hidden" name="nzb_name" value='Manual Run' />
-
-<!--
-                                       <input type="button" value="Interactive Manual Run!" onclick="interactive_process()" style="float:center;"></br>
--->
-                      </form>
-                           <div id="interactive_dialog" title="Shoot your shot." style="display:none;">
-                                <span style="text-align:center;font-size:11px;" align="center" id="interactive_message"></span>
-                                <table class="display" id="interactive_table">
-                                        <thead>
-                                                <tr>
-                                                        <th id="series">Series</th>
-                                                        <th id="issuenumber">Issue</th>
-                                                        <th id="filename">Filename</th>
-                                                </tr>
-                                        </thead>
-                                        <tbody id="interactive_table_body" value="Now generating file listing....this might take up to 30 seconds.">
-                                        </tbody>
-                                </table>
-                         </div>
-                         <div id="serieslisting_dialog" title="select your series" style="display:none;">
-                                <span style="text-align:center;font-size:11px;" align="center" id="serieslisting_message"></span>
-                         </div>
-                    </td>
-                  </tr>
+            <div id="tabs-1">
+                <p class="page-sub tools-intro">Scan a folder of comics you already have. Issuarr matches the files to series on ComicVine and lists them under
+                    <a href="importResults">Import results</a>, where you choose what to add.</p>
+                <div class="tools-grid">
+                    <form class="panel tools-form" id="comicScan" action="comicScan" method="get" autocomplete="off">
+                        <h2 class="panel-title">Scan a folder</h2>
+                        <label class="field">
+                            <span class="field-label">Folder</span>
+                            <input type="text" name="path" value="${mylar.CONFIG.COMIC_DIR or '' | h}" placeholder="/comics" required />
+                            <small>Every subfolder is scanned too. It can take a while; you can leave this page once it starts.</small>
+                        </label>
+                        <div class="switch-list">
+                            <label class="switch-row">
+                                <input type="checkbox" name="imp_metadata" value="1" ${scan_info['imp_metadata']} />
+                                <span><b>Read the metadata inside the files</b><small>Uses ComicInfo and similar data in each archive to identify the series and issue.</small></span>
+                            </label>
+                            <label class="switch-row">
+                                <input type="checkbox" name="imp_move" id="imps" value="1" ${scan_info['imp_move']} />
+                                <span><b>Move the files into your library</b><small>When off, files stay where they are and their issues are marked Archived.</small></span>
+                            </label>
+                            <label class="switch-row" id="move_options">
+                                <input type="checkbox" name="imp_rename" id="imp_rename" value="1" ${scan_info['imp_rename']} />
+                                <span><b>Rename them to your naming settings</b><small>Applies while moving.</small></span>
+                            </label>
+                            <label class="switch-row" id="path_options">
+                                <input type="checkbox" name="imp_paths" id="imp_paths" value="1" ${scan_info['imp_paths']} />
+                                <span><b>Use these folders as the series folders</b><small>Files already in your library at the same place are skipped on later scans.</small></span>
+                            </label>
+                        </div>
+                        <%doc>Saved by older versions but not read by the scanner; sent back unchanged.</%doc>
+                        <input type="hidden" name="autoadd" value="${1 if mylar.CONFIG.ADD_COMICS else 0}" />
+                        <input type="hidden" name="imp_seriesfolders" value="${1 if mylar.CONFIG.IMP_SERIESFOLDERS else 0}" />
+                        <div class="btn-row">
+                            <button type="submit" class="btn btn-primary" data-scan="1">Save and scan</button>
+                            <button type="submit" class="btn" data-scan="0">Save without scanning</button>
+                        </div>
+                    </form>
+                    ${panel(compact=True)}
                 </div>
+            </div>
 
-        <div id="tabs-3">
-           <table summary="Advanced Options" class="configtable">
-              <tr>
-                <td>
-                    <fieldset>
-                        <legend>Export</legend>
-                        <div class="links">
-                          <a href="#" onclick="doAjaxCall('wanted_Export?mode=Wanted',$(this))" data-sucess="Exported to Wanted list." data-error="Failed to export. Check logs"><span class="ui-icon ui-icon-refresh"></span>Export Wanted to CSV</a>
-                          <a href="#" onclick="doAjaxCall('wanted_Export?mode=Downloaded',$(this))" data-sucess="Exported to Downloaded list." data-error="Failed to export. Check logs"><span class="ui-icon ui-icon-refresh"></span>Export Downloaded to CSV</a>
+            <div id="tabs-2">
+                <p class="page-sub tools-intro">Process a folder of downloads by hand, for example after a client finished outside Issuarr. Files of series in your library
+                    are renamed and moved with your post-processing settings. Everything else stays in the folder.</p>
+                <form class="panel tools-form tools-narrow" id="manual-pp" autocomplete="off">
+                    <h2 class="panel-title">Process a folder</h2>
+                    <label class="field">
+                        <span class="field-label">Folder</span>
+                        <input type="text" name="nzb_folder" id="nzb_folder" value="${mylar.CONFIG.MANUAL_PP_FOLDER or '' | h}" placeholder="/downloads/comics" required />
+                        <small>Can't be your library folder. Subfolders are included. The folder is remembered for next time.</small>
+                    </label>
+                    <div class="btn-row">
+                        <button type="submit" class="btn btn-primary" id="manual_process">Process folder</button>
+                        <span class="status" id="manual_status" hidden></span>
+                    </div>
+                </form>
+            </div>
+
+            <div id="tabs-3">
+                <p class="page-sub tools-intro">Save lists of your library as CSV files in Issuarr's data folder (<span class="mono">${mylar.DATA_DIR | h}</span>).</p>
+                <div class="grid-2">
+                    <section class="panel">
+                        <h2 class="panel-title">Export</h2>
+                        <div class="btn-row">
+                            <button type="button" class="btn" data-export="Wanted">Save wanted list (Wanted_list.csv)</button>
+                            <button type="button" class="btn" data-export="Downloaded">Save downloaded list (Downloaded_list.csv)</button>
                         </div>
-                    </fieldset>
-                </td>
-                <td>
-                    <fieldset>
-                        <legend>Additional Options</legend>
-                        <div class="links">
-                          <a href="readlist">Reading List Management</a><br/>
-                          <a href="storyarc_main">Story Arc Management</a><br/>
-                          <a href="importResults">Import Results Management</a>
-                          <a href="cblimport">CBL Import</a>
+                        <p class="muted" style="margin: 0">Columns: series name, series year, issue number, issue date, ComicID, IssueID.</p>
+                    </section>
+                    <section class="panel">
+                        <h2 class="panel-title">Related</h2>
+                        <div class="btn-row">
+                            <a class="btn btn-sm" href="importResults">Import results</a>
+                            <a class="btn btn-sm" href="readlist">Reading list</a>
+                            <a class="btn btn-sm" href="storyarc_main">Story arcs</a>
+                            <a class="btn btn-sm" href="cblimport">CBL import</a>
                         </div>
-                    </fieldset>
-                </td>
-              </tr>
-           </table>
+                    </section>
+                </div>
+            </div>
         </div>
-
-        <div id="tabs-4">
-          <div id="curtime" style="float:right;"></div>
-          ${panel()}
-          <fieldset id="pp_panel" class="import-panel">
-              <legend>Folder Monitor / Post-Processing</legend>
-              <div class="ip-head">
-                  <span id="pp_state" class="ip-phase">Idle</span>
-                  <span id="pp_detail" class="ip-message"></span>
-              </div>
-              <table class="ip-stats">
-                  <tr><td>Downloading</td><td id="pp_download" colspan="3">-</td></tr>
-                  <tr><td>Folder monitor</td><td id="pp_monitor" colspan="3">-</td></tr>
-                  <tr><td>Last pass</td><td id="pp_last_at">-</td><td colspan="2" id="pp_last">-</td></tr>
-                  <tr><td>Unwanted issues go to</td><td colspan="3" id="pp_review">-</td></tr>
-              </table>
-          </fieldset>
-           <table summary="Activity / Jobs" width="100%" cellpadding="6px" cellspacing="2px">
-                      <legend><center><h1>Schedulers<h1><center></legend>
-                      <br />
-                        <thead>
-                           <tr border="1">
-                                <th id="job" style="width: 50px;text-align: center;">Name</th>
-                                <th id="nextrun" style="width: 90px;text-align: center;">Next</th>
-                                <th id="interval" style="width: 20px;text-align: center;">Interval</th>
-                                <th id="prevrun" style="width: 90px;text-align: center;">Prev</th>
-                                <th id="status" style="width: 50px;text-align: center;">Status</th>
-                                <th id="options" style="width: 50px;;text-align: center;">Options</th>
-                           </tr>
-                        </thead>
-                        <tbody>
-                           %for j in jobs:
-                              <%
-                                    if j['status'] == 'Paused':
-                                        grade = '#EC7564'
-                                    elif j['status'] == 'Waiting':
-                                        grade = '#52A9EE'
-                                    elif j['status'] == 'Running':
-                                        grade = '#7AEE52'
-                               %>
-                              <tr>
-                                <td id="job" style="width: 50px;text-align: center;">${j['jobname']}</td>
-                                <td id="nextrun" style="width: 90px;text-align: center;">${j['next_run_datetime']}</td>
-                                %if j['jobname'] in ('Auto-Search', 'RSS Feeds', 'Folder Monitor', 'Check Version'):
-                                <td id="interval" style="width: 20px;text-align: center;white-space: nowrap;"><input type="number" class="job-interval" data-job="${j['jobname']}" value="${j['interval'].split(' ')[0]}" min="1" style="width: 60px;" aria-label="${j['jobname']} interval in minutes"> mins</td>
-                                %else:
-                                <td id="interval" style="width: 20px;text-align: center;">${j['interval']}</td>
-                                %endif
-                                <td id="prevrun" style="width: 90px;text-align: center;">${j['prev_run_datetime']}</td>
-                                <td id="status" style="width: 50px;text-align: center;color: ${grade};">${j['status']}</td>
-                                <td id="options" style="width: 50px;text-align: center;">
-                                %if any([j['status'] == 'Running', j['status'] == 'Waiting']):
-                                    <a href="#" onclick="doAjaxCall('jobmanage?job=${j['jobname']}&mode=pause',$(this),'tabs',true);return true;" data-success="Successfully paused ${j['jobname']}" data-error="Error Pausing ${j['jobname']}."><span class="ui-icon ui-icon-stop"></span>Pause</a>
-                                %elif j['status'] == 'Paused':
-                                    <a href="#" onclick="doAjaxCall('jobmanage?job=${j['jobname']}&mode=resume',$(this),'tabs',true);return true;" data-success="Successfully resumed ${j['jobname']}" data-error="Error Pausing ${j['jobname']}."><span class="ui-icon ui-icon-play"></span>Resume</a>
-                                %endif
-                                %if j['jobname'] == 'Auto-Search':
-                                    <a href="#" onclick="doAjaxCall('schedulerForceCheck?jobid=search',$(this),'tabs',true);return true;" data-success="Force Search successfully submitted" data-error="Error checking wanted issues"><span class="ui-icon ui-icon-star"></span>Force</a>
-                                %elif j['jobname'] == 'DB Updater':
-                                    <a href="#" onclick="doAjaxCall('schedulerForceCheck?jobid=updater',$(this),'tabs',true);return true;" data-success="Update active series now running" data-error="Error forcing update Comics"><span class="ui-icon ui-icon-star"></span>Force</a>
-                                %elif j['jobname'] == 'Weekly Pullist':
-                                    <a href="#" onclick="doAjaxCall('schedulerForceCheck?jobid=weekly',$(this),'tabs',true);return true;" data-success="Now updating Weekly Pullist" data-error="Error forcing update to Weekly Pullist"><span class="ui-icon ui-icon-star"></span>Force</a>
-                                %elif j['jobname'] == 'Folder Monitor':
-                                    <a href="#" onclick="doAjaxCall('schedulerForceCheck?jobid=monitor',$(this),'tabs',true);return true;" data-success="Folder Monitor now running" data-error="Error forcing Folder Monitor to run"><span class="ui-icon ui-icon-star"></span>Force</a>
-                                %elif j['jobname'] == 'RSS Feeds':
-                                    <a href="#" onclick="doAjaxCall('schedulerForceCheck?jobid=rss',$(this),'tabs',true);return true;" data-success="Force RSS Check now running" data-error="Error forcing update Comics"><span class="ui-icon ui-icon-star"></span>Force</a>
-                                %elif j['jobname'] == 'Check Version':
-                                    <a href="#" onclick="doAjaxCall('schedulerForceCheck?jobid=version',$(this),'tabs',true);return true;" data-success="Version check successfully submitted" data-error="Error checking for update"><span class="ui-icon ui-icon-star"></span>Force</a>
-                                %endif
-                                </td>                                    
-                              </tr>
-                           %endfor
-                        </tbody>
-           </table>
-           </br><small><center>There could be up to a 60s delay in a given scheduler running due to other processes currently running</center></small>
-           <br/>
-           <table summary="Queue Status" width="100%" cellpadding="6px" cellspacing="2px">
-                      <legend><center><h1>Queues<h1><center></legend>
-                      <br />
-                        <thead>
-                           <tr border="1">
-                                <th style="width: 50px;text-align: center;">Queue Name</th>
-                                <th style="width: 50px;text-align: center;">Queue Length</th>
-                                <th style="width: 50px;text-align: center;">Worker Up/Down</th>
-                           </tr>
-                        </thead>
-                        <tbody>
-                           %for q in queues:
-                              <%
-                                    if q.is_alive:
-                                        text = "Up"
-                                        grade = '#7AEE52'
-                                    elif q.is_alive is not None:
-                                        text = "Down"
-                                        grade = '#EC7564'
-                                    else:
-                                        text = "Never Started"
-                                        grade = '#52A9EE'
-                               %>
-                              <tr>
-                                <td style="width: 50px;text-align: center;">${q.name}</td>
-                                <td style="width: 50px;text-align: center;">${q.size}</td>
-                                <td style="width: 50px;text-align: center;color:${grade}">${text}</td>
-                              </tr>
-                           %endfor
-                        </tbody>
-           </table>
-           </br><small><center>Workers are only started if your config requires them. Down workers require a restart of Mylar to repair.</center></small>
-        </div>
-
-
-</div>
-</%def>
-<%def name="headIncludes()">
-        <link rel="stylesheet" href="interfaces/${interface}/css/data_table.css">
-        <link rel="stylesheet" type="text/css" href="css/selectize.default.css">
+    </div>
 </%def>
 
 <%def name="javascriptIncludes()">
-        <script src="js/libs/jquery.dataTables.min.js"></script>
-        <script src="js/libs/selectize.min.js"></script>
-        <script>
-        var CheckEnabled = true;
-        function startTime() {
-                var today = new Date();
-                var h = today.getHours();
-                var m = today.getMinutes();
-                var s = today.getSeconds();
-                h = checkTime(h);
-                m = checkTime(m);
-                s = checkTime(s);
-                document.getElementById('curtime').innerHTML = h + ":" + m + ":" + s;
-                var t = setTimeout(startTime, 500);
-        };
-        function ppAgo(t, now) { if (!t) return '-'; var m = Math.round((now - t) / 60); return m < 1 ? 'just now' : m < 60 ? m + ' min ago' : Math.round(m / 60) + ' h ago'; }
-        function ppRefresh() {
-            $.getJSON('pp_activity', function (d) {
-                $('#pp_state').text(d.state);
-                $('#pp_detail').text(d.state === 'Working' ? d.detail + ' (' + ppAgo(d.since, d.now).replace(' ago', '') + ')' : '');
-                var mon = d.monitor_enabled ? d.monitor_status + ' - checks ' + d.monitor_folder + ' every ' + d.interval + ' min' : 'Off (turn it on in Settings > Post-Processing)';
-                if (d.monitor_enabled && d.monitor_status === 'Paused') mon += ' - paused here, use Resume below';
-                $('#pp_monitor').text(mon);
-                $('#pp_last_at').text(ppAgo(d.last_at, d.now));
-                $('#pp_last').text(d.last || '-');
-                $('#pp_review').text(d.review_dir);
-                var dc = d.download_counts || {}, dq = dc['Queued'] ? ' (' + dc['Queued'] + ' queued)' : '';
-                $('#pp_download').html(d.download ? $('<a href="queueManage">').text(d.download + dq) : $('<span>').text('Nothing' + dq));
-            });
+    <script>
+    (function () {
+        function toggleMove() {
+            var move = document.getElementById('imps').checked;
+            document.getElementById('move_options').hidden = !move;
+            document.getElementById('path_options').hidden = move;
+            if (move) document.getElementById('imp_paths').checked = false;
         }
-        ppRefresh();
-        setInterval(ppRefresh, 5000);
-        $(document).on('change', '.job-interval', function () {
-            var el = $(this), job = el.data('job');
-            $.getJSON('job_interval', {job: job, minutes: el.val()}, function (r) {
-                el.css('outline', r.ok ? '2px solid #52A9EE' : '2px solid #c0392b');
-                el.attr('title', r.ok ? (r.note || job + ' now runs every ' + r.minutes + ' minutes') : r.error);
-                if (!r.ok) { el.val(el.prop('defaultValue')); }
-                else { el.prop('defaultValue', r.minutes); }
-                $('#ajaxMsg').text(r.ok ? (r.note || job + ' now runs every ' + r.minutes + ' minutes') : r.error).show().delay(3000).fadeOut();
-            });
+        document.getElementById('imps').addEventListener('change', toggleMove);
+        toggleMove();
+
+        var scanForm = document.getElementById('comicScan');
+        scanForm.addEventListener('submit', function (e) {
+            e.preventDefault();
+            var btn = e.submitter || scanForm.querySelector('[data-scan="1"]');
+            var scan = btn.getAttribute('data-scan') === '1';
+            var q = new URLSearchParams(new FormData(scanForm));
+            if (scan) q.set('scan', '1');
+            scanForm.querySelectorAll('button').forEach(function (b) { b.disabled = true; });
+            fetch('comicScan?' + q.toString(), { credentials: 'same-origin' })
+                .then(function (r) {
+                    if (r.status === 409) throw new Error('busy');
+                    if (!r.ok) throw new Error(r.status);
+                    Issuarr.toast(scan ? 'Scan started. Progress shows next to the form and in Tasks › Jobs.' : 'Saved.');
+                })
+                .catch(function (err) {
+                    Issuarr.toast(err.message === 'busy' ? 'A scan or import is already running. Follow or stop it in Tasks › Jobs.' : 'That didn\'t work. Check the log.', false);
+                })
+                .then(function () { scanForm.querySelectorAll('button').forEach(function (b) { b.disabled = false; }); });
         });
-        function checkTime(i) {
-                if (i < 10) {i = "0" + i}; // add zero in front of numbers if < 10
-                return i;
-        };
-        function addScanAction() {
-                $('#autoadd').append('<input type="hidden" name="scan" id="scan" value=1 />');
-                CheckEnabled = true;
-                statuscheck();
-        };
-        function statuscheck() {
-                if (CheckEnabled == true){
-                    var ImportTimer = setInterval(function(){
-                        $.get('Check_ImportStatus',
-                            function(data){
-                                if (data.error != undefined) {
-                                    alert(data.error);
-                                    return;
-                                }
-                                $('#importstatus').val(data);
-                                if (data == 'Import completed.' || data == 'Scan cancelled.' || data == 'Failure' || data == null) {
-                                    CheckEnabled = false;
-                                    clearInterval(ImportTimer);
-                                    return;
-                                }
-                        });
-                    }, 5000);
-                };
-        };
-        function turnitoff() {
-            CheckEnabled = false;
-            if (typeof ImportTimer !== 'undefined') {
-                clearInterval(ImportTimer);
-            }
-        };
-        function turniton() {
-            if (CheckEnabled == false) {
-                CheckEnabled = true;
-                statuscheck();
-            }
-        };
 
-        function interactive_process() {
-            var imagechk = document.getElementById("manualpp_statusicon");
-            var statuschk = document.getElementById("manual_status");
-            var interactive_message = document.getElementById("interactive_message");
-            var foldername = document.getElementById("nzb_folder").value;
-            $.when($.ajax({
-                type: "GET",
-                url: "list_the_directories",
-                data: { foldername: foldername },
-                success: function(response) {
-                    var obj = JSON.parse(response);
-                    if (obj['status'] == 'success'){
-                        imagechk.src = "";
-                        imagechk.src = "images/success.png";
-                        imagechk.style.visibility = "visible";
-                        statuschk.innerHTML = obj['message'];
-                    } else {
-                        imagechk.src = "";
-                        imagechk.src = "images/x_red.png";
-                        imagechk.style.visibility = "visible";
-                        statuschk.innerHTML = obj['message'];
-                    }
-                },
-                error: function(data)
-                    {
-                         alert('ERROR'+data.responseText);
-                    },
-            })).done(function(data) {
-                data = JSON.parse(data);
-                comiclist = data['comiclist'];
-                comiccount = data['comiccount'];
-                interactive_message.innerHTML = comiccount+" files have been discovered within "+foldername;
-                for( var i = 0, len = comiccount; i < len; i++ ) {
-                        $('#interactive_table_body').append('<tr><td id="series"><a href="javascript:void(0)" onclick="openserieslisting();">'+comiclist[i].series_name+'</a></td><td id="issuenumber">'+comiclist[i].issue_number+'</td><td id="filename">'+comiclist[i].comicfilename+'</td></tr>');
-                }
-                $('#interactive_table').DataTable({
-                        "aaSorting": [[ 1, 'desc']],
-                        "bFilter": false,
-                        "bInfo": false,
-                        "bPaginate": false,
-                        "bDestroy": true
-                });
-            $("#interactive_dialog").dialog({
-                    modal: false,
-                    width: "70%",
-                    height: 300,
-            });
-            });
-        };
+        var ppForm = document.getElementById('manual-pp');
+        var ppStatus = document.getElementById('manual_status');
+        ppForm.addEventListener('submit', function (e) {
+            e.preventDefault();
+            var btn = document.getElementById('manual_process');
+            btn.disabled = true;
+            ppStatus.hidden = true;
+            var q = new URLSearchParams({ nzb_name: 'Manual Run', nzb_folder: document.getElementById('nzb_folder').value });
+            fetch('post_process?' + q.toString(), { credentials: 'same-origin' })
+                .then(function (r) { if (!r.ok) throw new Error(r.status); return r.text(); })
+                .then(function (text) {
+                    var obj = {};
+                    try { obj = JSON.parse(text); } catch (err) { obj = { status: 'success', message: 'Started processing the folder.' }; }
+                    var ok = obj.status === 'success';
+                    ppStatus.textContent = ok ? 'Started. Follow it in the log.' : obj.message;
+                    ppStatus.className = 'status ' + (ok ? 'is-have' : 'is-failed');
+                    ppStatus.hidden = false;
+                    Issuarr.toast(obj.message, ok);
+                })
+                .catch(function () { Issuarr.toast('That didn\'t work. Check the log.', false); })
+                .then(function () { btn.disabled = false; });
+        });
 
-        function openserieslisting() {
-            ss = document.get.ElementById("series_listing_dialog")
-            ss.style.display = "block";
-            $("#series_listing_dialog").dialog({
-                        width: "50%",
-                        height: "300",
-                        modal: true,
-                        open: function(event, ui){
-                            $(this).css("height", "300");
-                        }
-            });
-        };
-        function interactive_paging(){
-            var foldername = document.getElementById("nzb_folder").value;
-            window.open("post_selections?foldername="+foldername, "_self");
-        }
+        document.addEventListener('click', function (e) {
+            var b = e.target.closest('[data-export]');
+            if (!b) return;
+            var mode = b.getAttribute('data-export');
+            b.disabled = true;
+            fetch('wanted_Export?mode=' + encodeURIComponent(mode), { credentials: 'same-origin' })
+                .then(function (r) { if (!r.ok) throw new Error(r.status); Issuarr.toast('Saved ' + mode + '_list.csv in the data folder.'); })
+                .catch(function () { Issuarr.toast('That didn\'t work. Check the log.', false); })
+                .then(function () { b.disabled = false; });
+        });
 
-        function initThisPage() {
-                if ($("#imps").is(":checked"))
-                        {
-                                $("#move_options").show();
-                                $("#path_options").hide();
-                                $("#imp_paths").prop("checked", false);
-                        }
-                else
-                        {
-                                $("#path_options").show();
-                                $("#move_options").hide();
-                        }
-
-                $("#imps").click(function(){
-                        if ($("#imps").is(":checked"))
-                        {
-                                $("#move_options").slideDown();
-                                $("#path_options").slideUp();
-                                $("#imp_paths").prop("checked", false);
-                        }
-                        else
-                        {
-                                $("#path_options").slideDown();
-                                $("#move_options").slideUp();
-                        }
-                });
-
-                $('#nzb_folder').on('click', function(){
-                    var imagechk = document.getElementById("manualpp_statusicon");
-                    var statuschk = document.getElementById("manual_status");
-                    var nzb_folder = document.getElementById("nzb_folder");
-                    if (imagechk.style.visibility == 'visible'){
-                        imagechk.style.visibility = "hidden";
-                        statuschk.innerHTML = "";
-                        nzb_folder.setAttribute("size", "60");
-                    }
-                });
-
-                $('#manual_process').click(function () {
-                    var imagechk = document.getElementById("manualpp_statusicon");
-                    var statuschk = document.getElementById("manual_status");
-                    var nzb_folder = document.getElementById("nzb_folder");
-                    $.get("post_process",
-                        { nzb_name: 'Manual Run', nzb_folder: nzb_folder.value },
-                        function(data){
-                            if (data.error != undefined) {
-                                alert(data.error);
-                                return;
-                            }
-                            var obj = JSON.parse(data);
-                            $('#ajaxMsg').removeClass();
-                            if (obj['status'] == 'success'){
-                                imagechk.src = "";
-                                imagechk.src = "images/success.png";
-                                imagechk.style.visibility = "visible";
-                                statuschk.innerHTML = obj['message'];
-                                varlength = 135 - obj['message'].length;
-                                nzb_folder.setAttribute("size", varlength);
-                                $('#ajaxMsg').html("<div class='msg'><span class='ui-icon ui-icon-check'></span>"+obj['message']+"</div>");
-                                $('#ajaxMsg').addClass('success').fadeIn().delay(3000).fadeOut();
-                            } else {
-                                imagechk.src = "";
-                                imagechk.src = "images/x_red.png";
-                                imagechk.style.visibility = "visible";
-                                statuschk.innerHTML = obj['message'];
-                                $('#ajaxMsg').html("<div class='msg'><span class='ui-icon ui-icon-check'></span>"+obj['message']+"</div>");
-                                $('#ajaxMsg').addClass('error').fadeIn().delay(3000).fadeOut();
-                            }
-                    });
-                });
-
-                jQuery( "#tabs" ).tabs();
-		initActions();
-                startTime();
-	};
-	$(document).ready(function() {
-		initThisPage();
-	});
-	</script>
+        if (window.jQuery) jQuery(function () { jQuery('#tabs').tabs(); });
+    })();
+    </script>
 </%def>

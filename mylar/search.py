@@ -1939,7 +1939,9 @@ def searchforissue(issueid=None, new=False, rsschecker=None, manual=False):
                                 'comicname': comicname,
                                 'seriesyear': SeriesYear,
                                 'issuenumber': result['Issue_Number'],
-                                'issueid': result['IssueID'],
+                                # Story-arc issues are looked up by their arc id (the queue spots the "_");
+                                # the plain IssueID isn't found when the series isn't on the watchlist.
+                                'issueid': result['IssueArcID'] if result['mode'] == 'story_arc' and result.get('IssueArcID') else result['IssueID'],
                                 'comicid': result['ComicID'],
                                 'booktype': booktype,
                             }
@@ -3763,7 +3765,7 @@ def notify_snatch(sent_to, comicname, comyear, IssueNumber, nzbprov, pack):
     if mylar.CONFIG.TELEGRAM_ENABLED and mylar.CONFIG.TELEGRAM_ONSNATCH:
         logger.info("Sending Telegram notification")
         telegram = notifiers.TELEGRAM()
-        telegram.notify("%s - %s - Mylar %s" % (snline, snatched_name, sent_to))
+        telegram.notify("%s - %s - Issuarr %s" % (snline, snatched_name, sent_to))
     if mylar.CONFIG.SLACK_ENABLED and mylar.CONFIG.SLACK_ONSNATCH:
         logger.info("Sending Slack notification")
         slack = notifiers.SLACK()
@@ -3789,7 +3791,7 @@ def notify_snatch(sent_to, comicname, comyear, IssueNumber, nzbprov, pack):
         email = notifiers.EMAIL()
         email.notify(
             snline + " - " + snatched_name,
-            "Mylar notification - Snatch",
+            "Issuarr notification - Snatch",
             module="[SEARCH]",
         )
     if mylar.CONFIG.GOTIFY_ENABLED and mylar.CONFIG.GOTIFY_ONSNATCH:
@@ -4221,22 +4223,13 @@ def gen_altnames(ComicName, AlternateSearch, filesafe, smode):
         #    AlternateSearch += '%s Annual' % re.sub('2021 annual', '', ComicName, flags=re.I).strip()
         #    logger.info('Setting alternate search to %s because people are gonna people.' % AlternateSearch)
 
-        if all(
-            [
-                AlternateSearch is not None,
-                AlternateSearch != "None",
-                'special' not in ComicName.lower(),
-            ]
-        ):
-            AlternateSearch += '##%s Annual' % AlternateSearch
-        elif all(
-            [
-                AlternateSearch is None,
-                AlternateSearch == "None",
-                'special' not in ComicName.lower(),
-            ]
-        ):
-            AlternateSearch = '%s Annual' % AlternateSearch
+        # Search "<series> Annual" first ("Alien Annual #1 (2023)"), then the plain name, plus each
+        # alternate name with " Annual" added. Specials keep their own name.
+        if all(['special' not in ComicName.lower(), 'annual' not in ComicName.lower()]):
+            alts = [x for x in re.split(r'!!|##', AlternateSearch or '') if x and x != 'None']
+            names = ['%s Annual' % ComicName]
+            names += ['%s Annual' % x for x in alts if 'annual' not in x.lower()] + alts
+            AlternateSearch = '!!' + '##'.join(names)
 
     searchlist = []
     Altname = None

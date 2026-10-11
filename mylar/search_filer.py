@@ -479,6 +479,17 @@ class search_check(object):
             parsed_comic = p_comic.listFiles()
 
         logger.fdebug('parsed_info: %s' % parsed_comic)
+        try:
+            size_b = int(comsize_b or 0)
+        except (TypeError, ValueError, NameError):
+            size_b = 0
+        if all([parsed_comic.get('booktype') == 'TPB/GN/HC/One-Shot', not parsed_comic.get('issue_number'),
+                pack is False, booktype in (None, 'Print', 'Digital'), 0 < size_b < 100 * 1024 * 1024,
+                helpers.issue_number_parser(IssueNumber).asInt == helpers.issue_number_to_int(1, None)]):
+            # No issue number and no TPB/HC label: the parser guesses a collection. A file under
+            # 100 MB is a single issue, and GetComics posts some first issues without a number.
+            logger.fdebug('No issue number or edition in %s and only %s MB: treating it as an issue.' % (ComicTitle, size_b // (1024 * 1024)))
+            parsed_comic['booktype'] = 'issue'
         logger.fdebug(
             'booktype: %s / parsed_booktype: %s [ignore_booktype: %s]'
             % (booktype, parsed_comic['booktype'], ignore_booktype)
@@ -486,6 +497,8 @@ class search_check(object):
         if parsed_comic['parse_status'] == 'success' and (
             all([booktype is None, parsed_comic['booktype'] == 'issue'])
             or all([booktype == 'Print', parsed_comic['booktype'] == 'issue'])
+            # Digital-first series are posted like any other issue ("Wonder Woman - Agent of Peace #17 (2020)").
+            or all([booktype == 'Digital', parsed_comic['booktype'] == 'issue'])
             or all(
                 [booktype == 'One-Shot', any(
                     [parsed_comic['booktype'] == 'issue',
@@ -988,6 +1001,12 @@ class search_check(object):
                     logger.fdebug(
                         "integer value of issue we have found : %s" % comintIss
                     )
+                elif all([pack is False, parsed_comic.get('booktype') == 'issue', parsed_comic.get('issue_year'), intIss is not None,
+                          intIss == helpers.issue_number_to_int(1, None)]):
+                    # GetComics often posts a first issue with no number ("Wonder Woman - Agent of Peace
+                    # (2020)"). The name and year have matched by now, so take it as #1.
+                    comintIss = intIss
+                    logger.fdebug('No issue number in %s; taking it as #1 since the series and year match.' % ComicTitle)
                 else:
                     comintIss = helpers.issue_number_to_int(11111111, None)
 

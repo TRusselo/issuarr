@@ -76,3 +76,36 @@ def test_manual_filename_parsing(monkeypatch, filename, series, issue, year, vol
                 volume,
                 year,
                 issue))
+
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("filename,issue", [
+    ("American Vampire 1976 007.cbz", "007"),
+    ("American Vampire 1976 001.cbz", "001"),
+    ("American Vampire 1976 001 (2020).cbz", "001"),
+    ("American Vampire 1976 #1.cbz", "1"),
+    ("American Vampire 1976 v1 001 (2020).cbz", "001"),
+])
+def test_series_title_with_trailing_year_retained_when_watchcomic_known(monkeypatch, filename, issue):
+    # Some real titles end in a bare year ("American Vampire 1976"). When the known series name
+    # (watchcomic) says so, the year stays part of the title instead of being dropped.
+    monkeypatch.setattr(mylar, "CONFIG", mylar.config.Config("./nothing"))
+    monkeypatch.setattr(mylar.CONFIG, "IGNORE_SEARCH_WORDS", [], raising=False)
+    monkeypatch.setattr(mylar.CONFIG, "CUSTOM_ISSUE_EXCEPTIONS", [], raising=False)
+    fc_obj = filechecker.FileChecker(watchcomic="American Vampire 1976", file=filename, justparse=True, manual=True)
+    parsed = fc_obj.parseit(path='/dummypath/', filename=filename)
+    assert parsed['series_name'] == "American Vampire 1976"
+    assert parsed['issue_number'] == issue
+
+
+@pytest.mark.unit
+def test_launch_year_still_dropped_when_not_in_title(monkeypatch):
+    monkeypatch.setattr(mylar, "CONFIG", mylar.config.Config("./nothing"))
+    monkeypatch.setattr(mylar.CONFIG, "IGNORE_SEARCH_WORDS", [], raising=False)
+    monkeypatch.setattr(mylar.CONFIG, "CUSTOM_ISSUE_EXCEPTIONS", [], raising=False)
+    filename = "Batman 2016 001.cbz"
+    fc_obj = filechecker.FileChecker(watchcomic="Batman", file=filename, justparse=True, manual=True)
+    parsed = fc_obj.parseit(path='/dummypath/', filename=filename)
+    assert parsed['series_name'] == "Batman"
+    assert parsed['issue_number'] == "001"

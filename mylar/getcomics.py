@@ -253,7 +253,11 @@ class GC(object):
             for sf in self.search_format:
                 verified_matches = []
                 sf_issue = self.query['issue']
-                if is_info['chktpb'] == 1 and self.query['comicname'] == sf:
+                if sf == pack_query:
+                    # Series name and year, already filled in: finds packs ("Fearless Defenders #1 - 12 (2013)")
+                    # and lists every issue post. Not a template, so the name may hold a "%".
+                    queryline = pack_query
+                elif is_info['chktpb'] == 1 and self.query['comicname'] == sf:
                     comicname = re.sub(r'[\&\:\?\,\/\-]', '', self.query['comicname'])
                     comicname = re.sub("\\band\\b", '', comicname, flags=re.I)
                     comicname = re.sub("\\bthe\\b", '', comicname, flags=re.I)
@@ -275,7 +279,7 @@ class GC(object):
                             queryline = sf % (self.query['comicname'], sf_issue, self.query['year'])
                     else:
                         #logger.fdebug('[%s] self.search_format: %s' % (len(self.search_format), sf))
-                        if len(self.search_format) == 5 and sf == self.search_format[4]:
+                        if sf == '%s %s' and is_info['chktpb'] == 1:
                             splits = sf.split(' ')
                             splits.pop(1)
                             queryline = ' '.join(splits) % (self.query['comicname'])
@@ -1563,6 +1567,27 @@ class GC(object):
         og_title = title
         title = re.sub(r'\s*[–—]\s*', ' - ', title)
         title = re.sub(r'#\s*(\d+)\s*-\s*#?\s*(\d+)', r'#\1 - \2', title)
+
+        # A range starting below zero ("What If? Vol. 2 #-1 - 114 (1989-1998)"): the parsing below
+        # reads the minus sign as the range dash, so handle it here.
+        neg = re.match(r'^(?P<series>.+?)\s+#\s*(?P<first>-\d+)\s*-\s*#?\s*(?P<last>-?\d+[A-Za-z]*)\s*'
+                       r'(?:\((?P<year>\d{4}(?:-\d{4})?)\))?\s*$', title)
+        if neg:
+            series = neg.group('series').strip()
+            volume_label = None
+            vol = re.search(r'\s+vol(?:ume)?\.?\s*(\d+)$', series, re.I)
+            if vol:
+                volume_label = vol.group(1)
+                series = series[:vol.start()].strip()
+            return {'title': title,
+                    'filename': title,
+                    'series': series,
+                    'year': neg.group('year'),
+                    'pack': True,
+                    'volume': volume_label,
+                    'annuals': False,
+                    'gc_booktype': 'issue',
+                    'issues': '#%s - %s' % (neg.group('first'), neg.group('last'))}
 
         volume_label = None
         annuals = False

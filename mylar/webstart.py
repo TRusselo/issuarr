@@ -22,7 +22,7 @@ import cherrypy
 import portend as portend
 
 import mylar
-from mylar import logger
+from mylar import logger, ui
 from mylar.webserve import WebInterface
 from mylar.helpers import create_https_certificates
 from mylar.api import REST
@@ -73,10 +73,16 @@ def initialize(options):
     logger.info("Starting Mylar on %s://%s:%d%s" % (protocol,options['http_host'], options['http_port'], options['http_root']))
     cherrypy.config.update(options_dict)
 
+    # ?nocss=1 loads a page without the user's custom CSS; the hook takes the
+    # parameter off the request so page handlers never see it.
+    if not hasattr(cherrypy.tools, 'issuarr_nocss'):
+        cherrypy.tools.issuarr_nocss = cherrypy.Tool('before_handler', ui.strip_nocss_param, priority=20)
+
     conf = {
         '/': {
             'tools.staticdir.root': os.path.join(mylar.PROG_DIR, 'data'),
-            'tools.proxy.on': True  # pay attention to X-Forwarded-Proto header
+            'tools.proxy.on': True,  # pay attention to X-Forwarded-Proto header
+            'tools.issuarr_nocss.on': True,
         },
         '/interfaces': {
             'tools.staticdir.on': True,

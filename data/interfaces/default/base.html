@@ -1,210 +1,296 @@
 <%
 	import mylar
+	from mylar import ui
+	_theme = ui.theme()
+	_nocss = ui.nocss_requested()
+	_css_url = None if _nocss else ui.safe_stylesheet_url(mylar.CONFIG.CUSTOM_CSS_URL)
+	_css_on = bool(mylar.CONFIG.CUSTOM_CSS_ENABLED) and not _nocss
+	_version = mylar.CURRENT_VERSION_NAME or (mylar.CURRENT_VERSION or 'unknown')[:7]
+	_instance = (' - %s' % mylar.CONFIG.INSTANCE_NAME) if mylar.CONFIG.INSTANCE_NAME else ''
+	# Every page lives here: (group label, [items]). An item's children show
+	# under it while one of them is the current page. "match" lists the page
+	# names (and page#section) that count as that link.
+	_nav = [
+	    ('Collection', [
+	        dict(label='Library', href='home', match='home comicdetails issuedetails addcomic', children=[
+	            ('Series', 'home', 'home comicdetails issuedetails addcomic managecomics'),
+	            ('Manage issues', 'manageIssues', 'manageissues'),
+	            ('Trades', 'ledger#trades', 'ledger#trades'),
+	        ]),
+	        dict(label='Story Arcs', href='storyarc_main', match='storyarc_main detailstoryarc', children=[
+	            ('Arcs', 'storyarc_main', 'storyarc_main detailstoryarc'),
+	            ('Reading list', 'readlist', 'readlist'),
+	            ('CBL import', 'cblimport', 'cblimport'),
+	        ]),
+	        dict(label='Ledger', href='ledger', match='ledger'),
+	    ]),
+	    ('Find', [
+	        dict(label='Add series', href='#', match='searchit', action='add'),
+	        dict(label='Wanted', href='wanted', match='wanted', disabled=bool(mylar.WANTED_TAB_OFF)),
+	        dict(label='Calendar', href='pullist', match='pullist upcoming', badge=('New' if mylar.PULLNEW != 'no' else None), children=[
+	            ('This week', 'pullist', 'pullist'),
+	            ('Upcoming', 'upcoming', 'upcoming'),
+	        ]),
+	    ]),
+	    ('Operations', [
+	        dict(label='Downloads', href='queueManage', match='queuemanage', children=[
+	            ('Queue', 'queueManage', 'queuemanage'),
+	            ('History', 'history', 'history'),
+	            ('Failed', 'manageFailed', 'managefailed'),
+	        ]),
+	        dict(label='Tools', href='manage#tabs-1', children=[
+	            ('Import & scan', 'manage#tabs-1', 'manage manage#tabs-1'),
+	            ('Import results', 'importResults', 'importresults'),
+	            ('Post-processing', 'manage#tabs-2', 'manage#tabs-2'),
+	            ('WebP conversion', 'webpConvert', 'webpconvert'),
+	            ('Export', 'manage#tabs-3', 'manage#tabs-3'),
+	        ]),
+	        dict(label='Tasks', href='tasks', children=[
+	            ('Jobs', 'tasks', 'tasks'),
+	            ('Logs', 'logs', 'logs'),
+	        ]),
+	    ]),
+	    ('', [
+	        dict(label='Settings', href='config#tabs-2', children=[
+	            ('General', 'config#tabs-2', 'config config#tabs-2'),
+	            ('Appearance', 'config#tabs-7', 'config#tabs-7'),
+	            ('Download clients', 'config#tabs-3', 'config#tabs-3'),
+	            ('Search providers', 'config#tabs-4', 'config#tabs-4'),
+	            ('Files & post-processing', 'config#tabs-5', 'config#tabs-5'),
+	            ('Notifications & advanced', 'config#tabs-6', 'config#tabs-6'),
+	        ]),
+	        dict(label='About', href='about', match='about'),
+	    ]),
+	]
 %>
 <!doctype html>
-<!--[if lt IE 7 ]> <html lang="en" class="no-js ie6"> <![endif]-->
-<!--[if IE 7 ]>    <html lang="en" class="no-js ie7"> <![endif]-->
-<!--[if IE 8 ]>    <html lang="en" class="no-js ie8"> <![endif]-->
-<!--[if IE 9 ]>    <html lang="en" class="no-js ie9"> <![endif]-->
-<!--[if (gt IE 9)|!(IE)]><!--> <html lang="en" class="no-js"> <!--<![endif]-->
+<html lang="en" class="no-js"${'' if _theme == 'system' else ' data-theme="%s"' % _theme}>
 <head>
 	<meta charset="UTF-8" />
-	<meta http-equiv="X-UA-Compatible" content="IE=edge,chrome=1" />
-	
-	<title>Mylar ${f'- {mylar.CONFIG.INSTANCE_NAME} ' if mylar.CONFIG.INSTANCE_NAME else ''}- ${title}</title>
-	<meta name="description" content="Mylar 'default' interface - made by Elmar Kouwenhoven" />
-	<meta name="author" content="Elmar Kouwenhoven" />
-	
+	<title>Issuarr${_instance | h} - ${title | h}</title>
 	<meta name="viewport" content="width=device-width, initial-scale=1.0" />
-	
-	<link rel="apple-touch-icon" href="images/mylarlogo.png" />
-        <link rel="stylesheet" type="text/css" href="interfaces/${interface}/css/style.css?v=${mylar.CURRENT_VERSION}" />
+	<link rel="apple-touch-icon" href="images/issuarr-touch.png" />
+	<link rel="icon" href="images/favicon.ico" type="image/x-icon" />
+	<link rel="stylesheet" type="text/css" href="interfaces/${interface}/css/style.css?v=${mylar.CURRENT_VERSION}" />
 	<link rel="stylesheet" href="interfaces/${interface}/css/jquery-ui.css">
 	<link rel="stylesheet" type="text/css" href="css/importstatus.css?v=${mylar.CURRENT_VERSION}" />
-	<link rel="icon" href="images/favicon.ico" type="image/x-icon" />
-	<link rel="shortcut icon" href="images/favicon.ico" type="image/x-icon" />
 	${next.headIncludes()}
-	<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700;800&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
-	<link rel="stylesheet" type="text/css" href="css/trusselo.css?v=${mylar.CURRENT_VERSION}" />
-	%if interface == 'carbon':
-	<link rel="stylesheet" type="text/css" href="interfaces/carbon/css/cleanup.css?v=${mylar.CURRENT_VERSION}" />
+	<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,100..900&amp;family=JetBrains+Mono:wght@400;500;700&amp;display=swap">
+	<link rel="stylesheet" type="text/css" href="css/issuarr.css?v=${mylar.CURRENT_VERSION}" />
+	%if _css_url:
+	<link rel="stylesheet" type="text/css" href="${_css_url | h}" id="custom-css-url" />
 	%endif
-	
+	%if _css_on:
+	<link rel="stylesheet" type="text/css" href="custom_css?v=${ui.custom_css_version()}" id="custom-css" />
+	%endif
 	<script src="js/libs/modernizr-2.8.3.min.js"></script>
 	<script src="js/libs/jquery-1.7.2.min.js"></script>
 </head>
 <body>
-        <%
-             mylar.DONATEBUTTON = True
-        %>
-         	<div id="container">
-                <div id="ajaxMsg" class="ajaxMsg"></div>
-                <div id="updatediv"></div>
-		<header>			
-			<div class="wrapper">
-			<div id="logo">
-				<a href="home"><img class="mylarload" src="images/mylarlogo.png" alt="mylar" style=""></a>
+	<a class="skip-link" href="#main">Skip to content</a>
+	<div id="ajaxMsg" class="ajaxMsg"></div>
+	<div id="updatediv"></div>
+	<div class="app">
+		<div class="topbar">
+			<a href="home" class="brand"><img class="brand-mark" src="images/issuarr-mark.png" alt="" width="28" height="28" /><span class="brand-name">Issuarr</span></a>
+			<div style="display: flex; gap: 4px">
+				<button type="button" class="icon-btn" data-ui data-action="jump" aria-label="Jump to"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg></button>
+				<button type="button" class="icon-btn" data-ui id="nav-toggle" aria-label="Menu" aria-expanded="false" aria-controls="sidebar"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg></button>
 			</div>
-			<ul id="nav">
-				<li>
-                                %if mylar.WANTED_TAB_OFF:
-                                    <a href="#">wanted</a>
-                                %else:
-                                    <a href="upcoming">wanted</a>
-                                %endif
-                                </li>
-				<li><a href="pullist">
-                                %if mylar.PULLNEW == 'no':
-                                  <img src="images/grey-circle.png" height="10" width="10" />
-                                %else:
-                                  <img src="images/green-circle.png" height="10" width="10" />
-                                %endif
-                                 &nbspThis Week</a></li>
-				<li><a href="manage">Manage</a></li>
-				<li><a href="storyarc_main">StoryArcs</a></li>
-				<li><a href="ledger">Ledger</a></li>
-				<li><a href="history">History</a></li>
-				<li><a href="config" class="config"><img src="${icons['icon_gear']}" alt="settings"/></a></li>
-				<li id="import_indicator" style="display:none"><a href="manage#tabs-4"><span class="ii-spin"></span><span class="ii-text"></span></a></li>
-			</ul>
-			<div id="searchbar">
-                <form action="searchit" method="get">
-                    <input type="text" value="" placeholder="Search" onfocus="if(this.value==this.defaultValue) this.value='';" name="name"/>
-                    <span class="mini-icon"></span>
-                    <input type="submit" value="Search" onclick="flippylogo();"/>
-                </form>
-            </div>
-           
-			</div>
-		</header>
-
-		<div id="main" class="main">
-			<div id="subhead">
-				${next.headerIncludes()}
-			</div>
-			${next.body()}
 		</div>
+		<div class="nav-scrim" id="nav-scrim" hidden></div>
 
-		<footer>
-			<div id="actions">
-				<small>
-				<a href="shutdown"><span class="ui-button-icon-primary ui-icon ui-icon-power"></span>Shutdown</a> |
-				<a href="restart"><span class="ui-button-icon-primary ui-icon ui-icon-power"></span>Restart</a> |
-                                %if mylar.CONFIG.AUTHENTICATION > 0:
-                                    <a href="auth/logout"><span class="ui-button-icon-primary ui-icon ui-icon-power"></span>Logout</a></br>
-                                    <% bottom_foot = "-7px;" %>
-                                %else:
-                                    <% bottom_foot = "-25px;" %>
-                                %endif
-                                <span id="testing"><a href="#" onclick="check_the_hub()"><span class="ui-icon ui-icon-refresh"></span><span id="version_line">Check for new version</span></a></span>
-			 	</small>
+		<nav class="sidebar" id="sidebar" aria-label="Main">
+			<div class="sb-head">
+				<a href="home" class="brand"><img class="brand-mark" src="images/issuarr-mark.png" alt="" width="28" height="28" /><span class="brand-name">Issuarr</span></a>
+				<button type="button" class="icon-btn" data-ui id="notifs" onclick="manageNotifications()" aria-label="Notifications" title="Notifications (Alt+N)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg></button>
 			</div>
-                        <div id="donate">
-                            %if mylar.DONATEBUTTON:
-                                <a href="config#donate"><img src="images/donate.png" height="25" width="120"></a>
-                            %endif
-                        </div>
-			<div id="version">
-                                Version: <em>
-                                %if mylar.CURRENT_VERSION_NAME:
-                                    ${mylar.CURRENT_VERSION_NAME}
-                                %else:
-                                    ${mylar.CURRENT_VERSION}
-                                %endif
-                                </em>
-				(${mylar.CONFIG.GIT_BRANCH})
-			</div>	
-                        <p class="network-status info-box"></p>
-			<div id="backendstatus">
-				Status: CV 
-                                    %if mylar.BACKENDSTATUS_CV == 'up':
-                                        <img src="images/success.png", height="8" width="8">
-                                    %else:
-                                        <img src="images/x_red.png", height="8", width="8">
-                                    %endif
-                                , TH 
-                                    %if mylar.BACKENDSTATUS_WS == 'up':
-                                        <img src="images/success.png", height="8" width="8">
-                                    %else:
-                                        <img src="images/x_red.png", height="8", width="8">
-                                    %endif
-                                <br>
-				<%
-                                    mylar.PROVIDER_STATUS = {}
-                                    prov_fail = False
-                                    try:
-                                        for ko, vo in sorted(mylar.CONFIG.PROVIDER_ORDER.items()):
-                                            mylar.PROVIDER_STATUS.update({vo : 'success'})
-                                            for kb in mylar.PROVIDER_BLOCKLIST:
-                                                if vo == kb['site']:
-                                                    mylar.PROVIDER_STATUS.update({vo : 'fail'})
-                                                    break
-                                    except Exception:
-                                        prov_fail = True
-                                %>
-                                Providers:
-                                %if prov_fail:
-                                    <span title="This should correct itself eventually"><img src="images/x_red.png" height="8" width="8" />Unable to determine Provider Status' at this time...</span>
-                                %else:
-                                    %for prov, stats in sorted(mylar.PROVIDER_STATUS.items()):
-                                        <%
-                                            if stats == 'success':
-                                                st_image = '<img src="images/success.png" height="8" width="8">'
-                                            else:
-                                                st_image = '<img src="images/x_red.png" height="8" width="8">'
-                                        %>
-                                        ${prov}:${st_image} &nbsp
-                                    %endfor
-                                %endif
-                                %if mylar.CONFIG.ENABLE_DDL:
-                                    <br><span id="pd_usage" title="Pixeldrain transfer used in the last day"></span>
-                                %endif
-                        </div>
-                        <div id="config_messages_dialog" title="configuration checks / warnings" style="display:none">
-                           <span id="mbody"></span>
-                        </div>
-                        <div style="text-align:right;position:relative;top:${bottom_foot}">
-                            <a id="notifs" title="View Latest Notifications" href="javascript:void(0)" onclick="manageNotifications()"><img src="images/notif.png" height="31" width="25" /></a>
-                            <div id="notifs_dialog" title="Notifications" style="display:none">
-                               <div id="btn_container">
-                                   <div id="btn_notifs" style="float:right;padding-bottom:5px;margin-top:0px;">
-                                       <a id="menu_link_always" onclick="always_notifs()" href="#"><span id="always_the_notifs" title="Force notification display to be always on top" value="modal">Always on Top</span></a>
-                                       <a id="menu_link_edit" onclick="clear_notifs()" href="#"><span id="clear_notifs" title="Clear notifications for current session">Clear notifications</span></a>
-<!--
-                                       <a id="menu_link_edit" onclick="view_notifs()" href="#"><span id="view_notifs" title="Manage notifications">Manage notifications</span></a>
--->
-                                  </div>
-                               </div>
+			<button type="button" class="jump-btn" data-ui data-action="jump" aria-haspopup="dialog">Jump to…<kbd>Ctrl K</kbd></button>
 
-                               <div class="table_wrapper" id="notifs_wrapper">
-                                <table class="display_notifs" id="notifs_table">
-                                    <thead>
-                                        <tr>
-                                            <th id="date">Date</th>
-                                            <th id="message">Message</th>
-                                            <th id="comicid">ComicID</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                    </tbody>
-                                </table>
-                               </div>
-                            </div>
-                        </div>
-		</footer>
-		<a href="#main" id="toTop"><span>Back to top</span></a>
+			%for _glabel, _items in _nav:
+			<div class="nav-group${'' if _glabel else ' is-system'}">
+				%if _glabel:
+				<div class="nav-label">${_glabel}</div>
+				%endif
+				%for _it in _items:
+				<div class="nav-item">
+					<a class="nav-link${' is-disabled' if _it.get('disabled') else ''}" href="${'#' if _it.get('disabled') else _it['href']}" data-label="${_it['label'] | h}"${(' data-match="%s"' % _it['match']) if _it.get('match') else ''}${(' data-action="%s"' % _it['action']) if _it.get('action') else ''}${' aria-disabled="true" title="Unavailable while the pull list is being rebuilt"' if _it.get('disabled') else ''}>${_it['label'] | h}${('<span class="nav-badge is-new">%s</span>' % _it['badge']) if _it.get('badge') else ''}</a>
+					%if _it.get('children'):
+					<div class="nav-children">
+						%for _cl, _ch, _cm in _it['children']:
+						<a class="nav-child" href="${_ch}" data-label="${_cl | h}" data-match="${_cm}">${_cl | h}</a>
+						%endfor
+					</div>
+					%endif
+				</div>
+				%endfor
+			</div>
+			%endfor
+			<script>
+			(function () {
+				function current() {
+					return { path: (location.pathname.split('/').pop() || 'home').toLowerCase(), hash: (location.hash || '').toLowerCase() };
+				}
+				window.issuarrMarkNav = function () {
+					var cur = current(), best = null, bestScore = 0;
+					var links = document.querySelectorAll('#sidebar [data-match]');
+					for (var i = 0; i < links.length; i++) {
+						var toks = links[i].getAttribute('data-match').toLowerCase().split(/\s+/), score = 0;
+						for (var j = 0; j < toks.length; j++) {
+							var parts = toks[j].split('#');
+							if (parts[0] !== cur.path) continue;
+							var s = parts.length > 1 ? ('#' + parts[1] === cur.hash ? 3 : 0) : 1;
+							if (s > score) score = s;
+						}
+						if (score && links[i].classList.contains('nav-child')) score += 0.5;
+						if (score > bestScore) { bestScore = score; best = links[i]; }
+					}
+					var items = document.querySelectorAll('#sidebar .nav-item');
+					for (var k = 0; k < items.length; k++) items[k].classList.remove('is-active', 'is-open');
+					var marked = document.querySelectorAll('#sidebar [aria-current]');
+					for (var m = 0; m < marked.length; m++) marked[m].removeAttribute('aria-current');
+					if (!best) return null;
+					best.closest('.nav-item').classList.add('is-active', 'is-open');
+					best.setAttribute('aria-current', 'page');
+					return best;
+				};
+				window.issuarrMarkNav();
+			})();
+			</script>
+
+			<div class="dock" id="dock">
+				<div class="dock-title">Running now</div>
+				<a class="dock-row" id="import_indicator" href="tasks" style="display:none"><span class="ii-spin"></span><span class="ii-text"></span></a>
+				<a class="dock-row" id="dock-pp" href="tasks" hidden><span class="dot"></span><span class="dock-text"></span></a>
+				<a class="dock-row" id="dock-dl" href="queueManage" hidden><span class="dot"></span><span class="dock-text"></span></a>
+				<a class="dock-row is-idle" id="dock-monitor" href="tasks" hidden><span class="dot is-idle"></span><span class="dock-text"></span></a>
+				<div class="dock-row is-idle" id="dock-idle"><span class="dot is-idle"></span><span>Nothing running</span></div>
+			</div>
+
+			<div class="sb-foot">
+				<div class="sb-version">Version <em>${_version | h}</em> (${mylar.CONFIG.GIT_BRANCH | h})</div>
+				<div id="testing"><a href="#" onclick="check_the_hub();return false;"><span class="ui-icon ui-icon-refresh"></span><span id="version_line">Check for new version</span></a></div>
+				<details class="sb-status">
+					<summary>Service status</summary>
+					<div id="backendstatus">
+						ComicVine
+						%if mylar.BACKENDSTATUS_CV == 'up':
+						<img src="images/success.png" height="8" width="8" alt="up">
+						%else:
+						<img src="images/x_red.png" height="8" width="8" alt="down">
+						%endif
+						· The Hub
+						%if mylar.BACKENDSTATUS_WS == 'up':
+						<img src="images/success.png" height="8" width="8" alt="up">
+						%else:
+						<img src="images/x_red.png" height="8" width="8" alt="down">
+						%endif
+						<br>
+						<%
+						    mylar.PROVIDER_STATUS = {}
+						    prov_fail = False
+						    try:
+						        for ko, vo in sorted(mylar.CONFIG.PROVIDER_ORDER.items()):
+						            mylar.PROVIDER_STATUS.update({vo : 'success'})
+						            for kb in mylar.PROVIDER_BLOCKLIST:
+						                if vo == kb['site']:
+						                    mylar.PROVIDER_STATUS.update({vo : 'fail'})
+						                    break
+						    except Exception:
+						        prov_fail = True
+						%>
+						Providers:
+						%if prov_fail:
+						<span title="This should correct itself eventually">unable to tell right now</span>
+						%else:
+						%for prov, stats in sorted(mylar.PROVIDER_STATUS.items()):
+						${prov | h}
+						%if stats == 'success':
+						<img src="images/success.png" height="8" width="8" alt="up">
+						%else:
+						<img src="images/x_red.png" height="8" width="8" alt="blocked">
+						%endif
+						%endfor
+						%endif
+						%if mylar.CONFIG.ENABLE_DDL:
+						<br><span id="pd_usage" title="Pixeldrain transfer used in the last day"></span>
+						%endif
+					</div>
+				</details>
+				<p class="network-status info-box" hidden></p>
+				<div class="sb-power">
+					<a href="restart" onclick="return confirm('Restart Issuarr now?');">Restart</a>
+					<a href="shutdown" onclick="return confirm('Shut down Issuarr? It stays off until you start it again.');">Shut down</a>
+					%if mylar.CONFIG.AUTHENTICATION > 0:
+					<a href="auth/logout">Log out</a>
+					%endif
+				</div>
+			</div>
+		</nav>
+
+		<main id="main" class="main">
+			<div id="subhead">${next.headerIncludes()}</div>
+			${next.body()}
+		</main>
 	</div>
 
-        <script src="js/libs/jquery-ui.min.js"></script>
-        <script src="js/common.js"></script>
-	
+	<div id="config_messages_dialog" title="Configuration checks and warnings" style="display:none">
+		<span id="mbody"></span>
+	</div>
+	<div id="notifs_dialog" title="Notifications" style="display:none">
+		<div id="btn_container">
+			<div id="btn_notifs" style="float:right;padding-bottom:5px;margin-top:0px;">
+				<a id="menu_link_always" onclick="always_notifs()" href="#"><span id="always_the_notifs" title="Force notification display to be always on top" value="modal">Always on Top</span></a>
+				<a id="menu_link_edit" onclick="clear_notifs()" href="#"><span id="clear_notifs" title="Clear notifications for current session">Clear notifications</span></a>
+			</div>
+		</div>
+		<div class="table_wrapper" id="notifs_wrapper">
+			<table class="display_notifs" id="notifs_table">
+				<thead>
+					<tr>
+						<th id="date">Date</th>
+						<th id="message">Message</th>
+						<th id="comicid">ComicID</th>
+					</tr>
+				</thead>
+				<tbody>
+				</tbody>
+			</table>
+		</div>
+	</div>
+
+	<div class="jump-backdrop" id="jump" hidden>
+		<div class="jump" role="dialog" aria-modal="true" aria-label="Jump to">
+			<div class="jump-field">
+				<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+				<input id="jump-input" class="jump-input" data-ui type="text" role="combobox" aria-expanded="false" aria-controls="jump-list" aria-autocomplete="list" aria-label="Jump to" autocomplete="off" spellcheck="false" placeholder="Series in your library, pages, settings, actions">
+				<kbd>Esc</kbd>
+			</div>
+			<ul class="jump-list" id="jump-list" role="listbox" aria-label="Results"></ul>
+			<div class="jump-foot"><span><kbd>↑</kbd> <kbd>↓</kbd> move</span><span><kbd>Enter</kbd> open</span><span><kbd>Ctrl K</kbd> from any page</span></div>
+		</div>
+	</div>
+
+	<div class="jump-backdrop" id="add-series" hidden>
+		<form class="jump add-series" role="dialog" aria-modal="true" aria-labelledby="add-series-title" action="searchit" method="get">
+			<div class="add-head">
+				<h2 id="add-series-title">Add a series</h2>
+				<p>Searches ComicVine. To find something already in your library, use the Library filter or <kbd>Ctrl K</kbd>.</p>
+			</div>
+			<div class="jump-field">
+				<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+				<label for="add-series-input" class="sr-only">Series name</label>
+				<input id="add-series-input" class="jump-input" data-ui type="text" name="name" required autocomplete="off" spellcheck="false" placeholder="Series name, for example Saga">
+				<button type="submit" class="btn btn-primary">Search ComicVine</button>
+			</div>
+		</form>
+	</div>
+
+	<script src="js/libs/jquery-ui.min.js"></script>
+	<script src="js/common.js"></script>
 	${next.javascriptIncludes()}
-	
 	<script src="js/plugins.js"></script>
 	<script src="js/script.js"></script>
-	%if interface == 'carbon':
-	<script src="interfaces/carbon/js/cleanup.js?v=${mylar.CURRENT_VERSION}"></script>
-	%endif
 	<%
 	    import json
 	    from mylar import importstatus as _importstatus
@@ -213,10 +299,7 @@
 	<script>var importStatusInitial = ${_ist};</script>
 	<script src="js/importstatus.js?v=${mylar.CURRENT_VERSION}"></script>
 	<script src="js/trusselo.js?v=${mylar.CURRENT_VERSION}"></script>
-	<!--[if lt IE 7 ]>
-	<script src="js/libs/dd_belatedpng.js"></script>
-	<script> DD_belatedPNG.fix('img, .png_bg');</script>
-	<![endif]-->
+	<script src="js/issuarr.js?v=${mylar.CURRENT_VERSION}"></script>
         <script>
         //var reconnectFrequencySeconds = 1;
         //var evtSource;
@@ -261,13 +344,13 @@
             if (e.data){
                 var data = JSON.parse(e.data);
                 var cid = retrieve_comicid();
-                if (data.status == 'mid-message-event' && data.comicid == cid && document.getElementById("page_name").value == 'series_detail'){
+                if (data.status == 'mid-message-event' && data.comicid == cid && pageName() == 'series_detail'){
                     reload_tabs();
                     if (data.comicname != null || data.comicname != 'None'){
                         title_loadings(data.comicname, data.seriesyear, data.comicid, data.message);
                     }
                 } else {
-                    if (document.getElementById("page_name").value != 'series_detail' && data.comicid != cid && data.status != 'mid-message-event') {
+                    if (pageName() != 'series_detail' && data.comicid != cid && data.status != 'mid-message-event') {
                         console.log('addbyid:'+data.status, data.comicid, data.table, data.message);
                         $('#ajaxMsg').removeClass();
                         var dspline = '</br></br><input type="button" value="View Series" onclick="location.href=\'comicDetails?ComicID='+data.comicid+'\';"/>';
@@ -324,18 +407,18 @@
                 uptodate = false;
                 if (data.commmits_behind < 0){
                     if (data.docker == 'true'){
-                        up_mess = 'You are running an unknown version of Mylar3. <a href="#" onclick="'+cck+'">Close</a>';
+                        up_mess = 'You are running an unknown version of Issuarr. <a href="#" onclick="'+cck+'">Close</a>';
                         up_linemess = '<span class="version_display">Unknown version</span>';
                     } else {
-                        up_mess = 'You are running an unknown version of Mylar3. <a href="update">Update</a> or <a href="#" onclick="'+cck+'">Close</a>';
+                        up_mess = 'You are running an unknown version of Issuarr. <a href="update">Update</a> or <a href="#" onclick="'+cck+'">Close</a>';
                         up_linemess = '<a href="#" onclick="update_mylar()" title="You are running an Unknown version. Click to update" class="version_display"/>Unknown version</a>';
                     }
                 } else if (data.current_version != data.latest_version && dc_behind > 0){
                     if (data.docker == 'true'){
-                        up_mess = 'A <a href="https://github.com/MylarComics/mylar3/compare/'+data.current_version+'...'+data.latest_version+'" target="_blank"> newer version</a> is availble. You are '+dc_behind+' commits behind. <a href="#" onclick="'+cck+'">Close</a>';
+                        up_mess = 'A <a href="https://github.com/${mylar.CONFIG.GIT_USER | u}/${mylar.CONFIG.GIT_REPO | u}/compare/'+data.current_version+'...'+data.latest_version+'" target="_blank"> newer version</a> is availble. You are '+dc_behind+' commits behind. <a href="#" onclick="'+cck+'">Close</a>';
                         up_linemess = '<span class="version_display">'+dc_behind+' commits behind</span>';
                     } else {
-                        up_mess = 'A <a href="https://github.com/MylarComics/mylar3/compare/'+data.current_version+'...'+data.latest_version+'" target="_blank"> newer version</a> is availble. You are '+dc_behind+' commits behind. <a href="update">Update</a> or <a href="#" onclick="'+cck+'">Close</a>';
+                        up_mess = 'A <a href="https://github.com/${mylar.CONFIG.GIT_USER | u}/${mylar.CONFIG.GIT_REPO | u}/compare/'+data.current_version+'...'+data.latest_version+'" target="_blank"> newer version</a> is availble. You are '+dc_behind+' commits behind. <a href="update">Update</a> or <a href="#" onclick="'+cck+'">Close</a>';
                         up_linemess = '<a href="#" onclick="location.href=\'update\';" title="Update now" class="version_display">'+dc_behind+' commits behind</a>';
                     }
                 } else if (data.current_version == data.latest_version && dc_behind === 0){
@@ -347,8 +430,8 @@
                 }
 
                 if (uptodate === true){
-                    $("#testing").html('<span title="Mylar is up-to-date">'+up_linemess+'</span>');
-                    $('#updatediv').html("<div id='updatebar'>Mylar is up to date</div>").fadeIn().delay(3000).fadeOut();
+                    $("#testing").html('<span title="Issuarr is up to date">'+up_linemess+'</span>');
+                    $('#updatediv').html("<div id='updatebar'>Issuarr is up to date</div>").fadeIn().delay(3000).fadeOut();
                 } else {
                     $('#updatediv').html("<div id='updatebar'>"+up_mess+"</div>").fadeIn().delay(5000).fadeOut();
                     $("#testing").html(up_linemess);
@@ -357,8 +440,8 @@
                 var interval = setInterval(function(){
                     if (new Date().getTime() - startTime > 60000){
                         clearInterval(interval);
-                        $("#testing").html('<a href="#" onclick="check_the_hub()"><span class="ui-icon ui-icon-refresh"></span><span id="version_line">Check for new version</span></a>');
-                        //$("#version_line").html('<a href="#" onclick="check_the_hub()">Check for new version'</a>);
+                        $("#testing").html('<a href="#" onclick="check_the_hub();return false;"><span class="ui-icon ui-icon-refresh"></span><span id="version_line">Check for new version</span></a>');
+                        //$("#version_line").html('<a href="#" onclick="check_the_hub();return false;">Check for new version'</a>);
                         return;
                     }
                 }, 2000);
@@ -380,7 +463,7 @@
                         $('#ajaxMsg').html("<div class='msg'><center>"+data.message+"</center></div>");
                     }
                     var cid = retrieve_comicid();
-                    var tt = document.getElementById("page_name");
+                    var tt = { value: pageName() };
                     if (data.status == 'success'){
                         $('#ajaxMsg').addClass('success').fadeIn().delay(3000).fadeOut();
                         console.log('data.comicid:'+data.comicid)
@@ -395,7 +478,7 @@
                         if ( (data.tables == 'both' || data.tables == 'tabs') && ( tt.value != "config") ) {
                             reload_tabs();
                         }
-                        if( data.comicid == cid && document.getElementById("page_name").value == 'series_detail'){
+                        if( data.comicid == cid && pageName() == 'series_detail'){
                             console.log('title_loading...');
                             if (data.comicname != null || data.comicname != 'None'){
                                 title_loadings(data.comicname, data.seriesyear, data.comicid, data.message);
@@ -414,7 +497,7 @@
                         if (data.tables == 'both' || data.tables == 'tabs'){
                             reload_tabs();
                         }
-                        if( data.comicid == cid && document.getElementById("page_name").value == 'series_detail' ){
+                        if( data.comicid == cid && pageName() == 'series_detail' ){
                             if (data.comicname != null || data.comicname != 'None'){
                                 title_loadings(data.comicname, data.seriesyear, data.comicid);
                             }
@@ -423,6 +506,12 @@
                 }
             }
         }, false);
+
+        // Not every page has the hidden page_name field; the push handlers below must not throw without it.
+        function pageName() {
+            var el = document.getElementById("page_name");
+            return el ? el.value : '';
+        }
 
         function retrieve_comicid() {
             try {
@@ -451,9 +540,11 @@
         }
 
         function reload_table() {
-            var tables = $('table.display').DataTable();
+            // Rebuilt pages load their own rows and listen for this instead of DataTables.
+            document.dispatchEvent(new CustomEvent('issuarr:refresh'));
             var tt = document.getElementById("page_name");
-            if(typeof(tt) != 'undefined' && tt != null){
+            if(typeof(tt) != 'undefined' && tt != null && $.fn.DataTable && $('table.display').length){
+                var tables = $('table.display').DataTable();
                 if (tt.value != "weekly" && tt.value != "import_results" && tt.value != "manage_comics" && tt.value != "manage_issues" && tt.value != "manage_failed" && tt.value != "reading_list" && tt.value != "storyarcs_index" && tt.value != "storyarc_detail" && tt.value != "config") {
                     // this is required so it doesn't error if on the weekly page
                     // once weekly & other pages are converted to dynamic loading, this if can be removed
@@ -513,7 +604,7 @@
         }
 
         function title_loadings(series_c_name,series_c_year, series_comicid, s_message) {
-            var tt = document.getElementById("page_name");
+            var tt = { value: pageName() };
             if (tt.value == "series_detail"){
                 ignore_block = false;
                 if (typeof(s_message) != 'undefined' && s_message != null){
@@ -556,7 +647,7 @@
                     var series_line = document.getElementById("series_line");
                     series_line.innerHTML = '<a href="'+series_c_url+'" target="_blank">'+series_c_name+' ('+series_c_year+')</a>';
                     console.log(series_line.innerHTML);
-                    document.title = 'Mylar - '+series_c_name;
+                    document.title = 'Issuarr - '+series_c_name;
                 }
             }
         }
@@ -711,7 +802,7 @@
                 var interval = setInterval(function(){
                     if (new Date().getTime() - startTime > 60000){
                         clearInterval(interval);
-                        $("#testing").html('<a href="#" onclick="check_the_hub()"><span class="ui-icon ui-icon-refresh"></span><span id="version_line">Check for new version</span></a>');
+                        $("#testing").html('<a href="#" onclick="check_the_hub();return false;"><span class="ui-icon ui-icon-refresh"></span><span id="version_line">Check for new version</span></a>');
                         return;
                     }
                 }, 2000);
@@ -728,7 +819,7 @@
                     up_linemess = '<a href="#" onclick="update_mylar()" title="You are running an Unknown version" class="version_display">Unknown version</a>';
                 }
             } else {
-                up_linemess = '<a href="#" onclick="check_the_hub()"><span class="ui-icon ui-icon-refresh"></span><span id="version_line">Check for new version</span></a>';
+                up_linemess = '<a href="#" onclick="check_the_hub();return false;"><span class="ui-icon ui-icon-refresh"></span><span id="version_line">Check for new version</span></a>';
             }
                 $("#testing").html(up_linemess);
         }
@@ -825,8 +916,7 @@
             check_the_update();
         });
         </script>
-	<!-- This template is made by Elmar Kouwenhoven -->
-</body>
+	</body>
 </html>
 
 <%def name="javascriptIncludes()"></%def>

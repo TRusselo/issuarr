@@ -17,6 +17,35 @@ OWNED = ('Downloaded', 'Archived')
 TRADE_TYPES = ('TPB', 'HC', 'GN')
 KINDS = ['gap', 'unrecognised', 'after_last', 'before_first', 'after_cutoff']
 
+# A series as runs of issues in number order, for the bar that shows where its gaps are:
+# h on disk, w wanted, s snatched, f failed, i ignored, m missing and not wanted.
+RUN_CODES = {'Wanted': 'w', 'Snatched': 's', 'Failed': 'f', 'Ignored': 'i'}
+
+
+def run_code(status):
+    return 'h' if status in OWNED else RUN_CODES.get(status, 'm')
+
+
+def runs(issues):
+    """issues: (Int_IssueNumber, IssueDate, Status, Issue_Number) tuples.
+    Returns [[code, count, first issue number, last issue number], ...] in issue order."""
+    out = []
+    for _, _, status, label in sorted(issues, key=lambda x: (x[0] is None, x[0] if x[0] is not None else 0, x[1] or '')):
+        code = run_code(status)
+        label = str(label) if label not in (None, '') else '?'
+        if out and out[-1][0] == code:
+            out[-1][1] += 1
+            out[-1][3] = label
+        else:
+            out.append([code, 1, label, label])
+    return out
+
+
+def series_runs(comicid, myDB=None):
+    myDB = myDB or db.DBConnection()
+    rows = myDB.select('SELECT Int_IssueNumber, IssueDate, Status, Issue_Number FROM issues WHERE ComicID=?', [comicid])
+    return runs((r['Int_IssueNumber'], r['IssueDate'], r['Status'], r['Issue_Number']) for r in rows)
+
 _NUM = r'\d+(?:\.\d+|\.[A-Za-z]+)?'
 _RANGE = r'(%s)\s*(?:[-–—]|to|through)\s*(%s)|(%s)' % (_NUM, _NUM, _NUM)
 _SEG = re.compile(
@@ -346,7 +375,9 @@ def missing_data(cutoff=None):
     comics = {r['ComicID']: r for r in myDB.select('SELECT ComicID, ComicName, ComicYear, ComicPublisher, Have, Total FROM comics')}
     owned = defaultdict(list)
     rows = []
+    every = defaultdict(list)
     for i in myDB.select('SELECT IssueID, ComicID, Issue_Number, Int_IssueNumber, IssueName, ReleaseDate, IssueDate, Status FROM issues'):
+        every[i['ComicID']].append((i['Int_IssueNumber'], i['IssueDate'], i['Status'], i['Issue_Number']))
         if i['Status'] in OWNED:
             if i['Int_IssueNumber'] is not None:
                 owned[i['ComicID']].append(i['Int_IssueNumber'])
@@ -377,7 +408,8 @@ def missing_data(cutoff=None):
             pubs.append(pub)
         if cid not in sidx:
             sidx[cid] = len(series)
-            series.append([c['ComicName'], c['ComicYear'], c['Have'] or 0, c['Total'] or 0, pidx[pub], cid, by_series.get(cid, [])])
+            series.append([c['ComicName'], c['ComicYear'], c['Have'] or 0, c['Total'] or 0, pidx[pub], cid, by_series.get(cid, []),
+                           runs(every.get(cid, []))])
         return sidx[cid]
 
     for i in rows:
@@ -396,8 +428,17 @@ def missing_data(cutoff=None):
             kind = 3
         else:
             kind = 2
+        # Where it sits against the issues you have: 0 before the first, 1 in a gap, 2 after the last, -1 none owned.
+        if i['ComicID'] not in owned:
+            pos = -1
+        elif n is not None and n < lo[i['ComicID']]:
+            pos = 0
+        elif n is not None and n < hi[i['ComicID']]:
+            pos = 1
+        else:
+            pos = 2
         out.append([kind, series_index(i['ComicID']), i['Issue_Number'] or '', n or 0, (i['IssueName'] or '')[:90], date, i['IssueID'], i['Status'],
-                    by_issue.get(i['IssueID'], [])])
+                    by_issue.get(i['IssueID'], []), pos])
     missing_cids = {i['ComicID'] for i in rows}
     complete = [series_index(cid) for cid, c in comics.items()
                 if cid not in missing_cids and (c['Total'] or 0) > 0 and (c['Have'] or 0) >= (c['Total'] or 0)]

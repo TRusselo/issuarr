@@ -3,15 +3,6 @@
     import mylar
 %>
 
-<%def name="headerIncludes()">
-	<div id="subhead_container">
-		<div id="subhead_menu">
-			<a id="menu_link_edit" href="manage">Manage</a>
-			<a id="menu_link_edit" href="config#tabs-5">Post-processing settings</a>
-		</div>
-	</div>
-</%def>
-
 <%def name="headIncludes()">
 	<link rel="stylesheet" type="text/css" href="css/ledger.css?v=${mylar.CURRENT_VERSION}" />
 	<link rel="stylesheet" type="text/css" href="css/webp.css?v=${mylar.CURRENT_VERSION}" />
@@ -19,10 +10,10 @@
 
 <%def name="body()">
 <div class="lg wp">
-	<div class="lg-head">
-		<div>
-			<h1 class="lg-title">WebP conversion</h1>
-			<p class="lg-sub">Re-encode the pages of comics already in your library as WebP to save space. New downloads are handled by the option in the post-processing settings.</p>
+	<div class="page-head">
+		<div class="head-text">
+			<h1><span class="page-crumb">Tools › </span>WebP conversion</h1>
+			<p class="page-sub">Re-encode the pages of comics already in your library as WebP to save space. New downloads are handled by the option in the post-processing settings.</p>
 		</div>
 	</div>
 
@@ -77,7 +68,7 @@
 		</fieldset>
 		<div class="lg-build">
 			<span id="wp-hint">Preview first: it only reads your files.</span>
-			<button type="submit" class="lg-btn" id="wp-preview">Preview</button>
+			<button type="submit" class="btn btn-primary" id="wp-preview">Preview</button>
 		</div>
 	</form>
 
@@ -88,8 +79,8 @@
 		<div id="wp-detail" class="wp-detail"></div>
 		<div class="lg-build" id="wp-go-bar">
 			<span id="wp-go-text"></span>
-			<button type="button" class="lg-btn" id="wp-reset">Start over</button>
-			<button type="button" class="lg-btn wp-go" id="wp-go">Convert&hellip;</button>
+			<button type="button" class="btn" id="wp-reset">Start over</button>
+			<button type="button" class="btn btn-primary wp-go" id="wp-go">Convert&hellip;</button>
 		</div>
 	</section>
 
@@ -100,8 +91,8 @@
 		<ul id="wp-errors" class="wp-errors"></ul>
 		<div class="lg-build">
 			<span id="wp-run-text"></span>
-			<button type="button" class="lg-btn" id="wp-stop">Stop after this file</button>
-			<button type="button" class="lg-btn" id="wp-done" hidden>Start over</button>
+			<button type="button" class="btn" id="wp-stop">Stop after this file</button>
+			<button type="button" class="btn" id="wp-done" hidden>Start over</button>
 		</div>
 	</section>
 
@@ -109,8 +100,8 @@
 		<h2>Convert these files?</h2>
 		<div id="wp-c1-body"></div>
 		<div class="wp-dialog-actions">
-			<button type="button" class="lg-btn" data-close>Cancel</button>
-			<button type="button" class="lg-btn wp-go" id="wp-c1-next">Continue</button>
+			<button type="button" class="btn" data-close>Cancel</button>
+			<button type="button" class="btn btn-primary wp-go" id="wp-c1-next">Continue</button>
 		</div>
 	</dialog>
 
@@ -120,8 +111,8 @@
 		<label class="wp-row"><span>Type <b id="wp-c2-count"></b> to confirm</span>
 			<input type="text" id="wp-c2-input" inputmode="numeric" autocomplete="off" size="10"></label>
 		<div class="wp-dialog-actions">
-			<button type="button" class="lg-btn" data-close>Cancel</button>
-			<button type="button" class="lg-btn wp-go" id="wp-c2-start" disabled>Start converting</button>
+			<button type="button" class="btn" data-close>Cancel</button>
+			<button type="button" class="btn btn-danger wp-go" id="wp-c2-start" disabled>Start converting</button>
 		</div>
 	</dialog>
 </div>

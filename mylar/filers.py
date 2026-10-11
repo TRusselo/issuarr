@@ -483,7 +483,7 @@ class FileHandlers(object):
 
             unicodeissue = issuenum
 
-            _, prettycomiss, _ = helpers.issue_number_parser(issuenum, issue_id = issueid)
+            prettycomiss = helpers.issue_number_parser(issuenum, issue_id=issueid, pretty_string=True).asString
             
             logger.fdebug('Pretty Comic Issue is : ' + str(prettycomiss))
             if mylar.CONFIG.UNICODE_ISSUENUMBER:
@@ -586,10 +586,10 @@ class FileHandlers(object):
                     logger.fdebug('Annual detected within series title of ' + series + '. Not auto-correcting issue #')
 
             seriesfilename = seriesfilename #.encode('ascii', 'ignore').strip()
-            filebad = [':', ',', '/', '?', '!', '\'', '\"', r'\*'] #in u_comicname or '/' in u_comicname or ',' in u_comicname or '?' in u_comicname:
+            filebad = [':', ',', '/', '?', '!', '\'', '\"', '*', '<', '>', '|'] #in u_comicname or '/' in u_comicname or ',' in u_comicname or '?' in u_comicname:
             for dbd in filebad:
                 if dbd in seriesfilename:
-                    if any([dbd == '/', dbd == '*']): 
+                    if any([dbd == '/', dbd == '*', dbd == '|']): 
                         repthechar = '-'
                     else:
                         repthechar = ''

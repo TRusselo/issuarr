@@ -1,221 +1,200 @@
 <%inherit file="base.html"/>
 <%!
-        import os
-        import mylar
-	from mylar import db
-        from mylar.helpers import checked
+    from urllib.parse import urlencode
+    import mylar
+    from mylar.helpers import checked
 %>
 
-<%def name="headerIncludes()">
-	<div id="subhead_container">
-		<div id="subhead_menu">
-                        %if mylar.CONFIG.TAB_ENABLE:
-   			    <a id="menu_link_delete" href="#" onclick="doAjaxCall('syncfiles',$(this),'table')" data-success="Syncing complete.">Sync</a>
-                        %endif
-			<a id="menu_link_delete" href="#" onclick="doAjaxCall('removefromreadlist?AllRead=1',$(this),'table')" data-success="All Read Records Removed">Remove Read</a>
-			<a id="menu_link_delete" href="#">Force New Check</a>
-                        <a id="menu_link_refresh" href="#">Clear File Cache</a>
-		</div>
-	</div>
-</%def>
-
 <%def name="body()">
-        <input type="hidden" id="page_name" value="reading_list" />
-	<div id="paddingheader">
-		<h1 class="clearfix"><img src="images/ReadingList-icon.png" height="26" width="26" alt="Reading List"/>Reading List Management</h1>
-	</div>
-        <div id="tabs">
-                <ul>
-                        <li><a href="#tabs-1">General</a></li>
-                        <li><a href="#tabs-2">Readlist options</a></li>
-                </ul>
-          <div id="tabs-1">
-            <table class="comictable" summary="Comic Details">
-              <tr>
-                 <td>
-                   <fieldset>
-                       <center><legend>Individual Reading Lists</legend>
-                       <p>Your watchlisted series' that you have issues marked as wanting to add
-                       to the Reading List go here.<br/></p></center>
-                   </fieldset>
-                 </td>
-                  <td>
-                   <fieldset>
-                      <legend>Reading List Statistics</legend>
-                        <div>
-                           <label><strong># of Issues Added: </strong>${counts['added']}</br></label>
-                           <label><strong># of Issues Sent to device: </strong>${counts['sent']}</br></label>
-                           <label><strong># of Issues Read: </strong>${counts['read']}</br></label>
-                           <label><strong> ... total in Readlist Management: </strong>${counts['total']}</br></label>
-                        </div>
-                    <div id="actions">
-                      <small><a href="#" id="helpout"><span class="ui-button-icon-primary ui-icon ui-icon-help"></span>Help.</a></small>
-                      <div id="dialog" title="Help with Reading Lists" style="display:none" class="configtable">
-                       <p>Status definitions:</br>
-                            Added: Issue has been added to your RL.</br>
-                            Downloaded: Issue has been downloaded to your device.</br>
-                            Read: Issue has been marked as Read.</br>
-                       </p>
-                      </div>
+    <input type="hidden" id="page_name" value="reading_list" />
+    <%
+        LABEL = {'Added': 'To read', 'Downloaded': 'On your device', 'Read': 'Read'}
+        CLS = {'Added': 'is-wanted', 'Downloaded': 'is-snatched', 'Read': 'is-have'}
+    %>
+    <div class="page readlist">
+        <div class="page-head">
+            <div class="head-text">
+                <h1><span class="page-crumb">Story Arcs › </span>Reading list</h1>
+                <p class="page-sub">Issues you've put aside to read. With a tablet set up below, Issuarr can send them to it.</p>
+            </div>
+            <div class="btn-row">
+                %if mylar.CONFIG.TAB_ENABLE:
+                <button type="button" class="btn btn-primary" data-act="syncfiles" data-done="Sending your reading list to the tablet.">Send to tablet</button>
+                %endif
+                <details class="menu" id="rl-more">
+                    <summary class="btn" aria-label="More reading list actions" title="More">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M5 12h.01M12 12h.01M19 12h.01"/></svg>
+                    </summary>
+                    <div class="menu-list">
+                        <button type="button" class="btn btn-ghost" id="rl-clear-read">Remove everything marked read</button>
                     </div>
-                   </fieldset>
-                  </td>
-              </tr>
-            </table>
-          </div>
-          <div id="tabs-2">
-            <table class="configtable">
-               <td>
-                <form action="readlistOptions" id="chkoptions" method="GET">
-                   <fieldset>
-                     <legend>ReadList Options</legend>
-                     <div class="row checkbox left clearfix">
-                         <input type="checkbox" style="vertical-align: middle; margin: 3px; margin-top: -1px;" name="send2read" id="send2read" value="1" ${checked(mylar.CONFIG.SEND2READ)} /><label>Automatically send new pulls to Readlist (Added)</label></br>
-                     </div>
-                   </fieldset>
-               </td>
-               <td width="100%">
-                 <img src="images/android.png" style="float:right" height="50" width="50" />
-                   <fieldset>
-                           <div>
-                              <legend>Tablet Device</legend>
-                              <small class="heading"><span style="float: left; margin-right: .3em; margin-top: 4px;" class="ui-icon ui-icon-info"></span>Requires SFTP Server running on tablet</small>
-                           </div>
-                                <div class="row checkbox left clearfix">
-                                    <input id="tabenable" type="checkbox" style="vertical-align: middle; margin: 3px; margin-top: -1px;" onclick="initConfigCheckbox($this);" name="tab_enable" id="tab_enable" value="1" ${checked(mylar.CONFIG.TAB_ENABLE)} /><label>Enable Tablet (Android)</label>
-                                </div>
-                                <div class="config">
-                                    <div class="row">
-                                        <label>IP:PORT</label>
-                                        <input type="text" placeholder="IP Address of tablet" name="tab_host" value="${mylar.CONFIG.TAB_HOST}" size="30">
-                                    </div>
-                                    <div class="row">
-                                        <label>Username</label>
-                                        <input type="text" name="tab_user" value="${mylar.CONFIG.TAB_USER}" size="20">
-                                    </div>
-                                    <div class="row">
-                                        <label>Password:</label>
-                                        <input type="password" name="tab_pass" value="${mylar.CONFIG.TAB_PASS}" size="20">
-                                    </div>
-                                    <div class="row">
-                                        <label>Download Location:</label>
-                                        <input type="text" placeholder="Full path (or jailed path)" name="tab_directory" value="${mylar.CONFIG.TAB_DIRECTORY}" size="36" /></br>
-                                    </div>
-                                    <div class="row checkbox left clearfix">
-                                      <input type="checkbox" style="vertical-align: middle; margin: 3px; margin-top: -1px;" name="maintainseriesfolder" id="maintainseriesfolder" value="1" ${checked(mylar.CONFIG.MAINTAINSERIESFOLDER)} /><label for="maintainseriesfolder">Maintain Comic Folder Structure when Syncing to Tablet</label></br>
-                                    </div>
-                                </div>
-                   </fieldset>
-                  </td>
-                  <div>
-                      <input type="submit" value="Update"/>
-                  </div>
-                </form>
-               </td>
-             </table>
-           </div>
-        </div>
-        <form action="markreads" method="get" id="markreads">
-        <div id="markissue" style="top:0;">
-                Mark selected issues as
-                <select name="action" onChange="doAjaxCall('markreads',$(this),'table',true);" data-error="You didn't select any issues" data-success="selected issues marked">
-                                <option disabled="disabled" selected="selected">Choose...</option>
-                                <option value="Added">Added</option>
-                                <option value="Downloaded">Downloaded</option>
-                                <option value="Read">Read</option>
-                                <option value="Remove">Remove</option>
-                                <option value="Send">Send</option>
-                </select>
-                <input type="hidden" value="Go">
+                </details>
+            </div>
         </div>
 
+        <section class="section" aria-label="Reading list" style="gap: 14px">
+            <div class="filter-tabs" role="group" aria-label="Show" id="rl-tabs">
+                <button type="button" data-ui data-s="" aria-pressed="true">All<span class="count">${counts['total']}</span></button>
+                <button type="button" data-ui data-s="Added" aria-pressed="false">To read<span class="count">${counts['added']}</span></button>
+                <button type="button" data-ui data-s="Downloaded" aria-pressed="false">On your device<span class="count">${counts['sent']}</span></button>
+                <button type="button" data-ui data-s="Read" aria-pressed="false">Read<span class="count">${counts['read']}</span></button>
+            </div>
 
-        <div class="table_wrapper">
+            <div class="bulk-bar" id="rl-bulk" hidden>
+                <span class="bulk-count" id="rl-bulk-count"></span>
+                <button type="button" class="btn btn-sm" data-mark="Read">Mark read</button>
+                <button type="button" class="btn btn-sm" data-mark="Added">Mark to read</button>
+                %if mylar.CONFIG.TAB_ENABLE:
+                <button type="button" class="btn btn-sm" data-mark="Send">Send to tablet</button>
+                %endif
+                <button type="button" class="btn btn-sm btn-danger" data-mark="Remove">Remove</button>
+                <button type="button" class="btn btn-sm btn-ghost" id="rl-none">Clear selection</button>
+            </div>
 
-                    <table class="display" id="read_detail">
-
+            <div class="dt-wrap">
+                <table class="dt" id="rl-table">
                     <thead>
                         <tr>
-                                <th id="select"><input type="checkbox" onClick="toggle(this)" /></th>
-                                <th id="comicname">ComicName</th>
-                                <th id="issue">Issue</th>
-                                <th id="issueyear">Pub Date</th>
-                                <th id="status">Status</th>
-                                <th id="statuschange">Change</th>
-                                <th id="options">Options</th>
+                            <th scope="col" class="check"><input type="checkbox" id="rl-all" aria-label="Select all shown" /></th>
+                            <th scope="col">Series</th>
+                            <th scope="col">Issue</th>
+                            <th scope="col">Published</th>
+                            <th scope="col">Status</th>
+                            <th scope="col">Since</th>
+                            <th scope="col"><span class="sr-only">Actions</span></th>
                         </tr>
                     </thead>
                     <tbody>
-                         %for issue in issuelist:
-                        <%
-                                if issue['Status'] == 'Read':
-                                        grade = 'A'
-                                elif issue['Status'] == 'Added':
-                                        grade = 'X'
-                                elif issue['Status'] == 'Downloaded':
-                                        grade = 'C'
-                                else:
-                                        grade = 'Z'
-
-                        %>
-                              <tr class="grade${grade}">
-                                <td id="select"><input type="checkbox" name="${issue['IssueID']}" value="${issue['IssueID']}" class="checkbox" /></td>
-                                <td id="comicname"><a href="comicDetails?ComicID=${issue['ComicID']}">${issue['ComicName']} (${issue['SeriesYear']})</td>
-                                <td id="issue">${issue['Issue_Number']}</td>
-                                <td id="issueyear">${issue['IssueDate']}</td>
-                                <td id="status">${issue['Status']}</td>
-                                <td id="statuschange">${issue['StatusChange']}</td>
-                                <td id="options">
-                                    <a onclick="doAjaxCall('removefromreadlist?IssueID=${issue['IssueID']}',$(this),'table')" data-success="Sucessfully removed ${issue['ComicName']} #${issue['Issue_Number']} from Reading List"><img src="images/skipped_icon.png" height="25" width="25" title="Remove from Reading List" /></a>
-                                    <a onclick="doAjaxCall('markasRead?IssueID=${issue['IssueID']}', $(this),'table')" data-success="Marked ${issue['ComicName']} ${issue['Issue_Number']} as Read."><img src="images/wanted_icon.png" height="25" width="25" title="Mark as Read" /></a>
-                                    
-                                    %if issue['Location'] is not None:
-                                    <a href="downloadthis?pathfile=${issue['Location'] |u}"><img src="images/download_icon.png" height="25" width="25" title="Download the Issue" class="highqual" /></a>
-                                    %endif
-                                </td>
-                              </tr>
-                         %endfor
+                    %for i in issuelist:
+                        <tr data-s="${i['Status'] | h}">
+                            <td class="check"><input type="checkbox" data-id="${i['IssueID'] | h}" aria-label="Select ${i['ComicName'] | h} #${i['Issue_Number'] | h}" /></td>
+                            <td><a href="comicDetails?ComicID=${i['ComicID'] | u}">${i['ComicName'] | h}</a> <span class="muted mono">${i['SeriesYear'] or '' | h}</span></td>
+                            <td class="mono nowrap">#${i['Issue_Number'] | h}</td>
+                            <td class="mono nowrap muted">${i['IssueDate'] or '-' | h}</td>
+                            <td><span class="status ${CLS.get(i['Status'], 'is-idle')}" data-pill>${LABEL.get(i['Status'], i['Status']) | h}</span></td>
+                            <td class="mono nowrap muted">${i['StatusChange'] or '' | h}</td>
+                            <td class="actions">
+                                %if i['Status'] != 'Read':
+                                <button type="button" class="btn btn-sm" data-act="markasRead?${urlencode({'IssueID': i['IssueID']}) | h}" data-done="Marked as read." data-after="Read">Mark read</button>
+                                %endif
+                                %if i['Location']:
+                                <a class="btn btn-sm btn-ghost" href="downloadthis?${urlencode({'issueid': i['IssueID']}) | h}" title="Copy the file to this computer or phone">Save to device</a>
+                                %endif
+                                <button type="button" class="btn btn-sm btn-ghost" data-drop="removefromreadlist?${urlencode({'IssueID': i['IssueID']}) | h}">Remove</button>
+                            </td>
+                        </tr>
+                    %endfor
+                    %if not issuelist:
+                        <tr><td colspan="7" class="empty-state">Nothing on your reading list. Add issues from a series page, or turn on adding new downloads below.</td></tr>
+                    %endif
                     </tbody>
                 </table>
             </div>
-</%def>
+        </section>
 
-<%def name="headIncludes()">
-	<link rel="stylesheet" href="interfaces/${interface}/css/data_table.css">
+        <details class="panel arc-opts">
+            <summary class="panel-title">Reading list options</summary>
+            <form action="readlistOptions" method="get" class="tools-form" autocomplete="off">
+                <div class="switch-list">
+                    <label class="switch-row">
+                        <input type="checkbox" name="send2read" value="1" ${checked(mylar.CONFIG.SEND2READ)} />
+                        <span><b>Add new downloads from the pull list to the reading list</b><small>They're added as To read.</small></span>
+                    </label>
+                    <label class="switch-row">
+                        <input type="checkbox" name="tab_enable" id="tab_enable" value="1" ${checked(mylar.CONFIG.TAB_ENABLE)} />
+                        <span><b>Send to an Android tablet</b><small>Needs an SFTP server running on the tablet.</small></span>
+                    </label>
+                </div>
+                <div class="grid-2" id="tab_opts">
+                    <label class="field"><span class="field-label">Tablet address</span><input type="text" name="tab_host" value="${mylar.CONFIG.TAB_HOST or '' | h}" placeholder="192.168.1.20:2222" /></label>
+                    <label class="field"><span class="field-label">Folder on the tablet</span><input type="text" name="tab_directory" value="${mylar.CONFIG.TAB_DIRECTORY or '' | h}" placeholder="/sdcard/Comics" /></label>
+                    <label class="field"><span class="field-label">User name</span><input type="text" name="tab_user" value="${mylar.CONFIG.TAB_USER or '' | h}" /></label>
+                    <label class="field"><span class="field-label">Password</span><input type="password" name="tab_pass" value="${mylar.CONFIG.TAB_PASS or '' | h}" /></label>
+                    <label class="switch-row" style="grid-column: 1 / -1">
+                        <input type="checkbox" name="maintainseriesfolder" value="1" ${checked(mylar.CONFIG.MAINTAINSERIESFOLDER)} />
+                        <span><b>Keep the series folders on the tablet</b><small>When off, every issue goes straight into the folder above.</small></span>
+                    </label>
+                </div>
+                <div class="btn-row"><button type="submit" class="btn btn-primary">Save</button></div>
+            </form>
+        </details>
+    </div>
 </%def>
 
 <%def name="javascriptIncludes()">
-        <script src="js/libs/jquery.dataTables.min.js"></script>
-        <script>
-        function openHelp() {
-            $("#dialog").dialog();
-        };
-        function initThisPage(){
-
-                $(function() {
-                        $( "#tabs" ).tabs();
-                });
-                $("#helpout").click(openHelp);
-                initActions();
-                $('#read_detail').dataTable({
-                        "bDestroy": true,
-                        "oLanguage": {
-                                "sLengthMenu":"Show _MENU_ items per page",
-                                "sEmptyTable": "<em>No History to Display</em>",
-                                "sInfo":"Showing _START_ to _END_ of _TOTAL_ items",
-                                "sInfoEmpty":"Showing 0 to 0 of 0 items",
-                                "sInfoFiltered":"(filtered from _MAX_ total items)"},
-                        "iDisplayLength": 25,
-                        "sPaginationType": "full_numbers",
-                        "aaSorting": []
-
-                });
-                resetFilters("issuelist");
+    <script>
+    (function () {
+        var status = '';
+        function rows() { return Array.prototype.slice.call(document.querySelectorAll('#rl-table tbody tr[data-s]')); }
+        function picked() { return rows().filter(function (tr) { return !tr.hidden && tr.querySelector('[data-id]').checked; }); }
+        function renderBulk() {
+            var n = picked().length;
+            document.getElementById('rl-bulk').hidden = !n;
+            document.getElementById('rl-bulk-count').textContent = n + (n === 1 ? ' issue selected' : ' issues selected');
         }
-        $(document).ready(function() {
-                initThisPage();
-                initActions();
-                initConfigCheckbox("#tabenable");
+        function fail() { Issuarr.toast('That didn\'t work. Check the log.', false); }
+        var tab = document.getElementById('tab_enable');
+        function syncTab() { document.getElementById('tab_opts').hidden = !tab.checked; }
+        tab.addEventListener('change', syncTab); syncTab();
+
+        document.addEventListener('click', function (e) {
+            var t = e.target;
+            var f = t.closest('#rl-tabs [data-s]');
+            if (f) {
+                status = f.getAttribute('data-s');
+                document.querySelectorAll('#rl-tabs [data-s]').forEach(function (b) { b.setAttribute('aria-pressed', String(b === f)); });
+                rows().forEach(function (tr) { tr.hidden = !!status && tr.getAttribute('data-s') !== status; });
+                renderBulk();
+                return;
+            }
+            var act = t.closest('[data-act]');
+            if (act) {
+                act.disabled = true;
+                fetch(act.getAttribute('data-act'), { credentials: 'same-origin' })
+                    .then(function (r) {
+                        if (!r.ok) throw new Error(r.status);
+                        Issuarr.toast(act.getAttribute('data-done'));
+                        var pill = act.closest('tr') && act.closest('tr').querySelector('[data-pill]');
+                        if (pill) { pill.textContent = act.getAttribute('data-after'); pill.className = 'status is-have'; act.remove(); }
+                        else act.disabled = false;
+                    })
+                    .catch(function () { act.disabled = false; fail(); });
+                return;
+            }
+            var drop = t.closest('[data-drop]');
+            if (drop) {
+                fetch(drop.getAttribute('data-drop'), { credentials: 'same-origin' })
+                    .then(function (r) { if (!r.ok) throw new Error(r.status); Issuarr.toast('Removed from the reading list.'); drop.closest('tr').remove(); renderBulk(); })
+                    .catch(fail);
+                return;
+            }
+            var m = t.closest('#rl-bulk [data-mark]');
+            if (m) {
+                var action = m.getAttribute('data-mark'), sel = picked();
+                if (action === 'Remove' && !window.confirm('Remove ' + sel.length + ' issues from the reading list? The issues and files stay in your library.')) return;
+                var q = new URLSearchParams({ action: action });
+                sel.forEach(function (tr) { var id = tr.querySelector('[data-id]').getAttribute('data-id'); q.append(id, id); });
+                fetch('markreads?' + q.toString(), { credentials: 'same-origin' })
+                    .then(function (r) {
+                        if (!r.ok) throw new Error(r.status);
+                        Issuarr.toast(action === 'Send' ? 'Sending ' + sel.length + ' issues to the tablet.' : 'Updated ' + sel.length + ' issues.');
+                        setTimeout(function () { location.reload(); }, 800);
+                    })
+                    .catch(fail);
+                return;
+            }
+            if (t.closest('#rl-none')) { rows().forEach(function (tr) { tr.querySelector('[data-id]').checked = false; }); renderBulk(); return; }
+            if (t.closest('#rl-clear-read')) {
+                if (!window.confirm('Remove every issue marked read from the reading list? The issues and files stay in your library.')) return;
+                fetch('removefromreadlist?AllRead=1', { credentials: 'same-origin' })
+                    .then(function (r) { if (!r.ok) throw new Error(r.status); Issuarr.toast('Removed the read issues.'); setTimeout(function () { location.reload(); }, 800); })
+                    .catch(fail);
+            }
         });
-        </script>
+        document.addEventListener('change', function (e) {
+            if (e.target.id === 'rl-all') { rows().forEach(function (tr) { if (!tr.hidden) tr.querySelector('[data-id]').checked = e.target.checked; }); renderBulk(); }
+            else if (e.target.closest('[data-id]')) renderBulk();
+        });
+    })();
+    </script>
 </%def>

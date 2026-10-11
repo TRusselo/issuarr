@@ -42,6 +42,31 @@ def without_complete(parsed):
     return out
 
 
+def _words(name):
+    return re.findall(r'[a-z0-9]+', (name or '').lower())
+
+
+def with_extra_words(parsed, watchcomic, year):
+    # GetComics sometimes adds words inside a series name: "Star Wars - Jedi of the Republic - Mace Windu"
+    # for Star Wars: Mace Windu. Accept the post when it starts and ends like the series, has all its
+    # words in order and carries the issue's own year, whatever the series' fuzzy-year setting.
+    # The issue number is still checked after the name match.
+    want, got = _words(watchcomic), _words(parsed.get('series_name'))
+    if len(want) < 2 or len(got) <= len(want) or parsed.get('issue_year') != str(year):
+        return None
+    if got[0] != want[0] or got[-1] != want[-1]:
+        return None
+    rest = iter(got)
+    if not all(word in rest for word in want):
+        return None
+    out = dict(parsed)
+    for key in ('series_name', 'series_name_decoded'):
+        out[key] = watchcomic
+    if out.get('dynamic_name'):
+        out['dynamic_name'] = filechecker.FileChecker().dynamic_replace(watchcomic)['mod_seriesname']
+    return out
+
+
 class search_check(object):
 
     def __init__(self):
@@ -525,6 +550,12 @@ class search_check(object):
                     second = filechecker.FileChecker(watchcomic=ComicName).matchIT(retry)
                     if second['process_status'] != 'fail':
                         logger.info('[PACK] Matched %s to %s by ignoring "Complete" in the title.' % (cleantitle, ComicName))
+                        parsed_comic, filecomic = retry, second
+                retry = with_extra_words(parsed_comic, ComicName, comyear) if filecomic['process_status'] == 'fail' and pack is False else None
+                if retry is not None:
+                    second = filechecker.FileChecker(watchcomic=ComicName).matchIT(retry)
+                    if second['process_status'] != 'fail':
+                        logger.info('[EXTRA-WORDS] Matched %s to %s: the title has every word of the series name, in order.' % (cleantitle, ComicName))
                         parsed_comic, filecomic = retry, second
                 if filecomic['process_status'] == 'fail':
                     logger.fdebug(

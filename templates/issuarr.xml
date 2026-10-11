@@ -18,7 +18,7 @@ For the best database performance keep Appdata on a pool or disk path (for examp
   <License>GPLv3</License>
   <ReadMe>https://raw.githubusercontent.com/issuarr/issuarr/main/docs/UNRAID.md</ReadMe>
   <WebUI>http://[IP]:[PORT:8090]/</WebUI>
-  <TemplateURL>https://raw.githubusercontent.com/issuarr/issuarr/main/unraid/issuarr.xml</TemplateURL>
+  <TemplateURL>https://raw.githubusercontent.com/issuarr/issuarr/main/templates/issuarr.xml</TemplateURL>
   <Icon>https://raw.githubusercontent.com/issuarr/issuarr/main/data/images/issuarr-transparent.png</Icon>
   <ExtraParams/>
   <PostArgs/>

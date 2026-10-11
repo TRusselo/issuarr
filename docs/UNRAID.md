@@ -1,6 +1,6 @@
 # Installing Issuarr on Unraid
 
-Issuarr has an Unraid template in this repository, [`unraid/issuarr.xml`](https://github.com/issuarr/issuarr/blob/main/unraid/issuarr.xml). It runs the `ghcr.io/issuarr/issuarr:latest` image with the usual Unraid defaults (user `99`, group `100`, appdata under `/mnt/user/appdata`).
+Issuarr has an Unraid template in this repository, [`templates/issuarr.xml`](https://github.com/issuarr/issuarr/blob/main/templates/issuarr.xml). It runs the `ghcr.io/issuarr/issuarr:latest` image with the usual Unraid defaults (user `99`, group `100`, appdata under `/mnt/user/appdata`).
 
 ## Add the template
 
@@ -8,7 +8,7 @@ Issuarr has an Unraid template in this repository, [`unraid/issuarr.xml`](https:
 
     ```sh
     wget -O /boot/config/plugins/dockerMan/templates-user/my-issuarr.xml \
-      https://raw.githubusercontent.com/issuarr/issuarr/main/unraid/issuarr.xml
+      https://raw.githubusercontent.com/issuarr/issuarr/main/templates/issuarr.xml
     ```
 
 2. Go to **Docker > Add Container** and choose **issuarr** from the **Template** list.

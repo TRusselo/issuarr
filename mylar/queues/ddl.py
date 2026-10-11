@@ -137,7 +137,14 @@ def start_waiting():
     for item in moved:
         GC_QUEUE.put(item)
     for item in starting:
-        _start(host_download, 'DDL-HOST-%s' % item.get('id'), item)
+        try:
+            _start(host_download, 'DDL-HOST-%s' % item.get('id'), item)
+        except Exception as e:
+            # out of threads, most likely - put it back and try again on the next pass
+            logger.warn('[DDL-QUEUE] Unable to start a download for %s: %s' % (item.get('series'), e))
+            with LOCK:
+                RUNNING[0] -= 1
+                PENDING.appendleft(item)
 
 
 def _next(q, stop):
@@ -184,6 +191,10 @@ def run_download(item):
             logger.exception('[DDL-QUEUE] Error while downloading %s: %s' % (item.get('series'), e))
             result = {'success': False, 'filename': None, 'path': None, 'link_type_failure': item.get('link_type')}
         if result is not None:
+            try:
+                db.DBConnection().upsert('ddl_info', {'status': 'Queued'}, {'id': item['id']})  # not downloading while it waits
+            except Exception as e:
+                logger.warn('[DDL-QUEUE] Unable to mark %s as waiting for another source: %s' % (item.get('series'), e))
             send_to_failover(item, result)
     finally:
         with LOCK:
@@ -192,6 +203,13 @@ def run_download(item):
 
 def send_to_failover(item, result, jd2_gave_up=False):
     FAILOVER_QUEUE.put({'item': item, 'result': result or {}, 'jd2_gave_up': jd2_gave_up})
+
+
+def repick(item):
+    """Restart a GetComics item by choosing its source again on the failover worker, so the source
+    order and the big-file rule apply, rather than reusing whichever link was tried last."""
+    forget(item['id'])
+    FAILOVER_QUEUE.put({'item': item, 'result': {}, 'jd2_gave_up': False, 'repick': True})
 
 
 def forget(record_id):
@@ -206,7 +224,7 @@ def failover_worker(failover_queue, stop):
         item = entry['item']
         try:
             with FAILOVER_SLOT:
-                handle_failure(db.DBConnection(), item, entry['result'], entry['jd2_gave_up'])
+                handle_failure(db.DBConnection(), item, entry['result'], entry['jd2_gave_up'], entry.get('repick', False))
         except Exception as e:
             logger.exception('[DDL-FAILOVER] Error while looking for another source for %s: %s' % (item.get('series'), e))
             try:
@@ -215,7 +233,7 @@ def failover_worker(failover_queue, stop):
                 logger.warn('[DDL-FAILOVER] Unable to mark %s as failed: %s' % (item.get('series'), e2))
 
 
-def handle_failure(myDB, item, result, jd2_gave_up=False):
+def handle_failure(myDB, item, result, jd2_gave_up=False, repick=False):
     """Queue the item's next source, or mark it Failed when none is left.
 
     Runs on the one failover thread, so GetComics pages are re-read one at a time. Once JD2
@@ -229,7 +247,9 @@ def handle_failure(myDB, item, result, jd2_gave_up=False):
         ACTIVE.add(key)  # counts as queued while it's handled, so a Restart can't queue it twice
     try:
         state = FAILOVER.setdefault(str(item['id']), {'failed': [], 'no_jd2': False})
-        if jd2_gave_up:
+        if repick:
+            logger.info('[DDL-FAILOVER] Restarting %s - choosing its source again.' % item.get('series'))
+        elif jd2_gave_up:
             state['no_jd2'] = True
             logger.info('[DDL-FAILOVER] JD2 gave up on %s - trying Issuarr\'s own downloaders.' % item.get('series'))
         else:
@@ -395,6 +415,7 @@ def ddl_cancelled(item, ddzstat=None):
         if y == item['id']:
             mylar.PACK_ISSUEIDS_DONT_QUEUE.pop(x, None)
     mylar.DDL_QUEUED.discard(item['id'])
+    forget(item['id'])
     ddl_cleanup(item['id'])
     return True
 

@@ -74,7 +74,7 @@ def lanes(monkeypatch):
     fake = FakeDownloads()
     monkeypatch.setattr(ddl, 'ddl_process', fake)
     monkeypatch.setattr(ddl, 'handle_failure',
-                        lambda myDB, item, result, jd2_gave_up=False: fake.failed.append((item, result, jd2_gave_up)))
+                        lambda myDB, item, result, jd2_gave_up=False, repick=False: fake.failed.append((item, result, jd2_gave_up)))
     fake.dispatcher = threading.Thread(target=ddl.ddl_downloader, args=(mylar.DDL_QUEUE,), name='DDL-QUEUE', daemon=True)
     fake.dispatcher.start()
     yield fake

@@ -22,6 +22,7 @@ time in client_jobs so the two can be matched.
 """
 
 import datetime
+import os
 import re
 import threading
 import time
@@ -101,8 +102,80 @@ def ddl_queue_rows(myDB):
                            'updated_date': r['updated_date'],
                            'progress':     '100%' if r['status'] == 'Completed' else '',
                            'site':         r['site'] if 'site' in r.keys() else None,
-                           'jd2':          bool(r['jd2_job_id']) if 'jd2_job_id' in r.keys() else False})
+                           'jd2':          bool(r['jd2_job_id']) if 'jd2_job_id' in r.keys() else False,
+                           'filename':     r['filename'] if 'filename' in r.keys() else None,
+                           'tmp_filename': r['tmp_filename'] if 'tmp_filename' in r.keys() else None,
+                           'remote_filesize': r['remote_filesize'] if 'remote_filesize' in r.keys() else None})
     return resultlist
+
+
+def _field(row, key):
+    try:
+        return row[key]
+    except (KeyError, IndexError):
+        return None
+
+
+def ddl_progress(row):
+    """How far a direct download has got, read from the file it's writing.
+
+    Returns {'done', 'total', 'percent'}, or None until the file exists. Rows saved before
+    downloaders recorded full paths hold a bare file name, found in the download folder.
+    """
+    location = getattr(mylar.CONFIG, 'DDL_LOCATION', None) or ''
+    path = _field(row, 'tmp_filename')
+    if path and not os.path.isabs(path):
+        path = os.path.join(location, path)
+    if not path and _field(row, 'filename'):
+        path = os.path.join(location, _field(row, 'filename'))
+    if not path:
+        return None
+    try:
+        done = os.stat(path).st_size
+    except OSError:
+        return None
+    try:
+        total = int(_field(row, 'remote_filesize') or 0)
+    except (TypeError, ValueError):
+        total = 0
+    if (not total or done > total * 1.02) and _field(row, 'size'):
+        try:
+            total = int(helpers.human2bytes(re.sub('/s', '', str(_field(row, 'size'))[:-1]).strip()))
+        except Exception:
+            total = 0
+    if not total:
+        return {'done': done, 'total': None, 'percent': None}
+    return {'done': done, 'total': total, 'percent': min(100, int(done * 100 / total))}
+
+
+_DL_SAMPLE = {}
+
+
+def download_rate(did, done, total):
+    """Progress text, speed and time left for one download, smoothed between polls."""
+    did = str(did)
+    now = time.time()
+    for k in [k for k, v in _DL_SAMPLE.items() if now - v[1] > 3600]:
+        _DL_SAMPLE.pop(k, None)
+    prev = _DL_SAMPLE.get(did)
+    speed = prev[2] if prev else None
+    if prev and done >= prev[0] and now - prev[1] >= 2:
+        inst = (done - prev[0]) / (now - prev[1])
+        speed = inst if speed is None else speed * 0.6 + inst * 0.4
+        _DL_SAMPLE[did] = (done, now, speed)
+    elif not prev or done < prev[0]:
+        _DL_SAMPLE[did] = (done, now, None)
+    out = {'a_progress': '%s of %s' % (_human(done), _human(total))}
+    if speed:
+        out['a_speed'] = '%s/s' % _human(speed)
+        left = max(total - done, 0) / speed
+        if left < 90:
+            out['a_eta'] = 'under 2 min left'
+        elif left < 5400:
+            out['a_eta'] = 'about %d min left' % round(left / 60)
+        else:
+            out['a_eta'] = 'about %.1f h left' % (left / 3600)
+    return out
 
 
 def client_snatches(myDB):
@@ -478,10 +551,12 @@ def client_status(hashes=(), wait=3.0):
 
 # ---- the combined list ----------------------------------------------------
 
-def build(myDB, active=None):
+def build(myDB, active=None, rate=None):
     """One list of every download: direct ones and the ones at a download client.
 
-    `active` is the DDL item being downloaded now ({'a_id', 'percent', 'a_done', 'a_total', ...}).
+    `active` is one DDL item's progress from check_ActiveDDL ({'a_id', 'percent', ...}); every other
+    direct download that's running gets its progress from its file, and `rate(id, done, total)`,
+    when given, adds speed and time left.
     """
     rows = []
     for d in ddl_queue_rows(myDB):
@@ -500,6 +575,13 @@ def build(myDB, active=None):
             row['speed'] = active.get('a_speed')
             row['eta'] = active.get('a_eta')
             row['progress'] = active.get('a_progress')
+        elif status == 'Downloading':
+            p = ddl_progress(d)
+            if p and p['percent'] is not None:
+                row['percent'] = p['percent']
+                if rate:
+                    r = rate(d['queueid'], p['done'], p['total'])
+                    row['speed'], row['eta'], row['progress'] = r.get('a_speed'), r.get('a_eta'), r.get('a_progress')
         rows.append(row)
 
     waiting = client_snatches(myDB)

@@ -32,3 +32,11 @@ def test_ddl_cleanup_keep_cache(when, monkeypatch):
 # nzb_monitor
 # cdh_monitor
 # queue_inf
+
+
+@pytest.mark.unit
+def test_queue_info_counts_every_waiting_direct_download(monkeypatch):
+    from mylar.queues import ddl, queue_info
+    monkeypatch.setattr(ddl, 'waiting_count', lambda: 7)
+    info = {q.name: q for q in queue_info()}
+    assert info['DDL-QUEUE'].size == 7

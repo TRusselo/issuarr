@@ -172,3 +172,54 @@ def test_qbittorrent_states(monkeypatch):
     out = downloadqueue._qbittorrent(['aa', 'bb', 'cc'])
     assert (out['aa']['state'], out['aa']['percent'], out['aa']['eta']) == ('Downloading', 50, 5)
     assert out['bb']['state'] == 'Processing' and out['cc']['state'] == 'Paused'
+
+
+@pytest.mark.unit
+def test_every_active_direct_download_shows_progress(myDB, tmp_path):
+    myDB.action('ALTER TABLE ddl_info ADD COLUMN tmp_filename TEXT')
+    myDB.action('ALTER TABLE ddl_info ADD COLUMN remote_filesize TEXT')
+    for did, done in (('d1', 25), ('d2', 50)):
+        f = tmp_path / ('%s.cbz' % did)
+        f.write_bytes(b'x' * done)
+        myDB.action("INSERT INTO ddl_info (ID, series, status, site, link_type, tmp_filename, remote_filesize, updated_date) "
+                    "VALUES (?, 'Alpha', 'Downloading', 'DDL(GetComics)', 'GC-Pixel', ?, '100', '2026-10-11 12:18')",
+                    [did, str(f)])
+    rates = []
+
+    def rate(did, done, total):
+        rates.append(did)
+        return {'a_speed': '1.0 MB/s', 'a_progress': '%s of %s' % (done, total)}
+
+    rows = {r['queueid']: r for r in downloadqueue.build(myDB, rate=rate) if r['kind'] == 'ddl'}
+    assert rows['d1']['percent'] == 25
+    assert rows['d2']['percent'] == 50
+    assert rows['d1']['speed'] == '1.0 MB/s'
+    assert sorted(rates) == ['d1', 'd2']
+
+
+@pytest.mark.unit
+def test_progress_finds_files_recorded_by_name_only(myDB, tmp_path):
+    mylar.CONFIG.DDL_LOCATION = str(tmp_path)
+    (tmp_path / 'Kick-Ass 3.zip').write_bytes(b'x' * 40)
+    row = {'tmp_filename': 'Kick-Ass 3.zip', 'remote_filesize': '80', 'filename': None, 'size': '80 B'}
+    assert downloadqueue.ddl_progress(row) == {'done': 40, 'total': 80, 'percent': 50}
+
+
+@pytest.mark.unit
+def test_progress_is_none_before_the_file_exists(myDB, tmp_path):
+    mylar.CONFIG.DDL_LOCATION = str(tmp_path)
+    assert downloadqueue.ddl_progress({'tmp_filename': None, 'filename': 'missing.cbz', 'remote_filesize': '80'}) is None
+
+
+@pytest.mark.unit
+def test_download_speed_is_tracked_per_download(monkeypatch):
+    now = [1000.0]
+    monkeypatch.setattr(downloadqueue.time, 'time', lambda: now[0])
+    downloadqueue._DL_SAMPLE.clear()
+    downloadqueue.download_rate('a', 0, 10 * 1048576)
+    downloadqueue.download_rate('b', 0, 10 * 1048576)
+    now[0] += 4
+    a = downloadqueue.download_rate('a', 4 * 1048576, 10 * 1048576)
+    b = downloadqueue.download_rate('b', 1048576, 10 * 1048576)
+    assert a['a_speed'] == '1.0 MB/s'
+    assert b['a_speed'] == '256 KB/s'

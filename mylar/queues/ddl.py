@@ -70,7 +70,9 @@ def waiting_count():
 
 def reload_saved(myDB):
     try:
-        myDB.action("UPDATE ddl_info SET status='Queued' WHERE status='Downloading' AND jd2_job_id IS NULL")
+        # a Downloading row always belongs to the built-in downloaders (JD2's rows stay Queued), even
+        # when an old JD2 attempt left its job id behind - clear it so the row is picked up again
+        myDB.action("UPDATE ddl_info SET status='Queued', jd2_job_id=NULL WHERE status='Downloading'")
         chk = myDB.selectone("SELECT count(*) AS count FROM ddl_info WHERE status='Queued' AND jd2_job_id IS NULL").fetchone()
         if chk and chk['count']:
             from mylar import webserve
@@ -297,6 +299,7 @@ def ddl_process(myDB, item):
 
     ctrlval = {'id':      item['id']}
     val = {'status':       'Downloading',
+           'jd2_job_id':   None,  # the built-in downloader has it now, whatever JD2 tried before
            'updated_date': datetime.datetime.now().strftime('%Y-%m-%d %H:%M')}
     myDB.upsert('ddl_info', val, ctrlval)
 

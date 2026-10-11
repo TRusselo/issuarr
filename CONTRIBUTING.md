@@ -11,21 +11,10 @@
 - Test your changes on a real Issuarr instance on real data.
 - Rebase before submitting PRs.  If the `trusselo` branch has moved on since you started writing, don't expect reviewers to handle merging your code in case it conflicts.
 
-## AI Contribution Policy
-Our AI contribution policy is based on three core principles.
+## AI-assisted contributions
+Issuarr itself is built with AI assistance, and AI-assisted contributions are welcome on the same terms as any other.
 
-**DISCLOSURE**: We expect you to be up front about your usage of AI in changes.  If you've utilised it and stuck to the guidelines below, you should be able to justify why quite easily.
-
-**ENGAGEMENT**: We expect you to engage with us about your changes, so that we can understand what you're changing and coordinate with any other ongoing work.  Open an issue and talk it through before you start working on a feature.
-
-**UNDERSTANDING**: This is leaving the greatest until last.  We expect you to fully understand what you are submitting, and be able to explain the changes in your own words.  You must be leading the AI, not letting the AI lead you.  This includes understanding **why** the changes are being made.
-
-## Guidelines
-AI, in some measure, is likely to form a part of the workflow of most developers at this point.  We appreciate and understand this, but we still believe change needs to be driven by developers themselves, not by the AI.  It is there to act as an aid, and a labour saving device.  These guidelines apply whether using AI to code or writing code by hand.
-
-Ensure that you have read and understood every line of code that you are submitting, as well as the context of those lines of code.  Make sure that you have tested, not just for the scenario you are implementing, but also other scenarios that share that part of the codebase.  Don't test your code in isolation - it is expected that you have tested against real data in a running instance of Issuarr.  Consider the impact of different platforms and python versions when testing.
-
-Do not write your PRs using AI.  If you can't succinctly explain what you are changing, what problems you are solving, how you've tested, etc. then you are not the driver of change.  Nobody wants to read 5 pages of grandiose corporate waffle.
-
-This policy, much like the AI space, will evolve over time.  While we currently have not put in place automated controls around PR submission to enforce these, we may deem these necessary over time.  The fewer bad experiences we have, the freer we are likely to keep the process.  Don't be the person that makes things worse.
-
+- **Say so.** Mention in the PR that AI helped and roughly how.
+- **Own it.** You are responsible for every line you submit. Read it, understand why it works, and be ready to answer questions about it in your own words.
+- **Test it for real.** Run the change on a real Issuarr instance with real data, not only the scenario you changed. Include what you tested in the PR.
+- **Keep it small and accurate.** One fix or feature per PR. AI can help draft the description, but check that it says what the change actually does, and cut anything that doesn't help a reviewer.

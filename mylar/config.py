@@ -178,7 +178,7 @@ _CONFIG_DEFINITIONS = OrderedDict({
     'LOG_LEVEL': (int, 'Logs', 1),
 
     'GIT_PATH' : (str, 'Git', None),
-    'GIT_USER' : (str, 'Git', 'MylarComics'),
+    'GIT_USER' : (str, 'Git', 'TRusselo'),
     'GIT_TOKEN' : (str, 'Git', None),
     'GIT_BRANCH' : (str, 'Git', None),
     'CHECK_GITHUB' : (bool, 'Git', False),
@@ -535,7 +535,7 @@ class Config(object):
                 count = 0
 
             #this is the current version at this particular point in time.
-            self.newconfig = 19
+            self.newconfig = 20
 
             OLDCONFIG_VERSION = 0
             if count == 0:
@@ -957,6 +957,16 @@ class Config(object):
             logger.info('Ensuring release provider is set to TalkHard')
             self.RELEASE_PROVIDER_URL = 'https://talkhard.notaninja.party'
             config.set('Release Provider', 'release_provider_url', self.RELEASE_PROVIDER_URL)
+
+        if self.CONFIG_VERSION < 20:
+            # Issuarr: update checks follow TRusselo/mylar3, not the retired upstream repos
+            if self.GIT_USER in (None, '', 'None', 'mylar3', 'MylarComics'):
+                logger.info('Update checks now follow TRusselo/mylar3')
+                self.GIT_USER = 'TRusselo'
+                config.set('Git', 'GIT_USER', self.GIT_USER)
+            if self.GIT_BRANCH in ('stable', 'nightly', 'master', 'python3-dev', '1000papercuts'):
+                self.GIT_BRANCH = 'trusselo'
+                config.set('Git', 'GIT_BRANCH', self.GIT_BRANCH)
 
              
         logger.info('Configuration upgraded to version %s' % self.newconfig)

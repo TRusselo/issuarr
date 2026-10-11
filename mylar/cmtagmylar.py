@@ -306,7 +306,7 @@ def run(dirName, nzbName=None, issueid=None, comversion=None, manual=None, filen
                 else:
                     logger.fdebug('out: %s' % (out,))
                     logger.fdebug('filename: %s' % (filename,))
-                    cbz_message = 'Failed to convert cbr to cbz - check permissions on folder %s and/or the location where Mylar is trying to tag the files from.' % mylar.CONFIG.CACHE_DIR
+                    cbz_message = 'Failed to convert cbr to cbz - check permissions on folder %s and/or the location where Issuarr is trying to tag the files from.' % mylar.CONFIG.CACHE_DIR
                     logger.warn('%s[COMIC-TAGGER][CBR-TO-CBZ]%s' % (module, cbz_message))
                     sendnotify('Error - %s' % (cbz_message), filename, module)
                     tidyup(og_filepath, new_filepath, new_folder, manualmeta)
@@ -369,13 +369,13 @@ def sendnotify(message, filename, module):
 
     prline = filename
 
-    prline2 = 'Mylar metatagging error: ' + message + ' File: ' + prline
+    prline2 = 'Issuarr metatagging error: ' + message + ' File: ' + prline
 
     try:
         if mylar.CONFIG.PROWL_ENABLED:
             pushmessage = prline
             prowl = notifiers.PROWL()
-            prowl.notify(pushmessage, "Mylar metatagging error: ", module=module)
+            prowl.notify(pushmessage, "Issuarr metatagging error: ", module=module)
 
         if mylar.CONFIG.PUSHOVER_ENABLED:
             pushover = notifiers.PUSHOVER()
@@ -395,11 +395,11 @@ def sendnotify(message, filename, module):
 
         if mylar.CONFIG.SLACK_ENABLED:
             slack = notifiers.SLACK()
-            slack.notify("Mylar metatagging error: ", prline2, module=module)
+            slack.notify("Issuarr metatagging error: ", prline2, module=module)
 
         if mylar.CONFIG.MATTERMOST_ENABLED:
             mattermost = notifiers.MATTERMOST()
-            mattermost.notify("Mylar metatagging error: ", prline2, module=module)
+            mattermost.notify("Issuarr metatagging error: ", prline2, module=module)
 
         if mylar.CONFIG.DISCORD_ENABLED:
             discord = notifiers.DISCORD()
@@ -408,11 +408,11 @@ def sendnotify(message, filename, module):
         if mylar.CONFIG.EMAIL_ENABLED and mylar.CONFIG.EMAIL_ONPOST:
             logger.info("Sending email notification")
             email = notifiers.EMAIL()
-            email.notify(prline2, "Mylar metatagging error: ", module=module)
+            email.notify(prline2, "Issuarr metatagging error: ", module=module)
 
         if mylar.CONFIG.GOTIFY_ENABLED:
             gotify = notifiers.GOTIFY()
-            gotify.notify("Mylar metatagging error: ", prline2, module=module)
+            gotify.notify("Issuarr metatagging error: ", prline2, module=module)
     except Exception as e:
         logger.warn('[NOTIFICATION] Unable to send notification: %s' % e)
 

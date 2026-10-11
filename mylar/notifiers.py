@@ -60,7 +60,7 @@ class PROWL:
         http_handler = HTTPSConnection("api.prowlapp.com")
 
         data = {'apikey': mylar.CONFIG.PROWL_KEYS,
-                'application': 'Mylar',
+                'application': 'Issuarr',
                 'event': event,
                 'description': message.encode("utf-8"),
                 'priority': mylar.CONFIG.PROWL_PRIORITY}
@@ -137,7 +137,7 @@ class PUSHOVER:
         if snatched_nzb:
             if snatched_nzb[-1] == r'\.': 
                 snatched_nzb = snatched_nzb[:-1]
-            message = "Mylar has snatched: " + snatched_nzb + " from " + prov + " and " + sent_to
+            message = "Issuarr has snatched: " + snatched_nzb + " from " + prov + " and " + sent_to
 
         data = {'token': mylar.CONFIG.PUSHOVER_APIKEY,
                 'user': mylar.CONFIG.PUSHOVER_USERKEY,
@@ -259,7 +259,7 @@ class BOXCAR:
         # if no username was given then use the one from the config
         if snatched_nzb:
             title = snline
-            message = "Mylar has snatched: " + snatched_nzb + " and " + sent_to
+            message = "Issuarr has snatched: " + snatched_nzb + " and " + sent_to
         else:
             title = prline
             message = prline2
@@ -303,7 +303,7 @@ class PUSHBULLET:
             if snatched:
                 if snatched[-1] == '.': snatched = snatched[:-1]
                 event = snline
-                message = "Mylar has snatched: " + snatched + " from " + prov + " and " + sent_to
+                message = "Issuarr has snatched: " + snatched + " from " + prov + " and " + sent_to
             else:
                 event = prline + ' complete!'
                 message = prline2
@@ -435,7 +435,7 @@ class EMAIL:
         return sent_successfully
 
     def test_notify(self):
-        return self.notify('Test Message: With great power comes great responsibility.', 'Mylar notification - Test')
+        return self.notify('Test Message: With great power comes great responsibility.', 'Issuarr notification - Test')
 
 class SLACK:
     def __init__(self, test_webhook_url=None):
@@ -534,10 +534,10 @@ class MATTERMOST:
 
         payload = {
             "text": attachment_text,
-            "username": "Mylar",
-            "icon_url": "https://github.com/MylarComics/mylar3/raw/stable/data/images/mylarlogo.png",
-            "footer": "Powered by [Mylar](https://github.com/MylarComics/mylar3)",
-            "footer_icon": "https://github.com/MylarComics/mylar3/raw/stable/data/images/mylarlogo.png",
+            "username": "Issuarr",
+            "icon_url": "https://github.com/TRusselo/mylar3/raw/trusselo/data/images/issuarr-mark.png",
+            "footer": "Powered by [Issuarr](https://github.com/TRusselo/mylar3)",
+            "footer_icon": "https://github.com/TRusselo/mylar3/raw/trusselo/data/images/issuarr-mark.png",
             "attachments": attachments
         }
         try:
@@ -576,8 +576,8 @@ class DISCORD:
         timestamp = str(datetime.utcnow())
 
         payload = {
-               "username": "Mylar",
-               "avatar_url": "https://github.com/MylarComics/mylar3/raw/stable/data/images/mylarlogo.png",
+               "username": "Issuarr",
+               "avatar_url": "https://github.com/TRusselo/mylar3/raw/trusselo/data/images/issuarr-mark.png",
         }
         if self.test:
             payload["content"] = attachment_text
@@ -608,7 +608,7 @@ class DISCORD:
                 payload["embeds"] = [
                         {
                             "author": {
-                               "name": "Grabbed by Mylar"
+                               "name": "Grabbed by Issuarr"
                             },
                             "description": attachment_text,
                             "color": 49151,
@@ -647,7 +647,7 @@ class DISCORD:
                 payload["embeds"] = [
                         {
                             "author": {
-                                "name": "Mylar Error"
+                                "name": "Issuarr Error"
                             },
                             "description": attachment_text,
                             "color": 16705372,
@@ -676,7 +676,7 @@ class DISCORD:
                     payload["embeds"] = [
                             {
                                 "author": {
-                                    "name": "Downloaded by Mylar"
+                                    "name": "Downloaded by Issuarr"
                                 },
                                 "description": "Issue downloaded!",
                                 "color": 32768,
@@ -703,7 +703,7 @@ class DISCORD:
                     payload["embeds"] = [
                             {
                                 "author": {
-                                    "name": "Downloaded by Mylar"
+                                    "name": "Downloaded by Issuarr"
                                 },
                                 "description": "Issue downloaded!",
                                 "color": 32768,

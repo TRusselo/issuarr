@@ -379,7 +379,7 @@ def update():
         logger.info('Docker updates via it\'s own mechanics. Updating docker via Mylar GUI not supported at this time.')
 
     else:
-        tar_download_url = 'https://github.com/%s/mylar/tarball/%s' % (mylar.CONFIG.GIT_USER, mylar.CONFIG.GIT_BRANCH)
+        tar_download_url = 'https://github.com/%s/mylar3/tarball/%s' % (mylar.CONFIG.GIT_USER, mylar.CONFIG.GIT_BRANCH)
         update_dir = os.path.join(mylar.PROG_DIR, 'update')
 
         try:

@@ -5,7 +5,7 @@
   --lg-done: var(--have);
   /* What a trade covers */
   --lg-c-fills: var(--have); --lg-c-dupe: var(--snatched); --lg-c-part: var(--text-2); --lg-c-out: var(--muted); --lg-c-unknown: var(--faint);
-  display: flex; flex-direction: column; gap: 18px; width: 100%; max-width: 1400px; box-sizing: border-box; line-height: 1.45;
+  display: flex; flex-direction: column; gap: 18px; width: 100%; box-sizing: border-box; line-height: 1.45;
 }
 .lg [hidden] { display: none !important; }
 .lg .page-head { margin: 0; }

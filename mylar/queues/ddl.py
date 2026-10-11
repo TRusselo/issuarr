@@ -192,15 +192,16 @@ def run_download(item):
         except Exception as e:
             logger.exception('[DDL-QUEUE] Error while downloading %s: %s' % (item.get('series'), e))
             result = {'success': False, 'filename': None, 'path': None, 'link_type_failure': item.get('link_type')}
-        if result is not None:
-            try:
-                db.DBConnection().upsert('ddl_info', {'status': 'Queued'}, {'id': item['id']})  # not downloading while it waits
-            except Exception as e:
-                logger.warn('[DDL-QUEUE] Unable to mark %s as waiting for another source: %s' % (item.get('series'), e))
-            send_to_failover(item, result)
     finally:
         with LOCK:
             ACTIVE.discard(key)
+    if result is not None:
+        try:
+            db.DBConnection().upsert('ddl_info', {'status': 'Queued'}, {'id': item['id']})  # not downloading while it waits
+        except Exception as e:
+            logger.warn('[DDL-QUEUE] Unable to mark %s as waiting for another source: %s' % (item.get('series'), e))
+        # after it stops counting as active, or failover would take it for a stale attempt
+        send_to_failover(item, result)
 
 
 def send_to_failover(item, result, jd2_gave_up=False):
@@ -245,8 +246,17 @@ def handle_failure(myDB, item, result, jd2_gave_up=False, repick=False):
         ddl_cancelled(item)
         return
     key = str(item['id'])
+    from mylar.queues import jd2  # jd2 imports this module
+    queued = _ids(mylar.DDL_QUEUE) | _ids(GC_QUEUE) | jd2.at_jd2()
     with LOCK:
-        ACTIVE.add(key)  # counts as queued while it's handled, so a Restart can't queue it twice
+        busy = key in ACTIVE or key in queued or any(str(i.get('id')) == key for i in PENDING)
+        if not busy:
+            ACTIVE.add(key)  # counts as queued while it's handled, so a Restart can't queue it twice
+    if busy:
+        # An older attempt ended (a second Restart, or a replaced JD2 job) while the item is
+        # downloading or queued again. Acting on it would download it twice.
+        logger.info('[DDL-FAILOVER] %s is already downloading or queued - ignoring an older attempt that ended.' % item.get('series'))
+        return
     try:
         state = FAILOVER.setdefault(str(item['id']), {'failed': [], 'no_jd2': False})
         if repick:

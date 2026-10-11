@@ -1158,3 +1158,4 @@ body.set-searching .set-notify:not(:has(.set-hit)) { display: none; }
 .sr-sort select { font-family: var(--font-body); font-size: 13.5px; }
 .sr-tools .set-inline { font-size: 13.5px; }
 @media (max-width: 640px) { .search-results .page-head form { flex-wrap: wrap; } }
+.manage-issues .page-sub a { color: var(--text); text-decoration: underline; text-underline-offset: 2px; }

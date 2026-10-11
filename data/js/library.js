@@ -120,9 +120,13 @@
 
   function filtered() {
     var test = (TABS.filter(function (t) { return t[0] === st.tab; })[0] || TABS[0])[2];
-    var q = st.q.toLowerCase();
+    // Every word has to match the name, publisher or year: "batman dc", "saga 2012".
+    var words = st.q.toLowerCase().split(/\s+/).filter(Boolean);
     var list = st.all.filter(function (s) {
-      return test(s) && (!st.pub || s.publisher === st.pub) && (!q || (s.name || '').toLowerCase().indexOf(q) > -1);
+      if (!test(s) || (st.pub && s.publisher !== st.pub)) return false;
+      if (!words.length) return true;
+      var hay = [s.name, s.publisher, s.year].join(' ').toLowerCase();
+      return words.every(function (w) { return hay.indexOf(w) > -1; });
     });
     var byTitle = function (a, b) { return String(a.sort || a.name).localeCompare(String(b.sort || b.name), undefined, { sensitivity: 'base' }); };
     var sorts = {

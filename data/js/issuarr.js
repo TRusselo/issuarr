@@ -252,11 +252,16 @@
     var seriesTimer = null;
     var lastFocus = null;
 
+    // Every word has to appear; words that start a word in the label rank higher.
     function score(label, q) {
-      var l = label.toLowerCase();
-      var i = l.indexOf(q);
-      if (i < 0) return 0;
-      return i === 0 || /[\s›(]/.test(l.charAt(i - 1)) ? 2 : 1;
+      var l = label.toLowerCase(), total = 0;
+      var words = q.split(/\s+/).filter(Boolean);
+      for (var k = 0; k < words.length; k++) {
+        var i = l.indexOf(words[k]);
+        if (i < 0) return 0;
+        total += i === 0 || /[\s›(]/.test(l.charAt(i - 1)) ? 2 : 1;
+      }
+      return total;
     }
     function pick(items, q) {
       if (!q) return items.slice();

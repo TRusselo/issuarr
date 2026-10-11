@@ -1160,6 +1160,22 @@ class WebInterface(object):
         })
     loadAnnualDetails.exposed = True
 
+    @staticmethod
+    def _filter_search_results(results, text):
+        """Word-by-word filter for search results: every word must appear in the name, publisher,
+        year, edition or volume ("marvel 2026"). ":-word" leaves out results containing word."""
+        words = (text or '').lower().split()
+        include = [w for w in words if not w.startswith(':-')]
+        exclude = [w[2:] for w in words if w.startswith(':-') and len(w) > 2]
+        if not include and not exclude:
+            return list(results)
+        out = []
+        for row in results:
+            hay = ' '.join(str(row.get(f) or '') for f in ('comicname', 'publisher', 'comicyear', 'type', 'volume')).lower()
+            if all(w in hay for w in include) and not any(w in hay for w in exclude):
+                out.append(row)
+        return out
+
     def loadSearchResults(self, query=None, iDisplayStart=0, iDisplayLength=25, iSortCol_0='1', sSortDir_0="desc", sSearch="", hide_already='0', hide_tpb='0', **kwargs):
 
         logger.fdebug('query: %s' % query)
@@ -1209,48 +1225,7 @@ class WebInterface(object):
                 'aaData': [],
             })
         total_records = len(results)
-        if sSearch == "" or sSearch == None:
-            filtered = results[::]
-        else:
-            filtered = []
-            ignore_terms = []
-
-            filter_terms = [match.start() for match in re.finditer(r'\:\-', sSearch)]
-            tsearch = sSearch
-            for its in filter_terms:
-                filterval = sSearch[its:sSearch.find(' ', its)].strip()
-                ignore_terms.append( re.sub(r'\:\-', '', filterval) )
-                tsearch = re.sub(filterval, '', tsearch)
-
-            if ignore_terms:
-                sSearch = tsearch
-
-            searchname = sSearch.split()
-            searchname = '*'.join(searchname)
-
-            searchname = re.sub(r'[\:\-\%\$\#\@\!\.\,\;\/\(\)\+\=\?]','*', sSearch.lower())
-            searchpattern = '*%s*' % re.sub(r'\s','*', searchname.lower())
-            fields_to_check = ['comicname', 'volume', 'type', 'publisher', 'comicyear']
-            for row in results:
-                try:
-                    fields_chk = []
-                    for ftc in fields_to_check:
-                        if row[str(ftc)]:
-                            fields_chk.append(row[str(ftc)].lower())
-                    if [x for x in ignore_terms for y in fields_chk if x.lower() in y.lower()]:
-                        continue
-                    else:
-                        searchname = fnmatch.fnmatch(row['comicname'].lower(), searchpattern)
-                        if any(
-                               [
-                                 sSearch.lower() in row['publisher'].lower(),
-                                 searchname is True,
-                                 sSearch.lower() in row['comicyear']
-                               ]
-                        ):
-                            filtered.append(row)
-                except Exception as e:
-                    pass
+        filtered = self._filter_search_results(results, sSearch)
 
         hide_already = str(hide_already).lower() in ('1', 'true', 'yes', 'on')
         hide_tpb = str(hide_tpb).lower() in ('1', 'true', 'yes', 'on')
@@ -4513,11 +4488,14 @@ class WebInterface(object):
         raise cherrypy.HTTPRedirect("home?select=1")
     manageComics.exposed = True
 
-    def manageIssues(self, status='Wanted', q='', page=1, **kwargs):
-        """Issues with one status, a page at a time: a library can hold tens of thousands."""
-        STATUSES = ['Wanted', 'Snatched', 'Failed', 'Downloaded', 'Archived', 'Skipped', 'Ignored']
+    def manageIssues(self, status='Skipped', q='', page=1, **kwargs):
+        """Issues with one status, a page at a time: a library can hold tens of thousands.
+        Wanted issues have their own page (tiers, searching), so this covers every other status."""
+        if status == 'Wanted':
+            raise cherrypy.HTTPRedirect("wanted")
+        STATUSES = ['Skipped', 'Downloaded', 'Archived', 'Snatched', 'Failed', 'Ignored']
         if status not in STATUSES:
-            status = 'Wanted'
+            status = 'Skipped'
         try:
             page = max(int(page), 1)
         except (TypeError, ValueError):
@@ -8132,9 +8110,16 @@ class WebInterface(object):
         q = (q or '').strip()
         if len(q) < 2:
             return json.dumps([])
-        like = '%' + q.replace('\\', '\\\\').replace('%', '\\%').replace('_', '\\_') + '%'
+        # Every word must match the name, publisher or year: "midnight marvel", "midnight 2026".
+        words = q.split()[:6]
+        where, params = [], []
+        for w in words:
+            like = '%' + w.replace('\\', '\\\\').replace('%', '\\%').replace('_', '\\_') + '%'
+            where.append("(ComicName LIKE ? ESCAPE '\\' OR ComicPublisher LIKE ? ESCAPE '\\' OR ComicYear LIKE ? ESCAPE '\\')")
+            params += [like, like, like]
         myDB = db.DBConnection()
-        rows = myDB.select("SELECT ComicID, ComicName, ComicYear, ComicPublisher FROM comics WHERE ComicName LIKE ? ESCAPE '\\' ORDER BY ComicSortName LIMIT 8", [like])
+        rows = myDB.select("SELECT ComicID, ComicName, ComicYear, ComicPublisher FROM comics WHERE " + ' AND '.join(where) +
+                           " ORDER BY ComicName LIKE ? DESC, ComicSortName LIMIT 12", params + ['%' + words[0] + '%'])
         return json.dumps([{'id': r['ComicID'], 'name': r['ComicName'], 'year': r['ComicYear'], 'publisher': r['ComicPublisher']} for r in rows])
     jump_series.exposed = True
 

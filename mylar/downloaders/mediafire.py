@@ -61,6 +61,7 @@ class MediaFire(object):
 
             if url is None:
                 #link no longer valid
+                logger.warn('[MediaFire] No download link on %s (status %s) - the file was probably removed.' % (url_origin, getattr(t, 'status_code', '?')))
                 return {"success": False, "filename": None, "path": None, "link_type_failure": 'GC-Media'}
 
         m = re.search(

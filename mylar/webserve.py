@@ -3940,22 +3940,27 @@ class WebInterface(object):
                     continue
                 mylar.DDL_CANCEL.discard(str(item['id']))
                 added += 1
-                mylar.DDL_QUEUE.put({'link': item['link'],
-                                     'mainlink': item['mainlink'],
-                                     'series': item['series'],
-                                     'year': item['year'],
-                                     'size': item['size'],
-                                     'comicid': item['comicid'],
-                                     'issueid': item['issueid'],
-                                     'oneoff': item['oneoff'],
-                                     'id': item['id'],
-                                     'link_type': item['link_type'],
-                                     'filename': item['filename'],
-                                     'comicinfo': None,
-                                     'packinfo': None,
-                                     'site': item['site'],
-                                     'remote_filesize': item['remote_filesize'],
-                                     'resume': resume})
+                payload = {'link': item['link'],
+                           'mainlink': item['mainlink'],
+                           'series': item['series'],
+                           'year': item['year'],
+                           'size': item['size'],
+                           'comicid': item['comicid'],
+                           'issueid': item['issueid'],
+                           'oneoff': item['oneoff'],
+                           'id': item['id'],
+                           'link_type': item['link_type'],
+                           'filename': item['filename'],
+                           'comicinfo': None,
+                           'packinfo': None,
+                           'site': item['site'],
+                           'remote_filesize': item['remote_filesize'],
+                           'resume': resume}
+                if mode in ('restart', 'requeue') and item['mainlink'] and (item['site'] or 'DDL(GetComics)') == 'DDL(GetComics)':
+                    # choose the source again (source order, big-file rule) instead of the last link tried
+                    ddl_queue.repick(payload)
+                else:
+                    mylar.DDL_QUEUE.put(payload)
 
                 linemessage = '%s successful for %s' % (mode, item['series'])
 

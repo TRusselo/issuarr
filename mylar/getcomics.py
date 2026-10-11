@@ -119,14 +119,16 @@ class GC(object):
         else:
             logger.fdebug('[GC_Cookie_Loader] GetComics Session cookie found. Attempting to load...')
             try:
-                with open(self.session_path, 'r') as f:
-                    gc_load = json.load(f)
-                    for c in gc_load:
-                       self.session.cookies.set(name=c['name'], value=c['value'])
+                with _COOKIE_LOCK:  # don't read a cookie file another thread is halfway through writing
+                    with open(self.session_path, 'r') as f:
+                        gc_load = json.load(f)
+                for c in gc_load:
+                   self.session.cookies.set(name=c['name'], value=c['value'])
             except Exception as e:
                 #logger.warn('[GC_Cookie_Loader] Unable to load cookie from file - will recreate. Error: %s' % e)
-                if os.path.isfile(self.session_path):
-                    os.remove(self.session_path)
+                with _COOKIE_LOCK:
+                    if os.path.isfile(self.session_path):
+                        os.remove(self.session_path)
             else:
                 logger.fdebug('[GC_Cookie_Loader] Successfully loaded cookie from file.')
                 self._load_ua()
@@ -1195,6 +1197,7 @@ class GC(object):
                 'link_type': link_type,
                 'updated_date': datetime.datetime.now().strftime('%Y-%m-%d %H:%M'),
                 'status': 'Queued',
+                'tmp_filename': None,  # the new source writes its own file; don't show progress from the old one
             }
             myDB.upsert('ddl_info', vals, ctrlval)
 

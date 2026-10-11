@@ -11,6 +11,9 @@
 - Test your changes on a real Issuarr instance on real data.
 - Rebase before submitting PRs.  If the `main` branch has moved on since you started writing, don't expect reviewers to handle merging your code in case it conflicts.
 
+## Publisher imprints
+`data/imprints.json` maps publishers to their imprints and each imprint's publication run (`YYYY.MM - YYYY.MM`, end left blank if still running). Issuarr uses it to file imprint series under their parent publisher and to fill `$Imprint` in folder names. Installs fetch it from `main` once a day, so raise `version` whenever you change it.
+
 ## AI-assisted contributions
 Issuarr itself is built with AI assistance, and AI-assisted contributions are welcome on the same terms as any other.
 

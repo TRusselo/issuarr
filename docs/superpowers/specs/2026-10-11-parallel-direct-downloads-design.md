@@ -37,7 +37,7 @@ search / requeue / restart
           │
      dispatcher ─────────── by link type ───────────┐
           │                                          │
- GetComics worker (1)                   file-host workers (N, default 3)
+ GetComics worker (1)                   file-host downloads (up to the setting, default 3)
           │                                          │
           ├─ success ─► Completed ─► post-processing queue (unchanged)
           └─ failure ─► failover queue ◄── JD2 gives up
@@ -52,13 +52,19 @@ search / requeue / restart
 | Item | Worker |
 |---|---|
 | GetComics site, link type `GC-Main`, `GC-Mirror` or none (older rows) | GetComics worker |
-| everything else (`GC-Mega`, `GC-Media`, `GC-Pixel`, the external server) | file-host workers |
+| everything else (`GC-Mega`, `GC-Media`, `GC-Pixel`, the external server) | file-host downloads |
 
-Unknown link types go to the file-host workers and fail there, as today.
+Unknown link types go to the file-host downloads and fail there, as today.
 
 ### Setting
 
-`DDL_MAX_PARALLEL` (int, DDL section, default 3), shown as "Simultaneous file-host downloads" on the settings page next to "Big means over". 0 sends every item to the GetComics worker: one download at a time, as before. It takes effect after a restart. The GetComics worker is always one and isn't a setting.
+`DDL_MAX_PARALLEL` (int, DDL section, default 3), shown as "Simultaneous file-host downloads" on the settings page next to "Big means over". 0 sends every item to the GetComics worker: one download at a time, as before. The GetComics worker is always one and isn't a setting.
+
+Changes apply without a restart, from the next download that starts. The dispatcher reads the setting every time it decides whether to start a file-host download:
+
+- Raised: the next waiting item starts within a few seconds.
+- Lowered: running downloads finish, and no new one starts until fewer are running than the new limit. Nothing is interrupted.
+- Set to 0: waiting file-host items go to the GetComics worker. Downloads already running finish first.
 
 ### Workers
 
@@ -66,7 +72,7 @@ Threads, started and stopped where the DDL queue is today (`mylar/__init__.py`).
 
 - **Dispatcher**, named `DDL-QUEUE` so the status page still finds it. At startup it reloads saved items (`reload_saved`), as today. Then it moves each item from `DDL_QUEUE` to its worker's queue.
 - **GetComics worker** `DDL-GETCOMICS`: one thread, its own queue.
-- **File-host workers** `DDL-HOST-1` … `DDL-HOST-N`: N threads sharing one queue.
+- **File-host downloads** `DDL-HOST-<id>`: the dispatcher keeps waiting file-host items in order and starts a thread for the next one whenever fewer are running than the setting allows. The thread ends when its download does, so there's no fixed pool to resize.
 - **Failover worker** `DDL-FAILOVER`: one thread, its own queue. It owns the per-item list of failed link types (`link_type_failure`), which today lives inside the single worker.
 
 A download worker runs today's `ddl_process` up to the download result. Success is handled as today: file check, `Completed`, post-processing queue, pack bookkeeping. On failure it puts the item and the result on the failover queue and takes its next item. An exception during a download counts as a failed attempt on that link.
@@ -116,7 +122,7 @@ One function works out progress for any `Downloading` row from that path and `re
 
 ### Shutdown and startup
 
-Shutdown puts `exit` on `DDL_QUEUE`. The dispatcher passes it to every worker and the failover worker, and each is joined for up to 5 s, as today. Running downloads aren't waited for: Docker stop ends them, as it does today. Their rows stay `Downloading`, and `reload_saved` queues them again at the next start. Resuming them instead of starting over is spec B.
+Shutdown puts `exit` on `DDL_QUEUE`. The dispatcher stops starting file-host downloads and passes `exit` to the GetComics worker and the failover worker; each is joined for up to 5 s, as today. Running downloads aren't waited for: Docker stop ends them, as it does today. Their rows stay `Downloading`, and `reload_saved` queues them again at the next start. Resuming them instead of starting over is spec B.
 
 ## Testing
 
@@ -126,12 +132,13 @@ pytest and mockito, next to `tests/test_queues.py`. Fake downloaders block on a 
 2. A stuck file-host download doesn't stop a GetComics item.
 3. Two GetComics items never download at the same time.
 4. File-host downloads never exceed the setting; at 0 everything runs one at a time on the GetComics worker.
-5. A failed download reaches the failover worker, which queues the next source; with none left the item ends Failed.
-6. An exception during a download goes to failover.
-7. A JD2 give-up for a big item goes to a file host before GetComics direct, and never back to JD2.
-8. `waiting_ids()` includes items in every queue and every active download.
-9. Downloads > Queue shows a percentage for two active downloads at once.
-10. Shutdown stops the dispatcher, the workers and the failover worker.
+5. Changing the setting while downloads run: raising it starts the next waiting item, lowering it starts nothing new until running downloads drop below the new limit, and 0 sends waiting items to the GetComics worker.
+6. A failed download reaches the failover worker, which queues the next source; with none left the item ends Failed.
+7. An exception during a download goes to failover.
+8. A JD2 give-up for a big item goes to a file host before GetComics direct, and never back to JD2.
+9. `waiting_ids()` includes items in every queue and every active download.
+10. Downloads > Queue shows a percentage for two active downloads at once.
+11. Shutdown stops the dispatcher, the GetComics worker and the failover worker, and no new file-host download starts.
 
 The full suite (`run_all_tests`) passes.
 
@@ -139,13 +146,13 @@ On the server after deploying: the log shows two file-host downloads at the same
 
 ## Rollout and rollback
 
-Ships with 3 file-host workers. If something misbehaves, set "Simultaneous file-host downloads" to 0 and restart to get one download at a time again.
+Ships allowing 3 file-host downloads at once. If something misbehaves, set "Simultaneous file-host downloads" to 0 to get one download at a time again; no restart needed.
 
 ## Decisions to confirm
 
 1. GetComics direct is fixed at one download at a time and isn't a setting.
 2. The default is 3 simultaneous file-host downloads.
-3. Changing the setting takes effect after a restart.
+3. Changing the setting applies from the next download that starts, without a restart. Lowering it doesn't interrupt running downloads.
 4. File-host links on GetComics are `getcomics.org/dls/…` redirects, so each file-host download starts with one small request to GetComics. With 3 workers that's at most 3 such requests at once. They aren't spaced out.
 5. An exception during a download tries the next source instead of giving up straight away.
 6. When JD2 gives up, Issuarr's own file-host downloaders are tried before GetComics direct, following the source order and the big-file rule. Today it goes straight to GetComics direct.

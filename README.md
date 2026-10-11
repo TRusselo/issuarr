@@ -32,9 +32,9 @@ New issues of the series you follow arrive the same way, week after week.
 ### Finding and downloading
 - **Usenet:** any number of Newznab indexers, sent to SABnzbd, NZBGet or a blackhole folder.
 - **Torrents:** Torznab indexers, sent to qBittorrent, Transmission, Deluge, rTorrent or uTorrent.
-- **Direct download from GetComics.** Issuarr picks the right file even from posts with many links. You can order or switch off download hosts (GetComics' own server, Mega, Mediafire, Pixeldrain and others). Cloudflare is cleared with [FlareSolverr](https://github.com/FlareSolverr/FlareSolverr), and mirror links can be handed to [JDownloader 2](https://jdownloader.org/).
+- **Direct download from GetComics.** Issuarr picks the right file even from posts with many links. You can order or switch off download hosts (GetComics' own server, Mega, Mediafire, Pixeldrain and others). Cloudflare is cleared with [FlareSolverr](https://github.com/FlareSolverr/FlareSolverr), and mirror links can be handed to [JDownloader 2](docs/JDOWNLOADER2.md).
 - **Scheduled searches and RSS.** Recent releases are searched actively; older wanted issues are caught as they appear in RSS feeds.
-- **Weekly pull list.** See every comic released this week, and look weeks ahead or months back. Upcoming issues of your series are wanted automatically.
+- **Calendar (weekly pull list).** See every comic released this week, and look weeks ahead or months back. Weeks are numbered the way [TalkHard](https://talkhard.notaninja.party) numbers its pull lists. Upcoming issues of your series are wanted automatically.
 - **Failed download handling:** a failed download is marked Failed and, with auto-retry on, searched for again.
 - A live download queue with speed, progress and time left, and controls to abort, remove or restart a download.
 
@@ -90,7 +90,9 @@ New issues of the series you follow arrive the same way, week after week.
 
 ## Installation
 
-> **A note on the name.** Issuarr is newly renamed. The repository (`TRusselo/mylar3`), the Docker image (`ghcr.io/trusselo/mylar3`) and the app's own screens still say Mylar for now; the commands below are correct as written.
+> **A note on the name.** Issuarr is newly renamed. The repository (`TRusselo/mylar3`), the Docker image (`ghcr.io/trusselo/mylar3`) and the data folder (`/config/mylar`) still use Mylar's names so existing installs can switch without moving anything; the commands below are correct as written.
+
+**Coming from Mylar3?** Your settings and database carry over. Follow [Moving from Mylar3 to Issuarr](docs/MIGRATING.md).
 
 ### Docker (recommended)
 
@@ -134,7 +136,9 @@ services:
 | `/comics` | Your comic library |
 | `/downloads` | Where your download clients put finished downloads |
 
-The image follows the [linuxserver.io](https://www.linuxserver.io/) conventions and is a drop-in replacement for `linuxserver/mylar3`. To switch an existing Mylar3 container, change its image and keep your volumes; your settings and database carry over.
+The image follows the [linuxserver.io](https://www.linuxserver.io/) conventions and is a drop-in replacement for `linuxserver/mylar3`. To switch an existing Mylar3 container, change its image and keep your volumes at the same container paths; see [the migration guide](docs/MIGRATING.md#2a-switch-a-docker-install).
+
+Issuarr's database works best on a local disk. If `/config` is on a network share or Unraid's `/mnt/user`, see ["Database is locked"](docs/TROUBLESHOOTING.md#database-is-locked).
 
 ### From source
 
@@ -150,16 +154,16 @@ Useful options: `-p <port>` to change the port, `--datadir <dir>` and `--config 
 
 ## Getting started
 
-Open `http://<your-server>:8090`. The settings page is behind the gear icon in the header.
+Open `http://<your-server>:8090`. Every page is in the sidebar on the left, and **Ctrl K** jumps to any series or page by name.
 
-1. **Settings > Web Interface:** enter your **ComicVine API Key** and set the **Comic Location Path** to your library (`/comics` in Docker).
-2. **Settings > Download settings:** connect your Usenet or torrent client.
-3. **Settings > Search providers:** add your Newznab or Torznab indexers, or turn on DDL for GetComics. If you use DDL, set the **Download folder** there too.
-4. **Settings > Quality & Post Processing:** turn on **Folder Monitoring** and point it at the folder where finished downloads land. Turn on metatagging here if you want ComicInfo written to your files.
-5. **Settings > Advanced Settings:** check the folder and file naming formats.
-6. **Add comics.** Search for a series in the search box and add it, or use **Manage > Scan Comic Library** to import the comics you already have.
+1. **Settings > General:** enter your **ComicVine API key** and set the **Comic folder** to your library (`/comics` in Docker).
+2. **Settings > Download clients:** connect your Usenet or torrent client.
+3. **Settings > Search providers:** add your Newznab or Torznab indexers, or turn on **Download directly from sites** for GetComics. If you use direct downloads, set its **Download folder** there too, and see [Using JDownloader 2](docs/JDOWNLOADER2.md) if you want JDownloader 2 to handle mirror links.
+4. **Settings > Files & post-processing:** turn on **Post-process downloads** and **Watch a folder for new comics**, and point it at the folder where finished downloads land. Turn on **Write metadata into files** if you want ComicInfo written to your files.
+5. **Settings > Notifications & advanced:** check the **Series folder name** and **File name** formats.
+6. **Add comics.** Use **Add series** in the sidebar to search for a series and add it, or **Tools > Import & scan** to import the comics you already have.
 
-Issuarr marks the missing issues of new series *Wanted* and starts searching. Watch progress on the **Wanted** page, the download queue, and **Manage > Activity / Jobs**.
+Issuarr marks the missing issues of new series *Wanted* and starts searching. Watch progress on the **Wanted** page, **Downloads > Queue**, and **Tasks > Jobs**.
 
 ## Key concepts
 
@@ -183,8 +187,18 @@ Issuarr marks the missing issues of new series *Wanted* and starts searching. Wa
 
 **Your metadata comes first.** With the default fill mode, Issuarr adds tags your files are missing and never overwrites ones that are already there.
 
+## Documentation
+
+- [Moving from Mylar3 to Issuarr](docs/MIGRATING.md): switching an existing install, where pages moved, and changing library paths.
+- [Using JDownloader 2](docs/JDOWNLOADER2.md) for direct-download mirror links.
+- [Troubleshooting](docs/TROUBLESHOOTING.md): database locking, tagging failures, moved libraries.
+- [API_REFERENCE](API_REFERENCE) for the web API.
+
+This README and the `docs` folder are Issuarr's documentation. Mylar's old documentation website is no longer run by the Mylar team, so don't rely on it or follow its links.
+
 ## Getting help
 
+- [Troubleshooting](docs/TROUBLESHOOTING.md) covers the common problems.
 - [Issues](https://github.com/TRusselo/mylar3/issues): bug reports and feature requests.
 - **Tasks > Logs** shows the log. **About** shows version details and health checks, and its **Care package** button bundles logs and settings, with passwords and keys removed, to attach to a bug report.
 

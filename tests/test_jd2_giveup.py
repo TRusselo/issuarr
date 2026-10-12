@@ -50,7 +50,7 @@ def test_jd2_give_up_hands_the_item_to_failover(sent):
     assert 'jd2_job_id' not in item and 'jd2_priority_links' not in item and 'main_link' not in item
     assert item['id'] == '54429' and item['link_type'] == 'GC-Mega'
     query, args = fake_db.actions[0]
-    assert query == 'UPDATE ddl_info SET status=?, jd2_job_id=?, updated_date=? WHERE id=?'
+    assert query == "UPDATE ddl_info SET status=?, jd2_job_id=?, updated_date=? WHERE id=? AND status='Queued'"
     assert args[:2] == ['Queued', None] and args[-1] == '54429'
 
 

@@ -230,3 +230,104 @@ def test_without_byte_counts_a_changing_status_counts_as_progress(setup):
     assert not jd2.jd2_no_progress(JOB, 'Waiting 00:09:50', now=jd2.NO_PROGRESS_LIMIT)
     assert not jd2.jd2_no_progress(JOB, 'Waiting 00:09:50', now=jd2.NO_PROGRESS_LIMIT + 60)
     assert jd2.jd2_no_progress(JOB, 'Waiting 00:09:50', now=2 * jd2.NO_PROGRESS_LIMIT)
+
+
+@pytest.mark.unit
+def test_a_job_waiting_its_turn_in_jd2_is_not_given_up_on(setup, monkeypatch):
+    # JD2 runs a few downloads at a time; the rest wait with no status and nothing loaded
+    waiting = FakeJD2({'found': True, 'status': 'Queued', 'loaded': 0})
+    conn = make_db({})
+    for hour in range(0, 25):
+        setup.clock[0] = hour * 3600
+        assert run_monitor(monkeypatch, waiting, conn, item())
+    assert waiting.removed == [] and setup.sent == []
+    # once JD2 starts on it, the clock runs from then
+    started = FakeJD2({'found': True, 'status': 'Waiting for the file host', 'loaded': 0})
+    assert run_monitor(monkeypatch, started, conn, item())
+    setup.clock[0] += jd2.NO_PROGRESS_LIMIT - 60
+    assert run_monitor(monkeypatch, started, conn, item())
+    setup.clock[0] += 60
+    assert run_monitor(monkeypatch, started, conn, item()) == []
+    assert setup.sent == [('193251', 'no progress in JD2 for 6 hours')]
+
+
+@pytest.mark.unit
+def test_a_job_stuck_outside_the_download_list_still_times_out(setup, monkeypatch):
+    # only in JD2's link grabber: no byte count, so it isn't "waiting its turn"
+    client = FakeJD2({'found': True, 'status': 'Queued'})
+    conn = make_db({})
+    assert run_monitor(monkeypatch, client, conn, item())
+    setup.clock[0] = jd2.NO_PROGRESS_LIMIT
+    assert run_monitor(monkeypatch, client, conn, item()) == []
+    assert setup.sent == [('193251', 'no progress in JD2 for 6 hours')]
+
+
+class AbortDuringPoll(FakeJD2):
+    """The user aborts or removes the item while JD2 is being asked about it."""
+    def __init__(self, conn, mode, payload):
+        super().__init__(payload)
+        self.conn, self.mode = conn, mode
+
+    def status(self, job_id, record_id=None):
+        mylar.DDL_CANCEL.add(str(record_id))
+        if self.mode == 'abort':
+            self.conn.connection.execute("UPDATE ddl_info SET status='Failed' WHERE id=?", [record_id])
+        else:
+            self.conn.connection.execute('DELETE FROM ddl_info WHERE id=?', [record_id])
+        return super().status(job_id, record_id)
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize('enable_ddl', [True, False])
+def test_an_abort_during_the_poll_is_not_undone(setup, monkeypatch, enable_ddl):
+    mylar.CONFIG.ENABLE_DDL = enable_ddl
+    marked = []
+    monkeypatch.setattr(mylar, 'search', types.SimpleNamespace(FailedMark=lambda *a, **k: marked.append(a)), raising=False)
+    conn = make_db({})
+    client = AbortDuringPoll(conn, 'abort', {'found': True, 'status': EXPIRED})
+    assert run_monitor(monkeypatch, client, conn, item()) == []
+    assert ddl_rows(conn) == [{'id': '193251', 'status': 'Failed', 'jd2_job_id': JOB}]
+    assert setup.sent == [] and marked == []
+    assert mylar.DDL_CANCEL == set() and jd2.HOLDING[0] is None
+
+
+@pytest.mark.unit
+def test_give_up_leaves_an_aborted_row_alone(setup, monkeypatch):
+    mylar.DDL_CANCEL.add('193251')
+    conn = make_db({'status': 'Failed'})
+    jd2.jd2_give_up(conn, item(), '193251', 'no progress in JD2 for 6 hours')
+    assert ddl_rows(conn) == [{'id': '193251', 'status': 'Failed', 'jd2_job_id': JOB}]
+    assert setup.sent == [] and mylar.DDL_CANCEL == set()
+
+
+@pytest.mark.unit
+def test_a_row_that_is_no_longer_queued_is_not_reset(setup, monkeypatch):
+    # no cancel entry, but the row was aborted: the write itself refuses
+    conn = make_db({'status': 'Failed'})
+    jd2.jd2_give_up(conn, item(), '193251', 'JD2 status offline')
+    assert ddl_rows(conn) == [{'id': '193251', 'status': 'Failed', 'jd2_job_id': JOB}]
+    assert setup.sent == []
+
+
+@pytest.mark.unit
+def test_a_finished_job_marks_its_row_completed(setup, monkeypatch):
+    client = FakeJD2({'found': True, 'status': 'Finished', 'data': {'name': 'Batman - Earth One v03 (2021).cbr'}})
+    conn = make_db({})
+    assert run_monitor(monkeypatch, client, conn, item()) == []
+    assert ddl_rows(conn) == [{'id': '193251', 'status': 'Completed', 'jd2_job_id': JOB}]
+
+
+@pytest.mark.unit
+def test_a_job_that_finishes_as_it_is_removed_leaves_no_row(setup, monkeypatch):
+    conn = make_db({})
+    client = AbortDuringPoll(conn, 'remove', {'found': True, 'status': 'Finished', 'data': {'name': 'Batman - Earth One v03 (2021).cbr'}})
+    assert run_monitor(monkeypatch, client, conn, item()) == []
+    assert ddl_rows(conn) == []
+
+
+@pytest.mark.unit
+def test_a_new_grab_forgets_an_earlier_removal_of_the_post(setup):
+    from mylar import getcomics
+    mylar.DDL_CANCEL.update({'193251', '193251-2', '1932510', '55'})
+    getcomics.clear_cancel(193251)
+    assert mylar.DDL_CANCEL == {'1932510', '55'}

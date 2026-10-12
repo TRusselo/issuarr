@@ -177,14 +177,9 @@ def jd2_queue_monitor(queue):
 
                     if job_status in completed_states:
                         PROGRESS.pop(str(job_id), None)
-                        myDB.upsert(
-                                'ddl_info',
-                                {
-                                    'status': 'Completed',
-                                    'updated_date': datetime.datetime.now().strftime('%Y-%m-%d %H:%M'),
-                                },
-                                {'id': record_id},
-                            )
+                        # the file is downloaded, so it's post-processed even if the row went while JD2 was asked
+                        jd2_set_row(myDB, record_id, {'status': 'Completed',
+                                                      'updated_date': datetime.datetime.now().strftime('%Y-%m-%d %H:%M')})
                         logger.info('[JD2-QUEUE] Download for %s completed; status marked as Completed.', record_id)
 
                         if not isinstance(item, dict):
@@ -231,7 +226,9 @@ def jd2_queue_monitor(queue):
                     progress = (status_payload or {}).get('loaded')
                     if progress is None:
                         progress = job_status
-                    if progress is not None and jd2_no_progress(job_id, progress):
+                    if jd2_waiting(status_payload):
+                        PROGRESS.pop(str(job_id), None)  # its clock starts when JD2 starts on it
+                    elif progress is not None and jd2_no_progress(job_id, progress):
                         logger.warn('[JD2-QUEUE] Download %s has made no progress in JD2 for %s (%s).', job_filename or record_id, NO_PROGRESS_TEXT, job_status)
                         jd2_client.remove(job_id, record_id)
                         jd2_give_up(myDB, item, record_id, 'no progress in JD2 for %s' % NO_PROGRESS_TEXT)
@@ -292,6 +289,14 @@ def jd2_no_progress(job_id, progress, now=None):
     return now - last[1] >= NO_PROGRESS_LIMIT
 
 
+def jd2_waiting(status_payload):
+    """Whether the job is in JD2's download list but JD2 isn't working on it: it's waiting its turn
+    behind other downloads, or JD2 is stopped. JD2 gives such a link no status, which the client
+    reports as 'Queued'. That's waiting, not stuck, so the no-progress clock doesn't run."""
+    payload = status_payload or {}
+    return payload.get('status') == 'Queued' and payload.get('loaded') is not None
+
+
 def jd2_job_unwanted(myDB, jd2_client, item, record_id, job_id):
     """Stop following a JD2 job the queue no longer wants: the item was removed or aborted, or
     Restart sent it somewhere else. Removes only this job from JD2 and drops the item, so it isn't
@@ -333,10 +338,10 @@ def jd2_drop(item, record_id):
 
 
 def jd2_set_row(myDB, record_id, values):
-    """Update the ddl_info row, never create it: a download the user removed stays removed.
-    False when the row is gone."""
+    """Update the ddl_info row while it's still Queued, never create it: a download the user
+    removed or aborted while JD2 was being asked stays that way. False when it's no longer ours."""
     cols = ', '.join('%s=?' % k for k in values)
-    result = myDB.action('UPDATE ddl_info SET %s WHERE id=?' % cols, list(values.values()) + [record_id])
+    result = myDB.action("UPDATE ddl_info SET %s WHERE id=? AND status='Queued'" % cols, list(values.values()) + [record_id])
     return result is None or result.rowcount != 0
 
 
@@ -346,6 +351,11 @@ def jd2_give_up(myDB, item, record_id, reason):
     downloads are off, or the post can't be read again, is the issue marked Failed here."""
     job_id = item.get('jd2_job_id')
     PROGRESS.pop(str(job_id), None)
+    if str(record_id) in mylar.DDL_CANCEL:
+        # aborted or removed while JD2 was being asked
+        logger.info('[JD2-QUEUE] Not retrying %s (%s): it was removed or aborted.', item.get('series') or record_id, reason)
+        jd2_drop(item, record_id)
+        return
     try:
         row = myDB.selectone('SELECT jd2_job_id FROM ddl_info WHERE id=?', [record_id]).fetchone()
     except Exception as err:
@@ -378,7 +388,7 @@ def jd2_give_up(myDB, item, record_id, reason):
         logger.warn('[JD2-QUEUE] Unable to reset %s for the built-in downloaders: %s', record_id, err)
     else:
         if not kept:
-            logger.info('[JD2-QUEUE] Not retrying %s: it was removed from the queue.', item.get('series') or record_id)
+            logger.info('[JD2-QUEUE] Not retrying %s: it was removed or aborted.', item.get('series') or record_id)
             jd2_drop(item, record_id)
             return
     ddl.send_to_failover(payload, {'success': False, 'reason': reason}, jd2_gave_up=True)
@@ -392,6 +402,10 @@ def jd2_status_is_dead(job_status):
 
 def jd2_mark_failed(myDB, item, record_id, reason):
     # mark both the ddl_info row and the issue itself Failed, so the issue doesn't sit at Snatched forever
+    if str(record_id) in mylar.DDL_CANCEL:
+        logger.info('[JD2-QUEUE] Not marking %s Failed (%s): it was removed or aborted.', item.get('series') or record_id, reason)
+        jd2_drop(item, record_id)
+        return
     logger.info('[JD2-QUEUE] Giving up on %s: %s', item.get('series') or record_id, reason)
     try:
         kept = jd2_set_row(myDB, record_id, {'status': 'Failed',
@@ -400,7 +414,7 @@ def jd2_mark_failed(myDB, item, record_id, reason):
         logger.warn('[JD2-QUEUE] Unable to mark ddl_info %s as Failed: %s', record_id, err)
     else:
         if not kept:
-            logger.info('[JD2-QUEUE] Not marking %s Failed: it was removed from the queue.', item.get('series') or record_id)
+            logger.info('[JD2-QUEUE] Not marking %s Failed: it was removed or aborted.', item.get('series') or record_id)
             jd2_drop(item, record_id)
             return
 

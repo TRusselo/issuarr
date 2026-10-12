@@ -3998,6 +3998,44 @@ class WebInterface(object):
         return json.dumps({'status': True, 'message': linemessage})
     ddl_requeue.exposed = True
 
+    # Statuses ddl_clear may delete, with the word the queue page uses for them. Never Queued or
+    # Downloading: the DDL and JD2 workers still use those rows.
+    DDL_CLEARABLE = {'Completed': 'finished', 'Failed': 'failed'}
+
+    def ddl_clear(self, status=None):
+        # Tidies the queue list only: files, issue status, snatched and nzblog stay as they are.
+        if cherrypy.request.method != 'POST':
+            raise cherrypy.HTTPError(405)
+        word = self.DDL_CLEARABLE.get(status) if isinstance(status, str) else None
+        if word is None:
+            return json.dumps({'status': False, 'message': 'Only finished or failed downloads can be cleared'})
+        myDB = db.DBConnection()
+        # A stopped download keeps running until its thread sees DDL_CANCEL, and its next write would
+        # bring a deleted row back as a blank Queued entry - leave those rows until the thread lets go.
+        pending = [str(i) for i in list(mylar.DDL_CANCEL)]
+        held, kept = '', 0
+        if pending:
+            marks = ','.join('?' * len(pending))
+            held = ' AND ID NOT IN (%s)' % marks
+            chk = myDB.fetch("SELECT ID FROM ddl_info WHERE status = ? AND ID IN (%s)" % marks, [status] + pending)
+            kept = len(chk.fetchall()) if chk is not None else 0
+        cur = myDB.action("DELETE FROM ddl_info WHERE status = ?" + held, [status] + pending)
+        if cur is None:   # the database stayed locked through every retry
+            return json.dumps({'status': False, 'message': 'The database was busy, so nothing was cleared; try again'})
+        removed = cur.rowcount
+        logger.info('[DDL-CLEAR] Removed %s %s downloads from the queue list, kept %s still stopping' % (removed, word, kept))
+        if removed == 0 and kept == 0:
+            return json.dumps({'status': True, 'message': 'There were no %s downloads to clear' % word})
+        if removed == 0:
+            message = 'Nothing was cleared'
+        else:
+            message = 'Cleared %s %s download%s from the list' % (removed, word, '' if removed == 1 else 's')
+        if kept:
+            message += '. %s still stopping, so %s stayed; try again in a moment' % (
+                '1 download is' if kept == 1 else '%s downloads are' % kept, 'it' if kept == 1 else 'they')
+        return json.dumps({'status': True, 'message': message})
+    ddl_clear.exposed = True
+
     def queueManage(self):
         # The page loads its rows from queueManageIt and check_ActiveDDL.
         return serve_template(templatename="queue_management.html", title="Queue")

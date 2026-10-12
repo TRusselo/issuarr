@@ -162,7 +162,7 @@ def run_monitor(monkeypatch, filename):
         def remove(self, job_id, record_id):
             removed.append(job_id)
     monkeypatch.setattr(jd2, 'JDownloader2', Client)
-    monkeypatch.setattr(jd2.db, 'DBConnection', lambda: types.SimpleNamespace(upsert=lambda *a, **k: None))
+    monkeypatch.setattr(jd2.db, 'DBConnection', lambda: types.SimpleNamespace(upsert=lambda *a, **k: None, action=lambda *a, **k: None))
     monkeypatch.setattr(jd2, 'jd2_give_up', lambda myDB, item, record_id, reason: gave_up.append((record_id, reason)))
     for name in ('info', 'warn', 'debug'):
         monkeypatch.setattr(jd2.logger, name, lambda *a, **k: None)

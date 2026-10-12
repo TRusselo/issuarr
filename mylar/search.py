@@ -3252,6 +3252,7 @@ def searcher(
             #GC requires an extra step - do it now.
             ggc = getcomics.GC(issueid=tmp_issueid, comicid=ComicID)
             ggc.loadsite(nzbid, link)
+            getcomics.clear_cancel(nzbid)  # a new grab, so an earlier removal of this post no longer applies
             ddl_it = ggc.parse_downloadresults(nzbid, link, comicinfo, pack_info)
             tnzbprov = nzbprov
             if ddl_it['success'] is True and ddl_it.get('site') == 'GC-Torrent':

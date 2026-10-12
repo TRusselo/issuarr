@@ -52,6 +52,14 @@ def is_redirect_link(link):
     return bool(link and REDIRECT_LINK.match(str(link)))
 
 
+def clear_cancel(post_id):
+    """Forget an earlier remove or abort of this post, including the parts of a split pack. Queue
+    ids are post ids, so a new grab of the same post reuses them and would otherwise be dropped."""
+    post_id = str(post_id)
+    for cancelled in [c for c in mylar.DDL_CANCEL if c == post_id or c.startswith(post_id + '-')]:
+        mylar.DDL_CANCEL.discard(cancelled)
+
+
 class DownloadCancelled(Exception):
     pass
 

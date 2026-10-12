@@ -12,9 +12,10 @@ import mylar
 from mylar import db, logger
 
 BUILTIN = ['main', 'mega', 'mediafire', 'pixeldrain']
-KNOWN = ['main', 'pixeldrain', 'mega', 'mediafire', 'vikingfile', 'datanodes', 'ufile', 'terabox']
+KNOWN = ['main', 'pixeldrain', 'mega', 'mediafire', 'vikingfile', 'datanodes', 'ufile', 'terabox', 'torrent']
 LABELS = {'main': 'GetComics direct (Download Now / Main Server / Mirror)', 'mega': 'Mega', 'mediafire': 'Mediafire',
-          'pixeldrain': 'Pixeldrain', 'vikingfile': 'VikingFile', 'datanodes': 'DataNodes', 'ufile': 'Ufile', 'terabox': 'TeraBox'}
+          'pixeldrain': 'Pixeldrain', 'vikingfile': 'VikingFile', 'datanodes': 'DataNodes', 'ufile': 'Ufile', 'terabox': 'TeraBox',
+          'torrent': 'Torrent or magnet link'}
 JD2_ONLY = {'vikingfile': 'JD2', 'datanodes': 'JD2', 'ufile': 'JD2', 'terabox': 'JD2 (may need a TeraBox account in JD2)'}
 DEFAULT_ORDER = list(KNOWN)
 
@@ -22,14 +23,41 @@ _pd_lock = threading.Lock()
 _pd_cache = {'at': 0, 'data': None}
 
 
-def canonical(label):
+def canonical(label, href=None):
     s = re.sub(r'\blink\b', '', (label or '').lower()).strip()
+    if is_torrent(label, href):
+        return 'torrent'
     if s in ('download now', 'main server', 'mirror download') or 'main server' in s:
         return 'main'
     for k in ('mega', 'mediafire', 'pixeldrain'):
         if k[:5] in s:
             return k
     return re.sub(r'[^a-z0-9]+', '', s) or None
+
+
+def is_torrent(label, href=None):
+    """A post's torrent or magnet button, by its label or where it points."""
+    h = str(href or '').strip().lower()
+    return (h.startswith('magnet:') or h.split('?')[0].endswith('.torrent')
+            or bool(re.search(r'\b(torrent|magnet)\b', str(label or '').lower())))
+
+
+def torrent_ready():
+    """Torrent links can be used: torrent search is on and there's a torrent client or watch folder to send them to."""
+    c = mylar.CONFIG
+    if not (getattr(c, 'ENABLE_TORRENTS', False) and getattr(c, 'ENABLE_TORRENT_SEARCH', False)):
+        return False
+    return any(getattr(mylar, f, False) for f in ('USE_UTORRENT', 'USE_RTORRENT', 'USE_TRANSMISSION', 'USE_DELUGE',
+                                                   'USE_QBITTORRENT', 'USE_WATCHDIR'))
+
+
+def torrent_first(available, size_bytes=None):
+    """Whether a post's torrent comes before every other source it has that Issuarr can use."""
+    o = order(size_bytes)
+    if 'torrent' not in o or not torrent_ready():
+        return False
+    ranks = [o.index(s) for s in available if s in o and s != 'torrent']
+    return not ranks or o.index('torrent') < min(ranks)
 
 
 def _ensure(myDB):
@@ -97,7 +125,8 @@ def all_sources():
     for n in order:
         s = seen.get(n, {})
         out.append({'name': n, 'label': LABELS.get(n) or s.get('Label') or n, 'builtin': n in BUILTIN,
-                    'via': 'Mylar or JD2' if n in BUILTIN and n != 'main' else ('Mylar (FlareSolverr)' if n == 'main' else JD2_ONLY.get(n, 'JD2, if it supports the host')),
+                    'via': 'Mylar or JD2' if n in BUILTIN and n != 'main' else ('Mylar (FlareSolverr)' if n == 'main' else
+                           'your torrent client, when torrent search is on' if n == 'torrent' else JD2_ONLY.get(n, 'JD2, if it supports the host')),
                     'enabled': n not in off, 'last_seen': s.get('LastSeen'), 'seen': s.get('Seen') or 0})
     return out
 

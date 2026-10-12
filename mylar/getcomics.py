@@ -42,6 +42,16 @@ FILE_CLEARANCE = {}
 _COOKIE_LOCK = threading.Lock()
 
 
+# A post's download buttons point at getcomics.org/dls/..., which forwards to the file's real
+# address (mega.nz, mediafire.com, GetComics' own file server). Mega's API, the MediaFire page
+# reader and JD2 all need that real address.
+REDIRECT_LINK = re.compile(r'^https?://(?:www\.)?getcomics\.(?:org|info)/dls/', re.I)
+
+
+def is_redirect_link(link):
+    return bool(link and REDIRECT_LINK.match(str(link)))
+
+
 class DownloadCancelled(Exception):
     pass
 
@@ -189,6 +199,35 @@ class GC(object):
         self.apply_file_clearance()
         logger.info('[GC_Cookie_Refresh] Cleared the Cloudflare check on %s through FlareSolverr.' % host)
         return True
+
+    def resolve_link(self, link):
+        """Where a GetComics download button forwards to, or None when it can't be told.
+        Links that aren't GetComics buttons come back as they are."""
+        if not is_redirect_link(link):
+            return link
+        self.cookie_receipt()
+        self.apply_file_clearance()
+        cleared = False
+        for _ in range(4):  # a button may forward to another button
+            try:
+                r = self.session.get(link, headers=self.headers, allow_redirects=False, verify=True, timeout=(30, 30))
+            except requests.exceptions.RequestException as e:
+                logger.warn('[GC-LINK] Could not open the download button %s: %s' % (link[:60], e))
+                return None
+            location = r.headers.get('Location')
+            r.close()
+            if r.status_code in (301, 302, 303, 307, 308) and location:
+                link = urllib.parse.urljoin(link, location)
+                if not is_redirect_link(link):
+                    logger.fdebug('[GC-LINK] Download button leads to %s' % link)
+                    return link
+                continue
+            if not cleared and self.is_challenge(r) and self.refresh_clearance(link):
+                cleared = True
+                continue
+            logger.warn('[GC-LINK] The download button %s did not forward anywhere (status %s).' % (link[:60], r.status_code))
+            return None
+        return None
 
     def __init__(self, query=None, issueid=None, comicid=None, oneoff=False, session_path=None, provider_stat=None):
 

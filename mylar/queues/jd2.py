@@ -6,7 +6,7 @@ import time
 
 import mylar
 from .. import logger, helpers
-from mylar import db
+from mylar import db, getcomics
 from . import ddl
 from mylar.downloaders.jdownloader2 import JDownloader2
 
@@ -80,7 +80,7 @@ def jd2_queue_monitor(queue):
                 continue
 
             if item.get('jd2_job_id') == 0:
-                jd2_priority_links = item.get('jd2_priority_links')
+                jd2_priority_links = resolve_links(item.get('jd2_priority_links'))
                 queue_payload = dict(item)
                 queue_payload.pop('jd2_job_id', None)
                 queue_payload.pop('jd2_priority_links', None)
@@ -157,6 +157,14 @@ def jd2_queue_monitor(queue):
                         time.sleep(10)
                         continue
 
+                    job_filename = ((status_payload or {}).get('data') or {}).get('name')
+                    if job_status in completed_states and not is_comic_name(job_filename):
+                        # JD2 finished on something else - a script or page from the post - not the comic
+                        logger.warn('[JD2-QUEUE] JD2 finished %s with %s, which is not a comic.', record_id, job_filename)
+                        jd2_client.remove(job_id, record_id)
+                        jd2_give_up(myDB, item, record_id, 'JD2 downloaded %s, not a comic' % job_filename)
+                        continue
+
                     if job_status in completed_states:
                         myDB.upsert(
                                 'ddl_info',
@@ -167,8 +175,6 @@ def jd2_queue_monitor(queue):
                                 {'id': record_id},
                             )
                         logger.info('[JD2-QUEUE] Download for %s completed; status marked as Completed.', record_id)
-
-                        job_filename = ((status_payload or {}).get('data') or {}).get('name')
 
                         if not isinstance(item, dict):
                             logger.warn('[JD2-QUEUE] Unexpected item type %s for job %s; skipping post-processing.', type(item), job_id)
@@ -221,6 +227,34 @@ def jd2_queue_monitor(queue):
         else:
             HOLDING[0] = None
             time.sleep(10)
+
+
+COMIC_FILES = ('.cbz', '.cbr', '.cb7', '.cbt', '.pdf', '.zip', '.rar', '.7z')
+
+
+def is_comic_name(name):
+    """Whether a finished JD2 file could be a comic. An unknown name gets the benefit of the doubt."""
+    if not name:
+        return True
+    return str(name).lower().endswith(COMIC_FILES)
+
+
+def resolve_links(links):
+    """{GetComics button: priority} -> {file host address: priority}. JD2 can't follow the
+    buttons itself, and downloads a script from the page instead. Buttons that lead nowhere are dropped."""
+    if not links:
+        return links
+    if not any(getcomics.is_redirect_link(u) for u in links):
+        return links
+    gc = getcomics.GC()
+    out = {}
+    for url, priority in links.items():
+        real = gc.resolve_link(url)
+        if real:
+            out.setdefault(real, priority)
+        else:
+            logger.info('[JD2] Dropping a download button that leads nowhere: %s', url[:60])
+    return out
 
 
 JD2_DEAD_STATUS = ('offline', 'file not found', 'not available', 'plugin defect', 'aborted', 'blocked by cloudflare')

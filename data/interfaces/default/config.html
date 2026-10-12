@@ -1,5 +1,6 @@
 <%inherit file="base.html"/>
 <%!
+    import re
     import mylar
     from operator import itemgetter
 %>
@@ -368,11 +369,25 @@
     <div id="tabs-4" class="set-panel" data-title="Search providers" data-sub="Where Issuarr looks for issues, and the order it tries them in.">
         <%
             porder = [v for k, v in sorted(mylar.CONFIG.PROVIDER_ORDER.items(), key=itemgetter(0))]
+            # a kind of search that's on but has nothing to search, so the order shows why it's missing
+            C = mylar.CONFIG
+            def ready(rows):
+                return any(str(r[5]) == '1' and re.sub(r'^\w+://', '', str(r[1] or '').strip()).strip('/') for r in rows or [])
+            ogaps = []
+            if C.ENABLE_TORRENT_SEARCH and not C.ENABLE_32P:
+                if not C.ENABLE_TORZNAB:
+                    ogaps.append('Torrent search is on, but Use Torznab indexers is off.')
+                elif not ready(C.EXTRA_TORZNABS):
+                    ogaps.append('Torznab is on, but no indexer is turned on with an address.')
+            if C.NEWZNAB and not ready(C.EXTRA_NEWZNABS):
+                ogaps.append('Newznab is on, but no indexer is turned on with an address.')
+            if C.ENABLE_DDL and not (C.ENABLE_GETCOMICS or C.ENABLE_EXTERNAL_SERVER):
+                ogaps.append('Direct downloads are on, but no site is.')
         %>
         <section class="set-group" aria-labelledby="sg-order">
             <div class="set-group-head"><h2 id="sg-order">Search order</h2></div>
             <div class="set-row">
-                <div class="set-label"><b>Tried in this order</b><span>Only providers that are turned on below are searched.</span></div>
+                <div class="set-label"><b>Tried in this order</b><span>Only providers that are turned on below are searched. This updates when you save.</span></div>
                 <div class="set-ctl">
                     %if porder:
                     <ol class="set-order">
@@ -383,6 +398,9 @@
                     %else:
                     <span class="muted">No providers are on.</span>
                     %endif
+                    %for g in ogaps:
+                    <span class="set-order-gap">${g | h}</span>
+                    %endfor
                 </div>
             </div>
             <div class="set-row">

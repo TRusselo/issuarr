@@ -1944,6 +1944,8 @@ class Config(object):
         return ignored_pubs
 
     def provider_sequence(self):
+        # an entry left blank (the default one is 'http://') has nothing to search
+        has_host = lambda h: bool(re.sub(r'^\w+://', '', str(h or '').strip()).strip('/'))
         PR = []
         PR_NUM = 0
         if self.ENABLE_TORRENT_SEARCH:
@@ -1971,7 +1973,7 @@ class Config(object):
         PPR = ['Experimental', 'DDL(GetComics)', 'DDL(External)', 'AirDCPP']
         if self.NEWZNAB:
             for ens in self.EXTRA_NEWZNABS:
-                if str(ens[5]) == '1': # if newznabs are enabled
+                if str(ens[5]) == '1' and has_host(ens[1]): # if newznabs are enabled
                     if ens[0] == "":
                         en_name = ens[1]
                     else:
@@ -1984,7 +1986,7 @@ class Config(object):
 
         if self.ENABLE_TORZNAB and self.ENABLE_TORRENT_SEARCH:
             for ets in self.EXTRA_TORZNABS:
-                if str(ets[5]) == '1': # if torznabs are enabled
+                if str(ets[5]) == '1' and has_host(ets[1]): # if torznabs are enabled
                     if ets[0] == "":
                         et_name = ets[1]
                     else:

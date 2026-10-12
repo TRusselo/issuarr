@@ -8067,6 +8067,10 @@ class WebInterface(object):
         out.update(monitor_status=mylar.MONITOR_STATUS, monitor_enabled=bool(mylar.CONFIG.ENABLE_CHECK_FOLDER),
                    monitor_folder=mylar.CONFIG.CHECK_FOLDER or '', interval=mylar.CONFIG.DOWNLOAD_SCAN_INTERVAL,
                    review_dir=archives.review_dir(), now=time.time())
+        try:
+            out['webp'] = webp.dock_summary()
+        except Exception:
+            out['webp'] = None
         return json.dumps(out)
     pp_activity.exposed = True
 

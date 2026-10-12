@@ -131,6 +131,18 @@
         } else {
           mon.innerHTML = 'Off. Turn it on in <a href="config#tabs-5">Settings › Files &amp; post-processing</a>.';
         }
+        var webp = $id('pp-webp');
+        var wtext = I().webpText(d.webp);
+        webp.textContent = '';
+        webp.title = d.webp && d.webp.current ? d.webp.current : '';
+        if (wtext) {
+          var wa = document.createElement('a');
+          wa.href = 'webpConvert';
+          wa.textContent = wtext;
+          webp.appendChild(wa);
+        } else {
+          webp.textContent = 'Nothing';
+        }
         $id('pp-last').textContent = d.last_at ? I().relTime(d.last_at) + (d.last ? ' - ' + d.last : '') : '-';
         $id('pp-review').textContent = d.review_dir || '-';
       })

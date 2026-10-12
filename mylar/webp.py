@@ -910,6 +910,22 @@ def select(root, since, unknown=False, limit=0, stop=None, progress=None):
     return out
 
 
+def _free_space(backup):
+    if not backup:
+        return None
+    probe = backup
+    while probe and not os.path.isdir(probe):
+        probe = os.path.dirname(probe)
+    try:
+        return shutil.disk_usage(probe or '/').free
+    except Exception:
+        return None
+
+
+# Choices about how files are converted, not which ones: changing them keeps the preview's file list.
+HOW = ('quality', 'min_q', 'threads', 'files', 'backup_dir', 'no_backup')
+
+
 def _preview(opts):
     try:
         found = select(opts['root'], opts['since'], opts['unknown'], opts['limit'], stop=lambda: BULK.get('stop'),
@@ -925,16 +941,7 @@ def _preview(opts):
     _set(current='Sampling page quality in %s files' % len(sample))
     rates = [_estimate(_sample_quality(p)) for p in sample]
     rate = sum(rates) / len(rates) if rates else 0
-    backup = opts['backup_dir']
-    free = None
-    if backup:
-        probe = backup
-        while probe and not os.path.isdir(probe):
-            probe = os.path.dirname(probe)
-        try:
-            free = shutil.disk_usage(probe or '/').free
-        except Exception:
-            free = None
+    free = _free_space(opts['backup_dir'])
     token = '%x' % random.getrandbits(48)
     _set(state='previewed', files=files, token=token, current='', count=len(files), bytes=size, est_saving=int(size * rate),
          too_old=found['too_old'], no_date=found['no_date'], already=found['already'], other=found['other'],
@@ -942,7 +949,9 @@ def _preview(opts):
          examples=[os.path.relpath(p, opts['root']) for p in files[:8]], finished=time.time())
 
 
-def start_run(token, confirm):
+def start_run(token, confirm, how=None):
+    """Start converting the previewed files. `how` holds the form's current HOW choices, which
+    replace the preview's, so changing them doesn't need a new preview."""
     with _bulk_lock:
         if BULK.get('state') != 'previewed' or token != BULK.get('token'):
             return 'Run the preview again first - the options or the file list have changed.'
@@ -951,9 +960,16 @@ def start_run(token, confirm):
         if str(confirm).strip() != str(BULK.get('count')):
             return 'Type the number of files (%s) to confirm.' % BULK.get('count')
         opts = BULK['opts']
+        if how:
+            old = opts
+            opts = options(root=old['root'], since=old['since'] or 'any', unknown=old['unknown'], limit=old['limit'],
+                           **{k: how.get(k) for k in HOW})
+            if opts['backup_dir'] != old['backup_dir']:
+                BULK['backup_free'] = _free_space(opts['backup_dir'])
         problem = check_options(opts)
         if problem:
             return problem
+        BULK['opts'] = opts
         if opts['backup_dir'] and BULK.get('backup_free') is not None and BULK['backup_free'] < BULK['bytes'] * 1.05:
             return 'The holding folder does not have room for the originals.'
         files = BULK['files']

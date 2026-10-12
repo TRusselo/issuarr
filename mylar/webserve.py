@@ -4911,11 +4911,19 @@ class WebInterface(object):
         return json.dumps({'started': True, 'status': webp.status()})
     webp_preview.exposed = True
 
-    def webp_start(self, token=None, confirm=None, **kwargs):
+    def webp_start(self, token=None, confirm=None, quality=None, min_q=None, backup_dir=None, no_backup=None,
+                   threads=None, files=None, **kwargs):
         cherrypy.response.headers['Content-Type'] = 'application/json'
         if cherrypy.request.method != 'POST':
             return json.dumps({'error': 'Use the WebP conversion page.'})
-        problem = webp.start_run(token, confirm)
+        how = None
+        if quality is not None:
+            how = {'quality': quality, 'min_q': min_q, 'backup_dir': backup_dir, 'no_backup': helpers.str_to_bool(no_backup),
+                   'threads': threads, 'files': files}
+        try:
+            problem = webp.start_run(token, confirm, how)
+        except ValueError as e:
+            problem = 'Check the numbers: %s' % e
         return json.dumps({'error': problem} if problem else {'started': True, 'status': webp.status()})
     webp_start.exposed = True
 

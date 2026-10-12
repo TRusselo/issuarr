@@ -1,7 +1,7 @@
 /* Issuarr interface.
    Variables in the first block are the public theming surface: custom CSS can
    override any of them, and they stay stable between versions. So do the
-   classes .sidebar, .nav-link, .nav-child, .page-head, .dock, .cover,
+   classes .sidebar, .nav-link, .nav-child, .page-head, .dock, .flow, .flow-stop, .cover,
    .collection-bar and .status. */
 
 :where(:root) {
@@ -1177,3 +1177,108 @@ body.set-searching .set-notify:not(:has(.set-hit)) { display: none; }
 .q-prog .q-meta { display: flex; justify-content: space-between; gap: 8px; margin-top: 5px; font-size: 12.5px; color: var(--muted); font-variant-numeric: tabular-nums; }
 .q-src { font-size: 12.5px; color: var(--muted); white-space: nowrap; }
 .q-src b { display: block; color: var(--text); font-weight: 600; font-size: 13.5px; }
+
+/* ---------- Flow line: Wanted, Searching, Downloading, Filing, Added today ----------
+   On Wanted and Downloads > Queue. Each stop takes the color of the issue status it holds
+   (Wanted, then Snatched, then Have); custom CSS can recolor one with --flow-<stop>. */
+
+.flow {
+  --flow-wanted: var(--wanted); --flow-search: var(--wanted); --flow-download: var(--snatched);
+  --flow-filing: var(--snatched); --flow-library: var(--have);
+  display: flex; flex-direction: column; gap: 14px; margin: 0 0 28px;
+}
+.flow:empty { min-height: 128px; }
+.flow-line { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); }
+.flow-stop { --c: var(--faint); position: relative; min-width: 0; padding-top: 24px; }
+.flow-stop.is-wanted { --c: var(--flow-wanted); }
+.flow-stop.is-search { --c: var(--flow-search); }
+.flow-stop.is-download { --c: var(--flow-download); }
+.flow-stop.is-filing { --c: var(--flow-filing); }
+.flow-stop.is-library { --c: var(--flow-library); }
+
+/* The rail: each stop draws the stretch to the next. The stretch into a busy stop carries dashes toward it. */
+.flow-stop::before { content: ""; position: absolute; top: 5px; left: 18px; right: 6px; height: 2px; border-radius: 1px; background: var(--line); }
+.flow-stop:last-child::before { display: none; }
+.flow-stop::after {
+  content: ""; position: absolute; top: 0; left: 0; width: 12px; height: 12px; border-radius: 50%;
+  box-sizing: border-box; background: var(--c);
+}
+.flow-stop.is-idle::after { background: var(--ink); border: 2px solid var(--line); }
+.flow-stop.is-held::after { background: var(--ink); border: 2px solid var(--c); }
+.flow-stop.is-stuck::after { background: var(--failed); }
+.flow-stop.is-live::after { box-shadow: 0 0 0 4px color-mix(in srgb, var(--c) 28%, transparent); }
+.flow-stop.is-feeding::before {
+  background: repeating-linear-gradient(90deg, var(--feed, var(--text-2)) 0 8px, transparent 8px 16px);
+  animation: flow-run .9s linear infinite;
+}
+@keyframes flow-run { from { background-position: 0 0; } to { background-position: 16px 0; } }
+@keyframes flow-run-down { from { background-position: 0 0; } to { background-position: 0 16px; } }
+
+.flow-stop > a { display: flex; flex-direction: column; gap: 1px; min-width: 0; padding-right: 18px; color: var(--text); border-radius: var(--radius-sm); }
+.flow-stop > a:hover { text-decoration: none; }
+.flow-name { font-size: 13px; font-weight: 600; color: var(--muted); }
+.flow-stop > a:hover .flow-name { color: var(--text); }
+.flow-stop > a[aria-current="page"] .flow-name {
+  color: var(--text); text-decoration: underline 2px var(--c); text-underline-offset: 5px;
+}
+.flow-count {
+  font-family: var(--font-display); font-stretch: 125%; font-weight: 800; font-size: 34px; line-height: 1.1;
+  letter-spacing: -0.02em; font-variant-numeric: tabular-nums; color: var(--text);
+}
+.flow-stop.is-live .flow-count { color: var(--c); }
+.flow-stop.is-idle .flow-count { color: var(--faint); }
+.flow-now {
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden;
+  font-weight: 600; font-size: 14px; line-height: 1.35; color: var(--text-2); overflow-wrap: anywhere;
+}
+.flow-stop.is-idle .flow-now { font-weight: 500; color: var(--muted); }
+.flow-stop.is-stuck .flow-now { color: var(--failed-text); }
+.flow-meta { min-height: 1.5em; font-size: 12.5px; line-height: 1.4; color: var(--muted); }
+.flow-bar { display: block; max-width: 180px; height: 3px; margin: 5px 0 3px; border-radius: 2px; background: var(--line); overflow: hidden; }
+.flow-bar > span { display: block; height: 100%; background: var(--c); transition: width .6s ease; }
+
+/* What happened lately: the newest event, and the rest on demand. */
+.flow-log, .flow-quiet { border-top: 1px solid var(--line-soft); padding-top: 10px; font-size: 13.5px; }
+.flow-quiet { margin: 0; color: var(--muted); }
+.flow-log > summary { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; cursor: pointer; list-style: none; }
+.flow-log > summary::-webkit-details-marker { display: none; }
+.flow-log > summary > .flow-event { flex: 1 1 auto; }
+.flow-log[open] > summary > .flow-event { visibility: hidden; height: 0; overflow: hidden; }
+.flow-more { flex: none; font-size: 12.5px; color: var(--muted); }
+.flow-log > summary:hover .flow-more { color: var(--text); text-decoration: underline; text-underline-offset: 3px; }
+.flow-log ol { list-style: none; margin: 0; padding: 0; display: grid; gap: 5px; }
+.flow-event { display: flex; align-items: baseline; gap: 10px; min-width: 0; color: var(--text-2); }
+.flow-event::before {
+  content: ""; flex: none; width: 7px; height: 7px; border-radius: 50%; transform: translateY(-1px);
+  background: var(--ev, transparent); box-shadow: inset 0 0 0 1.5px var(--ev, var(--faint));
+}
+.flow-event.is-found { --ev: var(--snatched); }
+.flow-event.is-filed, .flow-event.is-on_disk { --ev: var(--have); }
+.flow-event.is-failed { --ev: var(--failed); }
+.flow-event > span { flex: 1 1 auto; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.flow-event b { font-weight: 600; color: var(--text); }
+.flow-event time { flex: none; font-size: 12.5px; color: var(--muted); font-variant-numeric: tabular-nums; }
+
+/* Narrow screens: the line runs down the page. */
+@media (max-width: 900px) {
+  .flow-line { grid-template-columns: minmax(0, 1fr); }
+  .flow-stop { padding: 0 0 12px 28px; }
+  .flow-stop::before { top: 18px; bottom: 4px; left: 5px; right: auto; width: 2px; height: auto; }
+  .flow-stop.is-feeding::before {
+    background: repeating-linear-gradient(180deg, var(--feed, var(--text-2)) 0 8px, transparent 8px 16px);
+    animation-name: flow-run-down;
+  }
+  .flow-stop::after { top: 3px; }
+  .flow-stop > a { display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: 12px; padding-right: 0; }
+  .flow-name { grid-column: 1; grid-row: 1; }
+  .flow-count { grid-column: 2; grid-row: 1 / span 3; align-self: start; font-size: 24px; }
+  .flow-now, .flow-bar, .flow-meta { grid-column: 1; }
+  .flow-meta { min-height: 0; }
+}
+
+/* Wanted rows: where the issue is on the flow line. */
+.w-where { margin-left: 8px; font-size: 12.5px; font-weight: 500; color: var(--muted); }
+a.w-where { text-decoration: underline 1px var(--line); text-underline-offset: 3px; }
+a.w-where:hover { color: var(--text); text-decoration-color: currentColor; }
+.w-where.is-search.is-live { color: var(--wanted); }
+.w-where.is-download { color: var(--snatched); }

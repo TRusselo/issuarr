@@ -29,7 +29,7 @@
   function requeue(mode, id, confirmText) {
     if (confirmText && !window.confirm(confirmText)) return;
     call('ddl_requeue?mode=' + encodeURIComponent(mode) + (id != null ? '&id=' + encodeURIComponent(id) : ''))
-      .then(function (r) { I().toast(r.message || 'Done'); })
+      .then(function (r) { I().toast(r.message || 'Done'); document.dispatchEvent(new CustomEvent('issuarr:flow-poke')); })
       .catch(function () { I().toast('That didn\'t work. Check the log.', false); })
       .then(function () { load(true); });
   }
@@ -91,7 +91,7 @@
     if (st.start >= rows.length) st.start = Math.max(0, Math.floor((rows.length - 1) / st.len) * st.len);
     renderRange();
     if (!rows.length) {
-      var msg = q ? 'Nothing matches.' : st.tab === 'active' ? 'Nothing is downloading. Grabs from every source show here until they\'re filed.' : 'Nothing here.';
+      var msg = q ? 'Nothing matches.' : st.tab === 'active' ? idleMessage() : 'Nothing here.';
       tb.innerHTML = '<tr><td colspan="6" class="empty-state">' + msg + '</td></tr>';
       return;
     }
@@ -106,6 +106,18 @@
         '<td class="mono muted nowrap">' + esc((it.updated || '').slice(0, 16)) + '</td>' +
         '<td class="actions">' + actionsFor(it) + '</td></tr>';
     }).join('');
+  }
+
+  // An empty queue says what's coming from the search side, from the flow line's data.
+  function idleMessage() {
+    var f = window.IssuarrFlow;
+    var msg = 'Nothing is downloading. Grabs from every source show here until they\'re filed.';
+    if (!f) return msg;
+    var n = (f.search.current ? 1 : 0) + f.search.waiting;
+    if (n) return 'Nothing is downloading yet. ' + n + (n === 1 ? ' issue is' : ' issues are') + ' being searched; anything found shows up here.';
+    var t1 = f.wanted.tier1;
+    if (t1) return msg + ' <a href="wanted">' + t1.toLocaleString() + (t1 === 1 ? ' Tier 1 issue is' : ' Tier 1 issues are') + '</a> searched on the next scheduled search.';
+    return msg;
   }
 
   function renderRange() {
@@ -190,6 +202,7 @@
     setInterval(load, 5000);
     document.addEventListener('visibilitychange', function () { if (!document.hidden) load(true); });
     document.addEventListener('issuarr:refresh', function () { load(true); });
+    document.addEventListener('issuarr:flow', function () { if (st.loaded && !st.items.some(function (it) { return inTab(it, st.tab); })) renderRows(); });
   }
   if (window.jQuery) window.jQuery(start); else document.addEventListener('DOMContentLoaded', start);
 })();

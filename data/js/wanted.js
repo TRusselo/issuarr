@@ -18,7 +18,7 @@
   var STATUS = { Wanted: 'is-wanted', Snatched: 'is-snatched', Failed: 'is-failed' };
 
   var st = { rows: [], tab: 'all', q: '', sort: 'release-desc', limit: CHUNK, sel: {}, loaded: false,
-             current: null, waiting: {} };
+             flow: {}, current: null };
 
   function $id(id) { return document.getElementById(id); }
   function I() { return window.Issuarr; }
@@ -48,12 +48,24 @@
     return link;
   }
 
+  // Where the issue is on its way to the library, from the flow line's data.
   // The search queue knows story-arc issues by their arc issue id.
+  function ago(at) {
+    var m = Math.round((Date.now() / 1000 - at) / 60);
+    return m < 1 ? 'just now' : m < 60 ? m + ' min ago' : Math.round(m / 60) + ' h ago';
+  }
   function queueNote(r) {
-    var ids = [r.id, r.arcissue];
-    if (st.current && ids.indexOf(st.current) > -1) return ' <span class="muted">searching now</span>';
-    if (st.waiting[r.id] || (r.arcissue && st.waiting[r.arcissue])) return ' <span class="muted">in search queue</span>';
-    return '';
+    var f = st.flow[r.id] || (r.arcissue && st.flow[r.arcissue]);
+    if (!f) return '';
+    var text = { searching: 'Searching now', queued: 'Found, waiting to download', jd2: 'Found, at JDownloader 2',
+                 client: 'Found, at your download client' }[f.state];
+    if (f.state === 'waiting') text = 'In search queue, #' + f.place;
+    if (f.state === 'downloading') text = 'Downloading' + (f.percent != null ? ' ' + f.percent + '%' : '');
+    if (f.state === 'nothing') text = 'Searched ' + ago(f.at) + ', nothing found';
+    if (!text) return '';
+    var cls = 'w-where is-' + f.stage + (f.state === 'searching' || f.state === 'downloading' ? ' is-live' : '');
+    if (f.stage === 'download') return ' <a class="' + cls + '" href="queueManage">' + esc(text) + '</a>';
+    return ' <span class="' + cls + '">' + esc(text) + '</span>';
   }
 
   function tierCell(r) {
@@ -141,46 +153,19 @@
       });
   }
 
-  /* ---- search status: what's being searched now and what's waiting ---- */
-  function issueName(i) { return (i.name || 'Unknown') + ' #' + (i.number == null ? '?' : i.number); }
-
-  function renderSearching(d) {
-    var el = $id('w-searching');
-    var n = d.waiting.length;
-    var waiting = n ? plural(n) + ' waiting to be searched' : 'nothing else waiting';
-    if (d.current) {
-      el.innerHTML = '<b>Searching now:</b> ' + esc(issueName(d.current)) + ' · ' + waiting + '.';
-    } else if (d.busy) {
-      el.innerHTML = '<b>Checking RSS feeds.</b> ' + (n ? plural(n) + ' waiting to be searched.' : '');
-    } else if (n) {
-      el.innerHTML = '<b>Starting the next search.</b> ' + plural(n) + ' waiting.';
-    } else {
-      el.textContent = 'No search running.';
-    }
-  }
-
-  var pollTimer = null;
-  function poll() {
-    clearTimeout(pollTimer);
-    return fetch('search_status', { credentials: 'same-origin', cache: 'no-store' })
-      .then(function (r) { if (!r.ok) throw new Error(r.status); return r.json(); })
-      .then(function (d) {
-        var before = st.current;
-        st.current = d.current ? String(d.current.issueid) : null;
-        st.waiting = {};
-        d.waiting.forEach(function (w) { st.waiting[String(w.issueid)] = true; });
-        renderSearching(d);
-        // An issue just finished: reload, it may have been snatched.
-        if (before && before !== st.current) load(); else render();
-      })
-      .catch(function () { $id('w-searching').textContent = 'Couldn\'t get the search status.'; })
-      .then(function () { pollTimer = setTimeout(poll, document.hidden ? 30000 : 5000); });
-  }
-  document.addEventListener('visibilitychange', function () { if (!document.hidden) poll(); });
+  /* ---- where each issue is: from the flow line above the list ---- */
+  document.addEventListener('issuarr:flow', function (e) {
+    var d = e.detail.now;
+    var before = st.current;
+    st.flow = d.issues || {};
+    st.current = d.search.current ? String(d.search.current.issueid) : null;
+    // An issue just finished searching: reload, it may have been snatched.
+    if (before && before !== st.current) load(); else if (st.loaded) render();
+  });
 
   function queued(r) {
     if (!r.ok) throw new Error(r.status);
-    return r.json().then(function (d) { setTimeout(poll, 1500); return d; });
+    return r.json().then(function (d) { document.dispatchEvent(new CustomEvent('issuarr:flow-poke')); return d; });
   }
 
   function search(ids) {
@@ -188,7 +173,7 @@
     ids.forEach(function (id) { p.append('issueIds', id); });
     return fetch('forceSearch?' + p.toString(), { credentials: 'same-origin' })
       .then(queued)
-      .then(function () { I().toast('Added ' + plural(ids.length) + ' to the search queue. Anything found shows up in Downloads.'); })
+      .then(function () { I().toast('Added ' + plural(ids.length) + ' to the search queue. Follow it along the line above.'); })
       .catch(function () { I().toast('That didn\'t work. Check the log.', false); });
   }
 
@@ -242,7 +227,7 @@
   $id('w-search-tier1').addEventListener('click', function () {
     fetch('forceSearch', { credentials: 'same-origin' })
       .then(queued)
-      .then(function () { I().toast('Adding every Tier 1 issue to the search queue. Progress shows under the heading.'); })
+      .then(function () { I().toast('Adding every Tier 1 issue to the search queue. Follow it along the line above.'); })
       .catch(function () { I().toast('That didn\'t work. Check the log.', false); });
   });
   $id('w-search-all').addEventListener('click', function () {
@@ -250,7 +235,7 @@
     if (n && !window.confirm('Search all ' + plural(n) + '? Providers are searched one page at a time, so a long list can take hours.')) return;
     fetch('forceSearch?tiers=all', { credentials: 'same-origin' })
       .then(queued)
-      .then(function () { I().toast('Adding every Wanted issue, Tier 2 included, to the search queue. Progress shows under the heading.'); })
+      .then(function () { I().toast('Adding every Wanted issue, Tier 2 included, to the search queue. Follow it along the line above.'); })
       .catch(function () { I().toast('That didn\'t work. Check the log.', false); });
   });
   $id('w-export').addEventListener('click', function () {
@@ -268,6 +253,6 @@
   var refreshTimer = null;
   document.addEventListener('issuarr:refresh', function () { clearTimeout(refreshTimer); refreshTimer = setTimeout(load, 800); });
 
-  function start() { load(); poll(); }
+  function start() { load(); }
   if (window.jQuery) window.jQuery(start); else document.addEventListener('DOMContentLoaded', start);
 })();

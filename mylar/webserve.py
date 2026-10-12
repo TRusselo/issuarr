@@ -55,6 +55,7 @@ from string import ascii_lowercase
 import mylar
 from mylar.comicinfo import tag_mode as ct_tag_mode
 from mylar import (
+    activity,
     archives,
     webp,
     carepackage,
@@ -4636,6 +4637,12 @@ class WebInterface(object):
         cherrypy.response.headers['Content-Type'] = 'application/json'
         return json.dumps(search.search_status())
     search_status.exposed = True
+
+    def activity_flow(self):
+        # The flow line on Wanted and Downloads > Queue: search, download and filing side by side.
+        cherrypy.response.headers['Content-Type'] = 'application/json'
+        return json.dumps(activity.flow())
+    activity_flow.exposed = True
 
     def forceRescan(self, ComicID, bulk=False, action='recheck', api=False):
         if bulk:

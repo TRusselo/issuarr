@@ -10,7 +10,6 @@
             <div class="head-text">
                 <h1>Wanted</h1>
                 <p class="page-sub">Issues Issuarr is looking for. <b>Tier 1</b> is everything added in the last ${tier_cutoff} days and is searched on every scheduled search. <b>Tier 2</b> is older and is only picked up from RSS feeds, unless you use <b>Search all</b>.</p>
-                <p class="page-sub" id="w-searching" aria-live="polite"></p>
             </div>
             <div class="btn-row">
                 <button type="button" class="btn btn-primary" id="w-search-tier1" title="Run the scheduled search now, for every Tier 1 issue">Search Tier 1 now</button>
@@ -25,6 +24,8 @@
                 </details>
             </div>
         </div>
+
+        <section class="flow" id="flow" data-here="wanted" aria-label="What Issuarr is doing"></section>
 
         <section class="section" aria-label="Wanted issues" style="gap: 16px">
             <div class="filter-tabs" role="group" aria-label="Show" id="w-tabs"></div>
@@ -81,5 +82,6 @@
 </%def>
 
 <%def name="javascriptIncludes()">
+    <script src="js/flow.js?v=${mylar.CURRENT_VERSION}"></script>
     <script src="js/wanted.js?v=${mylar.CURRENT_VERSION}"></script>
 </%def>

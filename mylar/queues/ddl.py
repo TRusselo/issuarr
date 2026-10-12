@@ -80,6 +80,134 @@ def reload_saved(myDB):
             webserve.WebInterface().ddl_requeue(mode='restart_queue')
     except Exception as e:
         logger.warn('[DDL-QUEUE] Unable to reload the saved queue: %s' % e)
+    refile_unfiled(myDB)
+
+
+# ---- finished but never filed ---------------------------------------------
+# Post-processing waits are in memory, so a restart between a download finishing and its
+# filing run loses it: ddl_info says Completed, the issue stays Snatched, the file sits there.
+
+REFILED = threading.Event()     # set once this start has looked, so it only happens once
+REFILE_LOCK = threading.Lock()  # the DDL and JD2 workers both ask at startup
+
+
+def _statuses(myDB, issueid):
+    found = set()
+    for table in ('issues', 'annuals', 'storyarcs', 'oneoffhistory'):
+        try:
+            found.update(r['Status'] for r in myDB.select('SELECT Status FROM %s WHERE IssueID=?' % table, [issueid]))
+        except Exception:
+            pass
+    return found
+
+
+def _finished_path(row):
+    """(path, is_folder) for a finished download that's still on disk, or None.
+
+    Built-in downloads are the file in DDL_LOCATION (Mega's under mega/), or the folder a .zip
+    was unpacked into; JD2 ones are the folder jd2.py names '<name> - <id>' in JD2_DEST_DIR.
+    """
+    location = getattr(mylar.CONFIG, 'DDL_LOCATION', None) or ''
+    if row['jd2_job_id']:
+        dest = getattr(mylar.CONFIG, 'JD2_DEST_DIR', None)
+        if not dest or dest == 'None':
+            return None
+        # the package name jd2.py submits, then the folder name its monitor hands to filing
+        names = ['%s (%s) - %s' % (row['series'], row['year'], row['id'])]
+        if row['tmp_filename'] or row['filename']:
+            names.append('%s - %s' % (row['tmp_filename'] or row['filename'], row['id']))
+        for name in names:
+            folder = os.path.join(dest, name)
+            if os.path.isdir(folder) and os.listdir(folder):
+                return folder, True
+        return None
+    tries = []
+    if row['tmp_filename']:
+        tries.append(row['tmp_filename'] if os.path.isabs(row['tmp_filename']) else os.path.join(location, row['tmp_filename']))
+    if row['filename']:
+        tries += [os.path.join(location, row['filename']), os.path.join(location, 'mega', row['filename'])]
+    for path in tries:
+        if os.path.isfile(path):
+            return path, False
+        if os.path.isdir(path) and os.listdir(path):
+            return path, True
+        if path.lower().endswith('.zip'):
+            # unpacked and deleted: getcomics.zip_zip unpacks into DDL_LOCATION, archiveorg beside the zip
+            stem = os.path.splitext(path)[0]
+            if os.path.isfile(stem + '.cbz'):
+                return stem + '.cbz', False
+            for folder in (stem, os.path.join(location, re.sub('.zip', '', os.path.basename(path)).strip())):
+                if os.path.isdir(folder) and os.listdir(folder):
+                    return folder, True
+    return None
+
+
+def _monitored(path):
+    """Whether the folder monitor already looks at this path, so it would file it anyway."""
+    chk = getattr(mylar.CONFIG, 'CHECK_FOLDER', None)
+    if not getattr(mylar.CONFIG, 'ENABLE_CHECK_FOLDER', False) or not chk or chk == 'None':
+        return False
+    return os.path.normpath(path).startswith(os.path.join(os.path.normpath(chk), ''))
+
+
+def refile_unfiled(myDB):
+    """Put finished direct downloads a restart left unfiled back on the post-processing queue, once per start.
+
+    Only rows whose issue is still Snatched (never Downloaded or Archived) and whose file is
+    still there; ones already waiting, filing, under Needs attention or in the monitored folder
+    are left alone. Returns how many went back on the queue.
+    """
+    from mylar import archives, downloadqueue
+    with REFILE_LOCK:
+        if REFILED.is_set() or getattr(mylar.CONFIG, 'POST_PROCESSING', False) is not True:
+            return 0
+        REFILED.set()
+        try:
+            rows = [dict(r) for r in myDB.select("SELECT * FROM ddl_info WHERE status='Completed'")]
+            signals = downloadqueue.filing_signals(myDB)
+        except Exception as e:
+            logger.warn('[DDL-QUEUE] Unable to look for finished downloads that were never filed: %s' % e)
+            return 0
+        busy = set(signals['stages'])
+        count = 0
+        for r in rows:
+            r = {k.lower(): v for k, v in r.items()}
+            r.setdefault('jd2_job_id', None)
+            r.setdefault('tmp_filename', None)
+            rid = str(r['id'])
+            statuses = _statuses(myDB, r['issueid'])
+            if rid in busy or 'Snatched' not in statuses or statuses & set(downloadqueue.FILED):
+                continue
+            try:
+                found = _finished_path(r)
+            except OSError as e:
+                logger.warn('[DDL-QUEUE] Unable to check the file for %s: %s' % (r['series'], e))
+                continue
+            if found is None:
+                logger.fdebug('[DDL-QUEUE] %s finished downloading but its file is gone - leaving it as not filed.' % r['series'])
+                continue
+            path, is_folder = found
+            d = {'queueid': rid, 'issueid': r['issueid'], 'filename': r['filename']}
+            if downloadqueue._in_attention(d, signals['flagged']) or _monitored(path):
+                continue
+            if r['jd2_job_id']:
+                payload = {'nzb_name': os.path.basename(path), 'nzb_folder': path, 'issueid': r['issueid'],
+                           'pack': is_pack(r, myDB),
+                           'download_info': {'provider': 'JD2', 'id': rid, 'job_id': r['jd2_job_id']}}
+            elif is_folder:
+                # the shape ddl_process sends for a download that unpacked into a folder
+                payload = {'nzb_name': os.path.basename(path), 'nzb_folder': path, 'issueid': None, 'pack': True,
+                           'download_info': {'provider': 'DDL', 'id': rid}}
+            else:
+                payload = {'nzb_name': os.path.basename(path), 'nzb_folder': path, 'issueid': r['issueid'],
+                           'pack': is_pack(r, myDB), 'download_info': {'provider': 'DDL', 'id': rid}}
+            payload.update(failed=False, comicid=r['comicid'], apicall=True, ddl=True)
+            mylar.PP_QUEUE.put(payload)
+            count += 1
+            logger.info('[DDL-QUEUE] %s finished downloading but was never filed - sending %s to post-processing.' % (r['series'], path))
+        if count:
+            logger.info('[DDL-QUEUE] Sent %s finished downloads that were never filed to post-processing.' % count)
+        return count
 
 
 def _start(target, name, *args):

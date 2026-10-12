@@ -94,6 +94,7 @@ def jd2_queue_monitor(queue):
                         }
                         queue.put(queue_payload)
                 LOADED.set()
+                ddl.refile_unfiled(myDB)  # JD2 downloads that finished before a restart; once, whichever worker asks first
                 continue
 
             if item.get('jd2_job_id') == 0:

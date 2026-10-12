@@ -52,6 +52,12 @@ def is_redirect_link(link):
     return bool(link and REDIRECT_LINK.match(str(link)))
 
 
+def query_key(queryline):
+    """How GetComics sees a query: it ignores case, quotes and '#', so 'Powers #1' and
+    '"Powers 1"' return the same posts and only need sending once per issue."""
+    return re.sub(r'\s+', ' ', re.sub(r'["#]', '', queryline.lower())).strip()
+
+
 def clear_cancel(post_id):
     """Forget an earlier remove or abort of this post, including the parts of a split pack. Queue
     ids are post ids, so a new grab of the same post reuses them and would otherwise be dropped."""
@@ -306,6 +312,7 @@ class GC(object):
             elif self.query.get('year') and self.query.get('issue') not in (None, 'None'):
                 self.search_format.append(pack_query)
 
+            queries_run = set()
             for sf in self.search_format:
                 verified_matches = []
                 sf_issue = self.query['issue']
@@ -345,7 +352,11 @@ class GC(object):
                                 # this is the injected search format above that's already replaced values
                                 queryline = sf
                             elif sf_count == 2:
-                                queryline = sf % (self.query['comicname'], sf_issue)
+                                if sf_issue is None:
+                                    # no issue number to add: 'Name #None' finds nothing, so search the name
+                                    queryline = self.query['comicname']
+                                else:
+                                    queryline = sf % (self.query['comicname'], sf_issue)
                             elif sf_count == 3:
                                 queryline = sf % (self.query['comicname'], sf_issue, self.query['year'])
                             else:
@@ -353,6 +364,11 @@ class GC(object):
 
                 if not queryline:
                     continue
+
+                if query_key(queryline) in queries_run:
+                    logger.fdebug('[DDL-QUERY] Skipping %s - the same search already ran for this issue' % queryline)
+                    continue
+                queries_run.add(query_key(queryline))
 
                 logger.fdebug('[DDL-QUERY] Query set to: %s' % queryline)
 

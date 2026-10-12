@@ -38,7 +38,6 @@ _busy = set()
 _busy_lock = threading.Lock()
 _queue = queue.Queue()
 _worker = [None]
-_importing = [None]
 _bulk_lock = threading.Lock()
 BULK = {'state': 'idle'}
 
@@ -498,13 +497,10 @@ def _drain():
             path = _queue.get(timeout=60)
         except queue.Empty:
             return
-        _importing[0] = path
         try:
             _process(path)
         except Exception as e:
             logger.warn('[WEBP] Unable to convert %s: %s' % (path, e))
-        finally:
-            _importing[0] = None
 
 
 def _process(path):
@@ -577,23 +573,6 @@ def status():
     snap['available'] = available()
     snap['import_queue'] = _queue.qsize()
     return snap
-
-
-def dock_summary():
-    # Only what the Running now box shows: no folder paths, options or error lists.
-    with _bulk_lock:
-        state = BULK.get('state')
-        if state in ('previewing', 'running'):
-            out = {k: BULK.get(k) for k in ('state', 'done', 'total', 'scanned', 'saved', 'started')}
-            current = BULK.get('current') or ''
-            out['current'] = os.path.basename(current) if state == 'previewing' else current
-            out['stopping'] = bool(BULK.get('stop'))
-            return out
-    current = _importing[0]
-    waiting = _queue.qsize() + (1 if current else 0)
-    if waiting:
-        return {'state': 'import', 'waiting': waiting, 'current': os.path.basename(current or '')}
-    return None
 
 
 def _set(**kw):

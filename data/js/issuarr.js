@@ -51,25 +51,7 @@
     var time = t.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     return t.toDateString() === today.toDateString() ? time : t.toLocaleDateString([], { month: 'short', day: 'numeric' }) + ' ' + time;
   }
-  function size(n) {
-    if (n >= 1e12) return (n / 1e12).toFixed(2) + ' TB';
-    if (n >= 1e9) return (n / 1e9).toFixed(1) + ' GB';
-    return Math.round(n / 1e6) + ' MB';
-  }
-  // One line for a WebP preview, run or on-import queue (the "webp" field of pp_activity).
-  function webpText(w) {
-    if (!w) return '';
-    var num = function (n) { return (n || 0).toLocaleString(); };
-    if (w.state === 'running') {
-      var count = num(w.done) + '/' + num(w.total);
-      if (w.stopping) return 'Stopping WebP (' + count + ')';
-      return 'WebP: ' + count + ' issues' + (w.saved > 0 ? ', ' + size(w.saved) + ' saved' : '');
-    }
-    if (w.state === 'previewing') return w.stopping ? 'Stopping WebP preview' : 'WebP preview: ' + num(w.scanned) + ' files checked';
-    if (w.state === 'import') return 'WebP on import: ' + num(w.waiting) + (w.waiting === 1 ? ' issue' : ' issues') + ' to convert';
-    return '';
-  }
-  window.Issuarr = { esc: esc, toast: toast, relTime: relTime, clock: clock, webpText: webpText };
+  window.Issuarr = { esc: esc, toast: toast, relTime: relTime, clock: clock };
 
   /* ---------- Pages whose tab strip moved into the sidebar ---------- */
 
@@ -194,7 +176,7 @@
   function setupDock() {
     var dock = $id('dock');
     if (!dock) return;
-    var rows = { pp: $id('dock-pp'), search: $id('dock-search'), dl: $id('dock-dl'), webp: $id('dock-webp'), mon: $id('dock-monitor'), idle: $id('dock-idle') };
+    var rows = { pp: $id('dock-pp'), search: $id('dock-search'), dl: $id('dock-dl'), mon: $id('dock-monitor'), idle: $id('dock-idle') };
     var importRow = $id('import_indicator');
     var timer = null;
 
@@ -204,7 +186,7 @@
       if (text) row.querySelector('.dock-text').textContent = text;
     }
     function refreshIdle() {
-      var busy = ['pp', 'search', 'dl', 'webp'].some(function (k) { return rows[k] && !rows[k].hidden; });
+      var busy = ['pp', 'search', 'dl'].some(function (k) { return rows[k] && !rows[k].hidden; });
       if (importRow && importRow.style.display !== 'none') busy = true;
       if (rows.idle) rows.idle.hidden = busy;
     }
@@ -227,8 +209,6 @@
           var dl = d.download ? 'Downloading ' + d.download : '';
           if (queued) dl = dl ? dl + ' (' + queued + ' queued)' : queued + ' queued for download';
           show(rows.dl, dl);
-          show(rows.webp, webpText(d.webp));
-          if (rows.webp) rows.webp.title = d.webp && d.webp.current ? d.webp.current : '';
           show(rows.mon, d.monitor_enabled ? 'Folder Monitor: ' + (d.monitor_status || 'on') : '');
           refreshIdle();
         })

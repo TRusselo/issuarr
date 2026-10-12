@@ -48,7 +48,7 @@ class PostProcessor(object):
     FOLDER_NAME = 2
     FILE_NAME = 3
 
-    def __init__(self, nzb_name, nzb_folder, issueid=None, module=None, queue=None, comicid=None, apicall=False, ddl=False, pack=None):
+    def __init__(self, nzb_name, nzb_folder, issueid=None, module=None, queue=None, comicid=None, apicall=False, ddl=False, pack=None, download_info=None):
         """
         Creates a new post processor with the given file path and optionally an NZB name.
 
@@ -58,6 +58,8 @@ class PostProcessor(object):
         # name of the NZB that resulted in this folder
         self.nzb_name = nzb_name
         self.nzb_folder = nzb_folder
+        # which download this is ({'provider', 'id'}), so the queue can show it being filed
+        self.download_info = download_info
         if module is not None:
             self.module = module + '[POST-PROCESSING]'
         else:
@@ -385,12 +387,14 @@ class PostProcessor(object):
                 logger.info('[POST-PROCESSING] Another post-processing run is working - %s will start when it finishes.' % self.nzb_name)
                 PP_LOCK.acquire()
             try:
+                archives.ddl_filing(getattr(self, 'download_info', None), 'filing')
                 return self._locked_process()
             finally:
                 PP_LOCK.release()
         finally:
             archives.RUNS[0] -= 1
             archives.JOBS.remove(self.job)
+            archives.ddl_filing(getattr(self, 'download_info', None), None)
             # Early returns and exceptions skip the unlocks inside the run; a lock left on would
             # stop the post-processing queue and folder monitor for good.
             if self.apicall:
@@ -414,6 +418,7 @@ class PostProcessor(object):
             if source_name == 'Manual Run' and mylar.CONFIG.CHECK_FOLDER and source and \
                     os.path.normpath(source) == os.path.normpath(mylar.CONFIG.CHECK_FOLDER):
                 archives.sweep(source, started)
+                archives.monitor_ran()
             pending = archives.take_pending()
             archives.done()
             if pending:
@@ -445,6 +450,7 @@ class PostProcessor(object):
         cur, self._att = getattr(self, '_att', None), None
         if cur and cur['path'] and counts == cur['counts'] and os.path.isfile(cur['path']):
             attention.record(cur['path'], attention.pick(cur['reasons']), cur['detail'], cur['comicid'])
+            archives.tally('attention')
 
     def _process_main(self):
             module = self.module
@@ -2134,6 +2140,7 @@ class PostProcessor(object):
                             logger.fdebug('%s [%s] Post-Processing completed for: %s' % (module, ml['StoryArc'], grab_dst))
                         else:
                             logger.fdebug('%s [%s] Post-Processing completed for: %s' % (module, ml['StoryArc'], ml['ComicLocation']))
+                        archives.tally('filed')
 
                         if any([all([mylar.CONFIG.PUSHOVER_IMAGE, mylar.CONFIG.PUSHOVER_ENABLED]), all([mylar.CONFIG.TELEGRAM_IMAGE, mylar.CONFIG.TELEGRAM_ENABLED]), mylar.CONFIG.DISCORD_ENABLED, mylar.CONFIG.GOTIFY_ENABLED, mylar.CONFIG.MATTERMOST_ENABLED ]):
                             try:
@@ -2742,6 +2749,7 @@ class PostProcessor(object):
 
                         logger.info('%s Post-Processing completed for: [%s] %s' % (module, sarc, grab_dst))
                         self._log("Post Processing SUCCESSFUL! ")
+                        archives.tally('filed')
                     elif oneoff is True:
                         logger.info('%s IssueID is : %s' % (module, issueid))
                         ctrlVal = {"IssueID":  issueid}
@@ -2753,6 +2761,7 @@ class PostProcessor(object):
                         logger.info('%s Updated history for one-off\'s for tracking purposes' % module)
                         logger.info('%s Post-Processing completed for: [ %s #%s ] %s' % (module, comicname, issuenumber, grab_dst))
                         self._log("Post Processing SUCCESSFUL! ")
+                        archives.tally('filed')
 
                     if any([all([mylar.CONFIG.PUSHOVER_IMAGE, mylar.CONFIG.PUSHOVER_ENABLED]), all([mylar.CONFIG.TELEGRAM_IMAGE, mylar.CONFIG.TELEGRAM_ENABLED]), mylar.CONFIG.DISCORD_ENABLED, mylar.CONFIG.GOTIFY_ENABLED, mylar.CONFIG.MATTERMOST_ENABLED ]):
                         try:
@@ -3493,6 +3502,7 @@ class PostProcessor(object):
 
             logger.info('%s Post-Processing completed for: %s %s' % (module, series, dispiss))
             self._log("Post Processing SUCCESSFUL! ")
+            archives.tally('filed')
 
             self.valreturn.append({"self.log": self.log,
                                    "mode": 'stop',
@@ -3581,6 +3591,7 @@ class FolderCheck():
     def run(self):
         if mylar.IMPORTLOCK:
             logger.info('There is an import currently running. In order to ensure successful import - deferring this until the import is finished.')
+            archives.skipped('a library import was running')
             return
         #monitor a selected folder for 'snatched' files that haven't been processed
         #junk the queue as it's not needed for folder monitoring, but needed for post-processing to run without error.
@@ -3592,7 +3603,9 @@ class FolderCheck():
         else:
             if mylar.APILOCK is True:
                 logger.info('%s Unable to initiate folder monitor as another process is currently using it or using post-processing.' % self.module)
+                archives.skipped('other post-processing was running')
                 return {'status': 'IN PROGRESS'}
+            archives.monitor_ran()
             helpers.job_management(write=True, job='Folder Monitor', current_run=helpers.utctimestamp(), status='Running')
             mylar.MONITOR_STATUS = 'Running'
             logger.info('%s Checking folder %s for newly snatched downloads' % (self.module, mylar.CONFIG.CHECK_FOLDER))

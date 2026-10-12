@@ -55,9 +55,9 @@ def ddl_queue_rows(myDB):
     issueids = list({str(r['issueid']) for r in rows if r['issueid'] is not None})
     comicids = list({str(r['comicid']) for r in rows if r['comicid'] is not None})
     comics = lookup("SELECT ComicID AS id, ComicName, ComicVersion, ComicYear FROM comics WHERE ComicID IN (%s)", comicids)
-    issues = lookup("SELECT IssueID AS id, ComicID, Issue_Number FROM issues WHERE IssueID IN (%s)", issueids)
-    annuals = lookup("SELECT IssueID AS id, ComicID, Issue_Number FROM annuals WHERE IssueID IN (%s)", issueids)
-    oneoffs = lookup("SELECT IssueID AS id, ComicID, ComicName, IssueNumber AS Issue_Number FROM oneoffhistory WHERE IssueID IN (%s)", issueids)
+    issues = lookup("SELECT IssueID AS id, ComicID, Issue_Number, Status FROM issues WHERE IssueID IN (%s)", issueids)
+    annuals = lookup("SELECT IssueID AS id, ComicID, Issue_Number, Status FROM annuals WHERE IssueID IN (%s)", issueids)
+    oneoffs = lookup("SELECT IssueID AS id, ComicID, ComicName, IssueNumber AS Issue_Number, Status FROM oneoffhistory WHERE IssueID IN (%s)", issueids)
 
     resultlist = []
     for r in rows:
@@ -99,6 +99,8 @@ def ddl_queue_rows(myDB):
                            'comicid':      comicid if comic else None,
                            'issueid':      r['issueid'],
                            'status':       r['status'],
+                           'pack':         bool(r['pack']),
+                           'issue_status': _field(iss or oneoff, 'Status') if (iss or oneoff) else None,
                            'updated_date': r['updated_date'],
                            'progress':     '100%' if r['status'] == 'Completed' else '',
                            'site':         r['site'] if 'site' in r.keys() else None,
@@ -114,6 +116,123 @@ def _field(row, key):
         return row[key]
     except (KeyError, IndexError):
         return None
+
+
+# ---- filing ---------------------------------------------------------------
+# ddl_info says Completed as soon as the file is down; post-processing files it after that.
+
+FILED = ('Downloaded', 'Archived')
+
+
+def filing_signals(myDB, rows=()):
+    """What's known about filing right now, for filing_stage.
+
+    stages: {ddl id: 'waiting'|'filing'}; flagged: the files Needs attention lists; tagged: for
+    `rows` whose file is marked for another issue, that issue's (Status, number).
+    """
+    from mylar import archives, attention
+    stages = {}
+    try:
+        with mylar.PP_QUEUE.mutex:
+            queued = [i.get('download_info') for i in mylar.PP_QUEUE.queue if isinstance(i, dict)]
+    except Exception:
+        queued = []
+    for info in queued:
+        if isinstance(info, dict) and info.get('provider') in ('DDL', 'JD2') and info.get('id') is not None:
+            stages[str(info['id'])] = 'waiting'
+    stages.update(dict(archives.DDL_FILING))
+    try:
+        flagged = attention.shown_paths(myDB)
+    except Exception:
+        flagged = []
+    other = list({_tag_id(r) for r in rows if _tag_id(r) not in (None, str(r.get('issueid')))})
+    tagged = {}
+    for sql in ("SELECT IssueID, Status, IssueNumber AS Issue_Number FROM oneoffhistory WHERE IssueID IN (%s)",
+                "SELECT IssueID, Status, Issue_Number FROM annuals WHERE IssueID IN (%s)",
+                "SELECT IssueID, Status, Issue_Number FROM issues WHERE IssueID IN (%s)"):
+        for n in range(0, len(other), 500):
+            chunk = other[n:n + 500]
+            try:
+                tagged.update((str(r['IssueID']), (r['Status'], r['Issue_Number']))
+                              for r in myDB.select(sql % ','.join('?' * len(chunk)), chunk))
+            except Exception:
+                pass
+    return {'stages': stages, 'flagged': flagged, 'tagged': tagged}
+
+
+def _tag_id(d):
+    """The issue id in the [__id__] mark on a direct download's file name, if it has one."""
+    m = re.search(r'\[__(\d+)__\]', str(d.get('filename') or ''))
+    return m.group(1) if m else None
+
+
+def _tag(d):
+    """The [__id__] mark a direct download's file and folder carry, which Needs attention paths keep."""
+    tid = _tag_id(d) or d.get('issueid')
+    return '[__%s__]' % tid if tid is not None else None
+
+
+def _in_attention(d, flagged):
+    """Whether any of this download's files are listed under Needs attention.
+
+    DDL files carry the [__id__] mark; JD2 ones sit in JD2_DEST_DIR under a folder ending ' - <ddl id>'.
+    """
+    tag = _tag(d)
+    jd2 = getattr(mylar.CONFIG, 'JD2_DEST_DIR', None)
+    jd2 = os.path.join(os.path.normpath(jd2), '') if jd2 and jd2 != 'None' else None
+    folder = ' - %s%s' % (d['queueid'], os.sep)
+    for p in flagged:
+        if tag and tag in p:
+            return True
+        if jd2 and p.startswith(jd2) and folder in p:
+            return True
+    return False
+
+
+def filing_stage(d, signals):
+    """(status, note) for a downloaded direct download.
+
+    Completed only once it's filed: its issue is Downloaded or Archived, or for a pack, its
+    post-processing run has ended and none of its files are waiting under Needs attention.
+    """
+    stage = signals['stages'].get(str(d['queueid']))
+    if stage == 'filing':
+        return 'Filing', None
+    if stage == 'waiting':
+        return 'Waiting to file', None
+    if not getattr(mylar.CONFIG, 'POST_PROCESSING', True):
+        return 'Completed', None
+    if not d.get('pack') and d.get('issue_status') in FILED:
+        return 'Completed', None
+    if _in_attention(d, signals['flagged']):
+        return 'Not filed', 'Filing couldn\'t place it. It\'s waiting under Needs attention.'
+    if not d.get('pack') and d.get('issue_status'):
+        other = signals.get('tagged', {}).get(_tag_id(d) or '')
+        if other and other[0] in FILED and _tag_id(d) != str(d.get('issueid')):
+            return 'Not filed', 'Filed as a different issue (#%s); this issue is still %s.' % (other[1], d['issue_status'])
+        return 'Not filed', 'Filing didn\'t take it, so the issue is still %s. The log has the details.' % d['issue_status']
+    return 'Completed', None
+
+
+def unfiled_ids(myDB):
+    """ddl_info ids that say Completed but aren't filed yet, which Clear finished leaves alone."""
+    rows = myDB.select("SELECT * FROM ddl_info WHERE status = 'Completed'")
+    known = {}
+    for table in ('oneoffhistory', 'annuals', 'issues'):
+        try:
+            known.update((str(r['IssueID']), r['Status']) for r in myDB.select(
+                "SELECT IssueID, Status FROM %s WHERE IssueID IN "
+                "(SELECT issueid FROM ddl_info WHERE status = 'Completed')" % table))
+        except Exception:
+            pass
+    rows = [{'queueid': r['ID'], 'issueid': r['issueid'], 'pack': bool(_field(r, 'pack')),
+             'filename': _field(r, 'filename'), 'issue_status': known.get(str(r['issueid']))} for r in rows]
+    signals = filing_signals(myDB, rows)
+    out = []
+    for d in rows:
+        if filing_stage(d, signals)[0] != 'Completed':
+            out.append(str(d['queueid']))
+    return out
 
 
 def ddl_progress(row):
@@ -582,13 +701,19 @@ def build(myDB, active=None, rate=None):
     from mylar.queues import jd2
     at_jd2 = jd2.at_jd2()
     rows = []
-    for d in ddl_queue_rows(myDB):
+    ddl_rows = ddl_queue_rows(myDB)
+    downloaded = [d for d in ddl_rows if d['status'] == 'Completed']
+    signals = filing_signals(myDB, downloaded) if downloaded else None
+    for d in ddl_rows:
         status = d['status'] or 'Queued'
         source, via = ddl_source(d, at_jd2)
+        note = None
+        if status == 'Completed':
+            status, note = filing_stage(d, signals)
         row = {'key': 'ddl-%s' % d['queueid'], 'kind': 'ddl', 'queueid': d['queueid'], 'title': d['series'],
                'comicid': d['comicid'], 'issueid': d['issueid'], 'via': via, 'source': source,
-               'status': status, 'percent': 100 if status == 'Completed' else None, 'size': d['size'] or None,
-               'speed': None, 'eta': None, 'progress': None, 'message': None, 'detail': None,
+               'status': status, 'percent': 100 if d['status'] == 'Completed' else None, 'size': d['size'] or None,
+               'speed': None, 'eta': None, 'progress': None, 'message': note, 'detail': None,
                'updated': d['updated_date']}
         if active and status == 'Downloading' and str(active.get('a_id')) == str(d['queueid']):
             try:

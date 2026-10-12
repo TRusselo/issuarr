@@ -4035,12 +4035,17 @@ class WebInterface(object):
             held = ' AND ID NOT IN (%s)' % marks
             chk = myDB.fetch("SELECT ID FROM ddl_info WHERE status = ? AND ID IN (%s)" % marks, [status] + pending)
             kept = len(chk.fetchall()) if chk is not None else 0
-        cur = myDB.action("DELETE FROM ddl_info WHERE status = ?" + held, [status] + pending)
+        # Completed only means downloaded; rows still waiting to be filed, or that filing didn't take, stay.
+        unfiled = [i for i in downloadqueue.unfiled_ids(myDB) if i not in pending] if status == 'Completed' else []
+        if unfiled:
+            held += ' AND ID NOT IN (%s)' % ','.join('?' * len(unfiled))
+        cur = myDB.action("DELETE FROM ddl_info WHERE status = ?" + held, [status] + pending + unfiled)
         if cur is None:   # the database stayed locked through every retry
             return json.dumps({'status': False, 'message': 'The database was busy, so nothing was cleared; try again'})
         removed = cur.rowcount
-        logger.info('[DDL-CLEAR] Removed %s %s downloads from the queue list, kept %s still stopping' % (removed, word, kept))
-        if removed == 0 and kept == 0:
+        logger.info('[DDL-CLEAR] Removed %s %s downloads from the queue list, kept %s still stopping and %s not filed yet'
+                    % (removed, word, kept, len(unfiled)))
+        if removed == 0 and kept == 0 and not unfiled:
             return json.dumps({'status': True, 'message': 'There were no %s downloads to clear' % word})
         if removed == 0:
             message = 'Nothing was cleared'
@@ -4049,6 +4054,9 @@ class WebInterface(object):
         if kept:
             message += '. %s still stopping, so %s stayed; try again in a moment' % (
                 '1 download is' if kept == 1 else '%s downloads are' % kept, 'it' if kept == 1 else 'they')
+        if unfiled:
+            message += '. %s not filed yet, so %s stayed' % (
+                '1 download is' if len(unfiled) == 1 else '%s downloads are' % len(unfiled), 'it' if len(unfiled) == 1 else 'they')
         return json.dumps({'status': True, 'message': message})
     ddl_clear.exposed = True
 

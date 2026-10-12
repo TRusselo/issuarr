@@ -4,7 +4,7 @@ import time
 
 import mylar
 from .. import logger
-from mylar import process
+from mylar import archives, process
 
 
 def postprocess_main(queue):
@@ -21,6 +21,7 @@ def postprocess_main(queue):
                 break
 
             if mylar.APILOCK is False:
+                archives.ddl_filing(item.get('download_info'), 'waiting')
                 try:
                     pprocess = process.Process(
                         item['nzb_name'],

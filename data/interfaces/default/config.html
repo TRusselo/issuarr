@@ -1,5 +1,6 @@
 <%inherit file="base.html"/>
 <%!
+    import re
     import mylar
     from operator import itemgetter
 %>
@@ -367,22 +368,57 @@
 
     <div id="tabs-4" class="set-panel" data-title="Search providers" data-sub="Where Issuarr looks for issues, and the order it tries them in.">
         <%
-            porder = [v for k, v in sorted(mylar.CONFIG.PROVIDER_ORDER.items(), key=itemgetter(0))]
+            porder = [v for k, v in sorted(mylar.CONFIG.PROVIDER_ORDER.items(), key=lambda kv: int(kv[0]) if str(kv[0]).isdigit() else 0)]
+            # the Internet Archive sits next to GetComics, where the download sources list puts it
+            ia_follows_gc = 'DDL(GetComics)' in porder and 'DDL(Internet Archive)' in porder
+            if ia_follows_gc:
+                porder = [p for p in porder if p != 'DDL(Internet Archive)']
+            def pname(row):
+                return re.sub('"', '', str(row[0] or row[1])).strip()
+            pkinds = dict([(pname(r), 'Usenet indexer') for r in (mylar.CONFIG.EXTRA_NEWZNABS or [])] +
+                          [(pname(r), 'Torrent indexer') for r in (mylar.CONFIG.EXTRA_TORZNABS or [])] +
+                          [('DDL(GetComics)', 'Direct download'), ('DDL(Internet Archive)', 'Direct download'), ('DDL(External)', 'Direct download'), ('Experimental', 'Usenet, experimental'),
+                           ('AirDCPP', 'AirDC++'), ('32p', 'Torrent')])
+            if ia_follows_gc:
+                pkinds['DDL(GetComics)'] = 'Direct download, with the Internet Archive just before or after it as Download sources orders them'
+            # a kind of search that's on but has nothing to search, so the order shows why it's missing
+            C = mylar.CONFIG
+            def ready(rows):
+                return any(str(r[5]) == '1' and re.sub(r'^\w+://', '', str(r[1] or '').strip()).strip('/') for r in rows or [])
+            ogaps = []
+            if C.ENABLE_TORRENT_SEARCH and not C.ENABLE_32P:
+                if not C.ENABLE_TORZNAB:
+                    ogaps.append('Torrent search is on, but Use Torznab indexers is off.')
+                elif not ready(C.EXTRA_TORZNABS):
+                    ogaps.append('Torznab is on, but no indexer is turned on with an address.')
+            if C.NEWZNAB and not ready(C.EXTRA_NEWZNABS):
+                ogaps.append('Newznab is on, but no indexer is turned on with an address.')
+            if C.ENABLE_DDL and not (C.ENABLE_GETCOMICS or C.ENABLE_ARCHIVEORG or C.ENABLE_EXTERNAL_SERVER):
+                ogaps.append('Direct downloads are on, but no site is.')
         %>
         <section class="set-group" aria-labelledby="sg-order">
             <div class="set-group-head"><h2 id="sg-order">Search order</h2></div>
             <div class="set-row">
-                <div class="set-label"><b>Tried in this order</b><span>Only providers that are turned on below are searched.</span></div>
+                <div class="set-label"><b>Tried in this order</b><span>Only providers that are turned on below are searched. Providers you turn on join the end of the list when you save.</span></div>
                 <div class="set-ctl">
                     %if porder:
-                    <ol class="set-order">
-                        %for p in porder:
-                        <li>${p | h}</li>
+                    <ol class="ddl-src-list prov-order" id="prov_order_list">
+                        %for i, p in enumerate(porder):
+                        <li data-name="${p | h}">
+                            <button type="button" class="ddl-up" aria-label="Move ${p | h} up" ${'disabled' if i == 0 else ''}>▲</button>
+                            <button type="button" class="ddl-down" aria-label="Move ${p | h} down" ${'disabled' if i == len(porder) - 1 else ''}>▼</button>
+                            <span class="prov-name">${p | h}</span>
+                            <small class="ddl-via">${pkinds.get(p, 'Provider') | h}</small>
+                        </li>
                         %endfor
                     </ol>
+                    <input type="hidden" name="provider_order" id="provider_order" value="${', '.join('%s, %s' % (i, p) for i, p in enumerate(porder)) | h}">
                     %else:
                     <span class="muted">No providers are on.</span>
                     %endif
+                    %for g in ogaps:
+                    <span class="set-order-gap">${g | h}</span>
+                    %endfor
                 </div>
             </div>
             <div class="set-row">
@@ -481,9 +517,15 @@
                         <div class="set-sub" id="flaresolverr_options" style="display:none">
                             ${field('flaresolverr_url', 'FlareSolverr address', config['flaresolverr_url'], id='flaresolverr_url', placeholder='http://192.168.1.2:8191/v1', help='Include /v1 at the end.')}
                         </div>
+                        <div class="set-row">
+                            <label class="set-label" for="ddl_query_delay"><b>Wait between GetComics search pages</b><span>Searching reads GetComics one page at a time and waits this long between pages. Shorter makes searches faster, but GetComics may start blocking you if it's too short. Between 3 and 60 seconds.</span></label>
+                            <div class="set-ctl"><input type="number" name="ddl_query_delay" id="ddl_query_delay" value="${config['ddl_query_delay'] | h}" min="3" max="60" step="1" class="set-num" /><span class="set-unit">seconds</span></div>
+                        </div>
                     </div>
                     <div class="set-row">
-                        <div class="set-label"><b>Download sources, in the order to try them</b><span>Sources a post doesn't offer are skipped. GetComics direct downloads go through Issuarr and FlareSolverr; other hosts go to JDownloader 2 when it's on. New hosts that GetComics adds appear here automatically.</span></div>
+                        <div class="set-label"><b>Download sources, in the order to try them</b><span>Sources a post doesn't offer are skipped. Cloud shares other than Mega, MediaFire and Pixeldrain need JDownloader 2.
+                            The Internet Archive is searched before GetComics when it's above all three GetComics sources, and right after GetComics otherwise.
+                            Its zips of pages are saved as .cbz, so filing, WebP and tagging handle them as usual.</span></div>
                         <div class="set-ctl ddl-sources" id="ddl_sources_box">
                             <ol id="ddl_sources_list" class="ddl-src-list"></ol>
                             <input type="hidden" name="ddl_priority_order" id="ddl_priority_order" value="">
@@ -1920,7 +1962,7 @@ $("#enable_airdcpp").click(function(){
                             return '<li data-i="' + i + '"><button type="button" class="ddl-up" aria-label="Move up"' + (i === 0 ? ' disabled' : '') + '>▲</button>' +
                                 '<button type="button" class="ddl-down" aria-label="Move down"' + (i === src.length - 1 ? ' disabled' : '') + '>▼</button>' +
                                 '<label class="ddl-src"><input type="checkbox" class="ddl-on"' + (s.enabled ? ' checked' : '') + '> ' + $('<span>').text(s.label).html() + '</label>' +
-                                '<small class="ddl-via">' + $('<span>').text(s.via).html() + (s.last_seen ? ' · last offered ' + s.last_seen.slice(0, 10) : ' · not seen yet') + '</small></li>';
+                                '<small class="ddl-via">' + $('<span>').text(s.via).html() + '</small></li>';
                         }).join(''));
                         $('#ddl_priority_order').val(JSON.stringify(src.map(function (s) { return s.name; })));
                         $('#ddl_disabled_sources').val(JSON.stringify(src.filter(function (s) { return !s.enabled; }).map(function (s) { return s.name; })));
@@ -1931,6 +1973,22 @@ $("#enable_airdcpp").click(function(){
                         list.find('li').eq(j).find($(this).hasClass('ddl-up') ? '.ddl-up' : '.ddl-down').focus();
                     });
                     list.on('change', '.ddl-on', function () { src[+$(this).closest('li').data('i')].enabled = this.checked; draw(); });
+                    // the search order: same arrows, saved as "0, name, 1, name"
+                    var plist = $('#prov_order_list');
+                    function pdraw() {
+                        var items = plist.children('li');
+                        items.each(function (i) {
+                            $(this).find('.ddl-up').prop('disabled', i === 0);
+                            $(this).find('.ddl-down').prop('disabled', i === items.length - 1);
+                        });
+                        $('#provider_order').val(items.map(function (i) { return i + ', ' + $(this).data('name'); }).get().join(', ')).trigger('change');
+                    }
+                    plist.on('click', '.ddl-up, .ddl-down', function () {
+                        var up = $(this).hasClass('ddl-up'), li = $(this).closest('li');
+                        if (up) li.prev().before(li); else li.next().after(li);
+                        pdraw();
+                        li.find(up ? '.ddl-up' : '.ddl-down').filter(':enabled').focus();
+                    });
                     draw();
                     function gb(n) { return (n / 1e9).toFixed(2) + ' GB'; }
                     $('#test_pixeldrain').click(function () {

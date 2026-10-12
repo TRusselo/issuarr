@@ -25,6 +25,7 @@ import re
 import threading
 import time
 import datetime
+import unicodedata
 from bs4 import BeautifulSoup
 import requests
 import zipfile
@@ -40,6 +41,63 @@ FILE_CLEARANCE = {}
 
 # the search queue, the GetComics worker and the failover worker can all refresh the cookie
 _COOKIE_LOCK = threading.Lock()
+
+
+# A post's download buttons point at getcomics.org/dls/..., which forwards to the file's real
+# address (mega.nz, mediafire.com, GetComics' own file server). Mega's API, the MediaFire page
+# reader and JD2 all need that real address.
+REDIRECT_LINK = re.compile(r'^https?://(?:www\.)?getcomics\.(?:org|info)/dls/', re.I)
+
+
+def is_redirect_link(link):
+    return bool(link and REDIRECT_LINK.match(str(link)))
+
+
+def query_key(queryline):
+    """How GetComics sees a query: it ignores case, quotes and '#', so 'Powers #1' and
+    '"Powers 1"' return the same posts and only need sending once per issue."""
+    return re.sub(r'\s+', ' ', re.sub(r'["#]', '', queryline.lower())).strip()
+
+
+def clear_cancel(post_id):
+    """Forget an earlier remove or abort of this post, including the parts of a split pack. Queue
+    ids are post ids, so a new grab of the same post reuses them and would otherwise be dropped."""
+    post_id = str(post_id)
+    for cancelled in [c for c in mylar.DDL_CANCEL if c == post_id or c.startswith(post_id + '-')]:
+        mylar.DDL_CANCEL.discard(cancelled)
+
+
+# GetComics lists search results newest first, not by relevance, so a series' older posts can sit
+# several pages in (on 11-12 Oct the trade searches for Birds of Prey and Ghostbusters matched on
+# pages 7-9). Deep pages of a short name are mostly other series ("Powers #1" ran to 14 pages of
+# Power Rangers and Powers of X), and each page costs DDL_QUERY_DELAY. So stop a query once
+# OFF_SERIES_PAGES pages in a row have no post named like the series, and never read more than
+# MAX_SEARCH_PAGES.
+MAX_SEARCH_PAGES = 10
+OFF_SERIES_PAGES = 2
+
+
+def _name_words(name):
+    # fold accents to plain ASCII as filechecker does, so 'Ragnarök' names 'Ragnarok #1'
+    name = unicodedata.normalize('NFKD', name or '').encode('ascii', 'ignore').decode()
+    return [w for w in search_filer._words(re.sub(r"['\u2019]", '', name)) if w not in ('the', 'and', 'a')]
+
+
+def names_series(title, names):
+    """True when a post title could be one of the series names: it starts with the name
+    ("Powers - The Bureau", "Spider-Man" for "Spiderman") or starts with the same word and holds
+    all the name's words in order (GetComics adds words, as in with_extra_words)."""
+    got = _name_words(title)
+    for name in names:
+        want = _name_words(name)
+        if not want or not got:
+            continue
+        if ''.join(got).startswith(''.join(want)):
+            return True
+        rest = iter(got)
+        if got[0] == want[0] and all(word in rest for word in want):
+            return True
+    return False
 
 
 class DownloadCancelled(Exception):
@@ -190,6 +248,35 @@ class GC(object):
         logger.info('[GC_Cookie_Refresh] Cleared the Cloudflare check on %s through FlareSolverr.' % host)
         return True
 
+    def resolve_link(self, link):
+        """Where a GetComics download button forwards to, or None when it can't be told.
+        Links that aren't GetComics buttons come back as they are."""
+        if not is_redirect_link(link):
+            return link
+        self.cookie_receipt()
+        self.apply_file_clearance()
+        cleared = False
+        for _ in range(4):  # a button may forward to another button
+            try:
+                r = self.session.get(link, headers=self.headers, allow_redirects=False, verify=True, timeout=(30, 30))
+            except requests.exceptions.RequestException as e:
+                logger.warn('[GC-LINK] Could not open the download button %s: %s' % (link[:60], e))
+                return None
+            location = r.headers.get('Location')
+            r.close()
+            if r.status_code in (301, 302, 303, 307, 308) and location:
+                link = urllib.parse.urljoin(link, location)
+                if not is_redirect_link(link):
+                    logger.fdebug('[GC-LINK] Download button leads to %s' % link)
+                    return link
+                continue
+            if not cleared and self.is_challenge(r) and self.refresh_clearance(link):
+                cleared = True
+                continue
+            logger.warn('[GC-LINK] The download button %s did not forward anywhere (status %s).' % (link[:60], r.status_code))
+            return None
+        return None
+
     def __init__(self, query=None, issueid=None, comicid=None, oneoff=False, session_path=None, provider_stat=None):
 
         self.valreturn = []
@@ -259,6 +346,10 @@ class GC(object):
             elif self.query.get('year') and self.query.get('issue') not in (None, 'None'):
                 self.search_format.append(pack_query)
 
+            # the name searched for (an alternate name runs as its own search) and the series' own
+            self.series_names = [n for n in (self.query['comicname'], (is_info or {}).get('ComicName')) if n]
+
+            queries_run = set()
             for sf in self.search_format:
                 verified_matches = []
                 sf_issue = self.query['issue']
@@ -298,7 +389,11 @@ class GC(object):
                                 # this is the injected search format above that's already replaced values
                                 queryline = sf
                             elif sf_count == 2:
-                                queryline = sf % (self.query['comicname'], sf_issue)
+                                if sf_issue is None:
+                                    # no issue number to add: 'Name #None' finds nothing, so search the name
+                                    queryline = self.query['comicname']
+                                else:
+                                    queryline = sf % (self.query['comicname'], sf_issue)
                             elif sf_count == 3:
                                 queryline = sf % (self.query['comicname'], sf_issue, self.query['year'])
                             else:
@@ -306,6 +401,11 @@ class GC(object):
 
                 if not queryline:
                     continue
+
+                if query_key(queryline) in queries_run:
+                    logger.fdebug('[DDL-QUERY] Skipping %s - the same search already ran for this issue' % queryline)
+                    continue
+                queries_run.add(query_key(queryline))
 
                 logger.fdebug('[DDL-QUERY] Query set to: %s' % queryline)
 
@@ -413,6 +513,8 @@ class GC(object):
     def perform_search_queries(self, queryline):
         next_url = self.url
         seen_urls = set()
+        names = getattr(self, 'series_names', None) or [self.query['comicname']]
+        pages = off_series = 0
         while next_url is not None:
             pause_the_search = mylar.CONFIG.DDL_QUERY_DELAY
             diff = mylar.search.check_time(self.provider_stat['lastrun']) # only limit the search queries - the other calls should be direct and not as intensive
@@ -441,6 +543,11 @@ class GC(object):
             mylar.search.last_run_check(write={'DDL(GetComics)': {'id': 200, 'active': True, 'lastrun': write_time, 'type': 'DDL', 'hits': self.provider_stat['hits']+1}})
             self.provider_stat['lastrun'] = write_time
             page_results, next_url = self.parse_search_result(page_html, gc_page.status_code)
+            pages += 1
+            if any(names_series(r.get('title') or r.get('series'), names) for r in page_results):
+                off_series = 0
+            else:
+                off_series += 1
 
             #logger.fdebug('page_results: %s' % page_results)
             possible_choices = []
@@ -458,6 +565,17 @@ class GC(object):
             #if not mylar.CONFIG.PACK_PRIORITY and possible_choices:
             #    logger.info('[pack-last choices] possible choices to check before page-loading next page..: %s' % possible_choices)
             #    yield possible_choices
+
+            if next_url is None:
+                break
+            if off_series >= OFF_SERIES_PAGES:
+                logger.fdebug('[DDL-QUERY] Not reading past page %s of %s - the last %s pages had nothing named like %s'
+                              % (pages, queryline, off_series, ' / '.join(names)))
+                break
+            if pages >= MAX_SEARCH_PAGES:
+                logger.info('[DDL-QUERY] Stopped reading %s at the %s-page limit - GetComics has more pages'
+                            % (queryline, MAX_SEARCH_PAGES))
+                break
 
     def parse_search_result(self, page_html, status_code):
         resultlist = []
@@ -636,7 +754,9 @@ class GC(object):
                     if x not in keep:
                         mylar.PACK_ISSUEIDS_DONT_QUEUE.pop(x.get('issueid'), None)
                 pack_issuelist['issues'][:] = keep
-            others = [dict(e) for e in entries if e is not chosen and e['source'] not in ddlsources.BUILTIN]
+            if chosen['source'] == 'torrent':
+                return self._send_torrent(chosen, id, mainlink, comicinfo, packinfo, link_type_failure)
+            others = [dict(e) for e in entries if e is not chosen and e['source'] not in ddlsources.BUILTIN and e['source'] != 'torrent']
             return self._queue_links([chosen], entries, others, id, mainlink, comicinfo, None, link_type_failure, myDB)
 
         i = 0
@@ -768,12 +888,17 @@ class GC(object):
             count_bees +=1
 
         #logger.fdebug('final valid_links: %s' % (valid_links))
-        ddlsources.record([a.get('site') for y in valid_links.values() for a in (y.get('links') or [])])
         other_links = []
+        torrents = []
         for k, y in valid_links.items():
             for a in (y.get('links') or []):
-                src = ddlsources.canonical(a.get('site'))
-                if src and src not in ddlsources.BUILTIN and ddlsources.is_enabled(src) and a.get('links'):
+                src = ddlsources.canonical(a.get('site'), a.get('links'))
+                if not src or not ddlsources.is_enabled(src) or not a.get('links'):
+                    continue
+                if src == 'torrent':
+                    if ddlsources.torrent_ready() and 'GC-Torrent' not in (link_type_failure or []):
+                        torrents.append(dict(a, source=src))
+                elif src not in ddlsources.BUILTIN:
                     other_links.append(dict(a, source=src))
         tmp_links = []
         tmp_sites = []
@@ -836,6 +961,13 @@ class GC(object):
                        logger.fdebug('%s -- %s' % (d_site, a['series']))
                        cntr +=1
 
+
+        if torrents:
+            available = {ddlsources.canonical(a.get('site')) for a in tmp_links}
+            if self.jd2 is not None:
+                available |= {o['source'] for o in other_links}
+            if ddlsources.torrent_first(available, ddlsources.size_bytes(torrents[0].get('size'))):
+                return self._send_torrent(torrents[0], id, mainlink, comicinfo, packinfo, link_type_failure)
 
         #logger.fdebug('tmp_links: %s' % (tmp_links))
         logger.fdebug('tmp_sites: %s' % (tmp_sites))
@@ -1275,6 +1407,31 @@ class GC(object):
 
         return {'success': True, 'site': link_type}
 
+    def _send_torrent(self, entry, id, mainlink, comicinfo, packinfo, link_type_failure):
+        """Send a post's torrent or magnet link to the torrent client. If the client won't take it,
+        the post's other sources are tried instead."""
+        try:
+            info = comicinfo[0]
+        except Exception:
+            info = {}
+        if self.issueid is None:
+            self.issueid = info.get('IssueID')
+        if self.comicid is None:
+            self.comicid = info.get('ComicID')
+        name = info.get('ComicName') or entry.get('series') or 'getcomics'
+        logger.info('[DDL] Sending the torrent for %s from GetComics to your torrent client.' % (entry.get('series') or name))
+        sent = ddlsources.send_torrent(name, info.get('IssueNumber') or entry.get('issues'), info.get('comyear') or entry.get('year'),
+                                       entry['links'], 'DDL(GetComics)', self.issueid, self.comicid, entry.get('series') or name)
+        if not sent:
+            logger.info('[DDL] The torrent client didn\'t take the torrent for %s - trying the post\'s other sources.' % name)
+            return self.parse_downloadresults(id, mainlink, comicinfo, packinfo, list(link_type_failure or []) + ['GC-Torrent'])
+        try:
+            # after a failed download the item is no longer a direct download - the client has it now
+            db.DBConnection().action('DELETE FROM ddl_info WHERE id=?', [id])
+        except Exception:
+            pass
+        return {'success': True, 'site': 'GC-Torrent', 'torrent': sent}
+
     def _single_item(self, soup, comicinfo, link_type_failure=None):
         try:
             name = comicinfo[0]['ComicName']
@@ -1305,10 +1462,12 @@ class GC(object):
                 href = a.get('href')
                 if not site or not href or 'sh.st' in href or site.lower() == 'read online':
                     continue
-                src = ddlsources.canonical(site)
+                src = ddlsources.canonical(site, href)
                 if not src or not ddlsources.is_enabled(src):
                     continue
-                if getattr(self, 'jd2', None) is None and src not in ddlsources.BUILTIN:
+                if src == 'torrent' and not ddlsources.torrent_ready():
+                    continue
+                if getattr(self, 'jd2', None) is None and src not in ddlsources.BUILTIN and src != 'torrent':
                     continue  # only JD2 can download from this host
                 if link_type_failure and any(src[:4] in str(t).lower() or (src == 'main' and 'main' in str(t).lower()) for t in link_type_failure):
                     continue

@@ -9,6 +9,7 @@
     ['all', 'All', function () { return true; }],
     ['tier1', 'Tier 1', function (r) { return r.tier === 1; }],
     ['tier2', 'Tier 2', function (r) { return r.tier === 2; }],
+    ['soon', 'Not out yet', function (r) { return r.tier === 'soon'; }],
     ['snatched', 'Snatched', function (r) { return r.status === 'Snatched'; }],
     ['failed', 'Failed', function (r) { return r.status === 'Failed'; }],
     ['arcs', 'Story arcs', function (r) { return !!r.arc; }]
@@ -17,7 +18,8 @@
                Archived: 'Marked {n} as archived', OppositeTier: 'Switched the tier of {n}' };
   var STATUS = { Wanted: 'is-wanted', Snatched: 'is-snatched', Failed: 'is-failed' };
 
-  var st = { rows: [], tab: 'all', q: '', sort: 'release-desc', limit: CHUNK, sel: {}, loaded: false };
+  var st = { rows: [], tab: 'all', q: '', sort: 'release-desc', limit: CHUNK, sel: {}, loaded: false,
+             flow: {}, current: null };
 
   function $id(id) { return document.getElementById(id); }
   function I() { return window.Issuarr; }
@@ -29,11 +31,14 @@
     var tierText = r[4] || '';
     var tier = 0, added = '';
     if (r[6] === 'Wanted') {
+      var m = /\[(.*)\]/.exec(tierText);
       if (tierText.indexOf('2nd') === 0) tier = 2;
-      else { tier = 1; var m = /\[(.*)\]/.exec(tierText); added = m ? m[1] : ''; }
+      else if (tierText.indexOf('Not out') === 0) tier = 'soon';
+      else { tier = 1; added = m ? m[1] : ''; }
     }
     return { name: r[0] || '', issue: r[1] == null ? '' : String(r[1]), release: r[2] || '', id: String(r[3]), tier: tier, added: added,
-             comicid: r[5], status: r[6] || '', arc: r[7], arcid: r[8], watch: r[10], num: Number(r[11]) || 0 };
+             comicid: r[5], status: r[6] || '', arc: r[7], arcid: r[8], arcissue: r[9] ? String(r[9]) : '', watch: r[10],
+             num: Number(r[11]) || 0 };
   }
 
   function seriesCell(r) {
@@ -46,9 +51,41 @@
     return link;
   }
 
+  // Where the issue is on its way to the library, from the flow line's data.
+  // The search queue knows story-arc issues by their arc issue id.
+  function ago(at) {
+    var m = Math.round((Date.now() / 1000 - at) / 60);
+    return m < 1 ? 'just now' : m < 60 ? m + ' min ago' : Math.round(m / 60) + ' h ago';
+  }
+  function queueNote(r) {
+    var f = st.flow[r.id] || (r.arcissue && st.flow[r.arcissue]);
+    if (!f) return '';
+    var text = { searching: 'Searching now', queued: 'Found, waiting to download', jd2: 'Found, at JDownloader 2',
+                 client: 'Found, at your download client' }[f.state];
+    if (f.state === 'waiting') text = 'In search queue, #' + f.place;
+    if (f.state === 'downloading') text = 'Downloading' + (f.percent != null ? ' ' + f.percent + '%' : '');
+    if (f.state === 'nothing') text = 'Searched ' + ago(f.at) + ', nothing found';
+    if (!text) return '';
+    var cls = 'w-where is-' + f.stage + (f.state === 'searching' || f.state === 'downloading' ? ' is-live' : '');
+    if (f.stage === 'download') return ' <a class="' + cls + '" href="queueManage">' + esc(text) + '</a>';
+    return ' <span class="' + cls + '">' + esc(text) + '</span>';
+  }
+
+  // Tier 1 lasts TIER_DAYS from the later of the day an issue was added and the day it came out.
+  var TIER_DAYS = Number($id('w-table').getAttribute('data-tier-days')) || 14;
+  function plusDays(iso, n) {
+    var t = new Date(iso + 'T00:00:00');
+    if (isNaN(t)) return '';
+    t.setDate(t.getDate() + n);
+    return t.getFullYear() + '-' + ('0' + (t.getMonth() + 1)).slice(-2) + '-' + ('0' + t.getDate()).slice(-2);
+  }
   function tierCell(r) {
-    if (r.tier === 1) return 'Tier 1' + (r.added ? ' <span class="muted mono">since ' + esc(r.added) + '</span>' : '');
+    if (r.tier === 1) {
+      var until = r.added ? plusDays(r.added, TIER_DAYS) : '';
+      return 'Tier 1' + (until ? ' <span class="muted mono" title="Searched on every scheduled search until then">until ' + esc(until) + '</span>' : '');
+    }
     if (r.tier === 2) return '<span class="muted">Tier 2</span>';
+    if (r.tier === 'soon') return '<span title="Searched from its release date">Not out yet</span>';
     return '';
   }
 
@@ -94,7 +131,7 @@
           '<td>' + seriesCell(r) + '</td>' +
           '<td class="mono nowrap">#' + esc(r.issue) + '</td>' +
           '<td class="mono nowrap">' + esc(r.release || '-') + '</td>' +
-          '<td><span class="status ' + (STATUS[r.status] || '') + '">' + esc(r.status) + '</span></td>' +
+          '<td class="nowrap"><span class="status ' + (STATUS[r.status] || '') + '">' + esc(r.status) + '</span>' + queueNote(r) + '</td>' +
           '<td class="nowrap">' + tierCell(r) + '</td>' +
           '<td class="actions">' + (canSearch ? '<button type="button" class="btn btn-sm" data-search="' + esc(r.id) + '">Search now</button>' : '') + '</td></tr>';
       }).join('');
@@ -131,14 +168,27 @@
       });
   }
 
+  /* ---- where each issue is: from the flow line above the list ---- */
+  document.addEventListener('issuarr:flow', function (e) {
+    var d = e.detail.now;
+    var before = st.current;
+    st.flow = d.issues || {};
+    st.current = d.search.current ? String(d.search.current.issueid) : null;
+    // An issue just finished searching: reload, it may have been snatched.
+    if (before && before !== st.current) load(); else if (st.loaded) render();
+  });
+
+  function queued(r) {
+    if (!r.ok) throw new Error(r.status);
+    return r.json().then(function (d) { document.dispatchEvent(new CustomEvent('issuarr:flow-poke')); return d; });
+  }
+
   function search(ids) {
     var p = new URLSearchParams();
     ids.forEach(function (id) { p.append('issueIds', id); });
     return fetch('forceSearch?' + p.toString(), { credentials: 'same-origin' })
-      .then(function (r) {
-        if (!r.ok) throw new Error(r.status);
-        I().toast('Searching for ' + plural(ids.length) + '. Anything found shows up in Downloads.');
-      })
+      .then(queued)
+      .then(function () { I().toast('Added ' + plural(ids.length) + ' to the search queue. Follow it along the line above.'); })
       .catch(function () { I().toast('That didn\'t work. Check the log.', false); });
   }
 
@@ -151,7 +201,17 @@
     fetch('markissues?' + p.toString(), { credentials: 'same-origin' })
       .then(function (r) {
         if (!r.ok) throw new Error(r.status);
-        I().toast(MARK[action].replace('{n}', plural(ids.length)) + '.');
+        return r.text();
+      })
+      .then(function (body) {
+        var d = {};
+        try { d = JSON.parse(body) || {}; } catch (e) { /* older replies have no body */ }
+        var msg = MARK[action].replace('{n}', plural(action === 'OppositeTier' && d.switched != null ? d.switched : ids.length)) + '.';
+        if (action === 'OppositeTier' && d.kept) {
+          msg += ' ' + (d.kept === 1 ? '1 came out in the last ' + TIER_DAYS + ' days or isn\'t out yet, so it can\'t' :
+                 fmt(d.kept) + ' came out in the last ' + TIER_DAYS + ' days or aren\'t out yet, so they can\'t') + ' move to Tier 2 yet.';
+        }
+        I().toast(msg);
         st.sel = {};
         return load();
       })
@@ -191,19 +251,47 @@
   $id('w-bulk-none').addEventListener('click', function () { st.sel = {}; render(); });
   $id('w-search-tier1').addEventListener('click', function () {
     fetch('forceSearch', { credentials: 'same-origin' })
-      .then(function (r) { if (!r.ok) throw new Error(r.status); I().toast('Searching every Tier 1 issue. Anything found shows up in Downloads.'); })
+      .then(queued)
+      .then(function () { I().toast('Adding every Tier 1 issue to the search queue. Follow it along the line above.'); })
       .catch(function () { I().toast('That didn\'t work. Check the log.', false); });
   });
   $id('w-search-all').addEventListener('click', function () {
     var n = st.rows.length;
     if (n && !window.confirm('Search all ' + plural(n) + '? Providers are searched one page at a time, so a long list can take hours.')) return;
     fetch('forceSearch?tiers=all', { credentials: 'same-origin' })
-      .then(function (r) { if (!r.ok) throw new Error(r.status); I().toast('Searching every Wanted issue, Tier 2 included. Anything found shows up in Downloads.'); })
+      .then(queued)
+      .then(function () { I().toast('Adding every Wanted issue, Tier 2 included, to the search queue. Follow it along the line above.'); })
       .catch(function () { I().toast('That didn\'t work. Check the log.', false); });
   });
   $id('w-export').addEventListener('click', function () {
     fetch('wanted_Export?mode=Wanted', { credentials: 'same-origin' })
       .then(function (r) { if (!r.ok) throw new Error(r.status); I().toast('Saved Wanted_list.csv in the data folder.'); })
+      .catch(function () { I().toast('That didn\'t work. Check the log.', false); });
+  });
+  // Snatched issues whose download was lost or removed: nothing would ever change them again.
+  $id('w-stuck').addEventListener('click', function () {
+    $id('w-more').open = false;
+    fetch('stuck_snatched', { credentials: 'same-origin', cache: 'no-store' })
+      .then(function (r) { if (!r.ok) throw new Error(r.status); return r.json(); })
+      .then(function (d) {
+        if (!d.count && d.filing) {
+          I().toast('Files are being added to the library right now, so nothing can be checked. Try again when that finishes.');
+          return;
+        }
+        if (!d.count) {
+          I().toast('No snatched issues are stuck. Everything marked Snatched is still downloading, waiting to be filed, or was snatched in the last ' + d.hours + ' hours.');
+          return;
+        }
+        var names = d.issues.slice(0, 12).map(function (i) { return i.series + ' #' + i.issue; });
+        if (d.count > names.length) names.push('and ' + fmt(d.count - names.length) + ' more');
+        if (!window.confirm(plural(d.count) + (d.count === 1 ? ' has' : ' have') + ' been Snatched for over ' + d.hours + ' hours with nothing downloading or filing ' +
+          (d.count === 1 ? 'it' : 'them') + ':\n\n' + names.join('\n') + '\n\nPut ' + (d.count === 1 ? 'it' : 'them') +
+          ' back to Wanted so ' + (d.count === 1 ? 'it is' : 'they are') + ' searched again?')) return;
+        var body = new URLSearchParams({ issueids: d.issues.map(function (i) { return i.issueid; }).join(',') });
+        return fetch('reset_stuck_snatched', { method: 'POST', credentials: 'same-origin', cache: 'no-store', body: body })
+          .then(function (r) { if (!r.ok) throw new Error(r.status); return r.json(); })
+          .then(function (res) { I().toast(res.message + '.'); return load(); });
+      })
       .catch(function () { I().toast('That didn\'t work. Check the log.', false); });
   });
   var qTimer = null;
@@ -216,5 +304,6 @@
   var refreshTimer = null;
   document.addEventListener('issuarr:refresh', function () { clearTimeout(refreshTimer); refreshTimer = setTimeout(load, 800); });
 
-  if (window.jQuery) window.jQuery(load); else document.addEventListener('DOMContentLoaded', load);
+  function start() { load(); }
+  if (window.jQuery) window.jQuery(start); else document.addEventListener('DOMContentLoaded', start);
 })();

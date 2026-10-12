@@ -21,7 +21,7 @@ from . import logger
 
 class Process(object):
 
-    def __init__(self, nzb_name, nzb_folder, failed=False, issueid=None, comicid=None, apicall=False, ddl=False, download_info=None):
+    def __init__(self, nzb_name, nzb_folder, failed=False, issueid=None, comicid=None, apicall=False, ddl=False, download_info=None, pack=None):
         self.nzb_name = nzb_name
         self.nzb_folder = nzb_folder
         self.failed = failed
@@ -30,6 +30,7 @@ class Process(object):
         self.apicall = apicall
         self.ddl = ddl
         self.download_info = download_info
+        self.pack = pack
 
     def post_process(self):
         if self.failed == '0':
@@ -41,7 +42,7 @@ class Process(object):
         retry_outside = False
 
         if self.failed is False:
-            PostProcess = mylar.PostProcessor.PostProcessor(self.nzb_name, self.nzb_folder, self.issueid, queue=ppqueue, comicid=self.comicid, apicall=self.apicall, ddl=self.ddl)
+            PostProcess = mylar.PostProcessor.PostProcessor(self.nzb_name, self.nzb_folder, self.issueid, queue=ppqueue, comicid=self.comicid, apicall=self.apicall, ddl=self.ddl, pack=self.pack, download_info=self.download_info)
             if any([self.nzb_name == 'Manual Run', self.nzb_name == 'Manual+Run', self.apicall is True, self.issueid is not None]):
                 threading.Thread(target=PostProcess.Process).start()
             else:

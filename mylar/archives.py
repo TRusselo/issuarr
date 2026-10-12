@@ -1,5 +1,6 @@
 import os
 import shutil
+import threading
 import time
 import zipfile
 
@@ -12,21 +13,77 @@ IMAGE_EXT = ('.jpg', '.jpeg', '.png', '.webp', '.gif', '.bmp', '.avif', '.jxl')
 ARCHIVE_EXT = ('.zip', '.rar')
 SETTLE_SECONDS = 120
 RUNS = [0]
-ACTIVITY = {'state': 'Idle', 'detail': '', 'since': None, 'last': '', 'last_at': None, 'notes': []}
+# (series, issue) each running post-processing job is filing. The issue is set only for a
+# single-issue download (see own_issue); series None is a job that could be filing anything
+# (the monitored folder, a manual run).
+JOBS = []
+# Direct downloads post-processing has taken off its queue, by ddl_info id: 'waiting' until their
+# run gets its turn, 'filing' while it runs. Dropped when the run ends; a restart forgets them.
+DDL_FILING = {}
+# What each running filing job (a post-processing pass, auto-add) is doing, by thread. Auto-add
+# runs alongside folder monitor passes, and one finishing mustn't blank out the other.
+ACTIVE = {}
+LAST = {'last': '', 'last_at': None}
+# When the folder monitor last skipped a pass, and why; cleared when a pass runs.
+MONITOR = {'skipped_at': None, 'why': ''}
+_active_lock = threading.Lock()
+
+
+def _job():
+    # Only the thread's own job: filing from a web request (re-filing from Needs attention) has
+    # none, and its counts mustn't land in another job's summary.
+    return ACTIVE.get(threading.get_ident())
 
 
 def busy(detail):
-    if ACTIVITY['state'] != 'Working':
-        ACTIVITY.update(state='Working', since=time.time(), notes=[])
-    ACTIVITY['detail'] = detail
+    with _active_lock:
+        job = ACTIVE.setdefault(threading.get_ident(), {'since': time.time(), 'notes': [], 'counts': {}})
+        job['detail'] = detail
 
 
 def note(text):
-    ACTIVITY['notes'].append(text)
+    with _active_lock:
+        job = _job()
+        if job is not None:
+            job['notes'].append(text)
+
+
+def tally(what):
+    """Count something the running job did ('filed', 'attention') for its summary."""
+    with _active_lock:
+        job = _job()
+        if job is not None:
+            job['counts'][what] = job['counts'].get(what, 0) + 1
+
+
+def _plural(n, one, many):
+    return '%s %s' % (n, one if n == 1 else many)
+
+
+def _summary(job):
+    parts = list(job['notes'])
+    filed, att = job['counts'].get('filed', 0), job['counts'].get('attention', 0)
+    if filed:
+        parts.append('filed %s' % _plural(filed, 'issue', 'issues'))
+    if att:
+        parts.append('%s left for Downloads > Needs attention' % _plural(att, 'file', 'files'))
+    return '; '.join(parts)
 
 
 def done(fallback='Nothing to do.'):
-    ACTIVITY.update(state='Idle', detail='', last='; '.join(ACTIVITY['notes']) or fallback, last_at=time.time(), notes=[])
+    with _active_lock:
+        job = ACTIVE.pop(threading.get_ident(), None)
+        if job is None:
+            return
+        LAST.update(last=_summary(job) or fallback, last_at=time.time())
+
+
+def skipped(why):
+    MONITOR.update(skipped_at=time.time(), why=why)
+
+
+def monitor_ran():
+    MONITOR.update(skipped_at=None, why='')
 
 
 def processing():
@@ -35,22 +92,62 @@ def processing():
         queued = mylar.PP_QUEUE is not None and mylar.PP_QUEUE.qsize() > 0
     except Exception:
         queued = False
-    return ACTIVITY['state'] == 'Working' or RUNS[0] > 0 or autoadd.running() or queued
+    return bool(ACTIVE) or RUNS[0] > 0 or autoadd.running() or queued
 
 
-def wait_idle(label, limit=1800):
-    if not processing():
+def own_issue(issueid, ddl=False, pack=None):
+    """The issue a download can only be, or None when it could hold other issues of its series:
+    packs, JD2 items whose pack status isn't known, and anything that isn't a DDL download.
+    Story-arc ids (IssueArcID, 'x_y') never match a series search, so they hold the series."""
+    if ddl is True and pack is False and issueid not in (None, '', 'None') and '_' not in str(issueid):
+        return str(issueid)
+    return None
+
+
+def holds(comicid, issueid=None):
+    """True while filing could still be handling a file of this series, so searching it now
+    might grab an issue that's already downloaded. Filing other series doesn't hold it up, and
+    a single-issue download only holds its own issue."""
+    from mylar import autoadd
+    if autoadd.running():
+        return True
+    jobs = list(JOBS)
+    try:
+        with mylar.PP_QUEUE.mutex:
+            jobs += [(i.get('comicid'), own_issue(i.get('issueid'), i.get('ddl'), i.get('pack')))
+                     for i in mylar.PP_QUEUE.queue if isinstance(i, dict)]
+    except Exception:
+        pass
+    for c, i in jobs:
+        if c is None:
+            return True
+        if str(c) == str(comicid) and (i is None or str(i) == str(issueid)):
+            return True
+    return False
+
+
+def ddl_filing(download_info, stage):
+    """Note how far post-processing has got with a direct download; None once its run has ended."""
+    if not isinstance(download_info, dict) or download_info.get('provider') not in ('DDL', 'JD2') \
+            or download_info.get('id') is None:
         return
-    logger.info('%s Waiting for post-processing to finish before searching, so issues already downloaded aren\'t grabbed again.' % label)
-    end = time.time() + limit
-    while processing() and time.time() < end:
-        time.sleep(10)
-    if processing():
-        logger.info('%s Post-processing is still running after %s minutes - searching anyway.' % (label, limit // 60))
+    if stage is None:
+        DDL_FILING.pop(str(download_info['id']), None)
+    else:
+        DDL_FILING[str(download_info['id'])] = stage
 
 
 def snapshot():
-    return {k: v for k, v in ACTIVITY.items() if k != 'notes'}
+    with _active_lock:
+        jobs = sorted(ACTIVE.values(), key=lambda j: j['since'])
+        out = {'state': 'Working' if jobs else 'Idle',
+               'detail': '; '.join(j['detail'] for j in jobs if j.get('detail')),
+               'since': jobs[0]['since'] if jobs else None}
+    out.update(LAST)
+    out.update(monitor_skipped_at=MONITOR['skipped_at'], monitor_skipped_why=MONITOR['why'])
+    return out
+
+
 MIN_PAGES = 3
 
 
@@ -179,8 +276,10 @@ def _leftover_action():
 
 
 def _dispose(path, rel_dir):
+    from mylar import attention
     if _leftover_action() == 'delete':
         os.remove(path)
+        attention.forget(path)
         return 'deleted'
     dest = os.path.join(review_dir(), rel_dir) if rel_dir else review_dir()
     os.makedirs(dest, exist_ok=True)
@@ -189,6 +288,7 @@ def _dispose(path, rel_dir):
         base, ext = os.path.splitext(target)
         target = '%s (%s)%s' % (base, int(time.time()), ext)
     shutil.move(path, target)
+    attention.moved(path, target)   # it keeps the reason filing turned it down for
     return 'moved'
 
 

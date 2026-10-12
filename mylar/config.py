@@ -281,6 +281,7 @@ _CONFIG_DEFINITIONS = OrderedDict({
     'ARCHIVE_DELETE':  (bool, 'PostProcess', True),
     'ARCHIVE_LEFTOVERS':  (str, 'PostProcess', 'review'),
     'ARCHIVE_REVIEW_DIR':  (str, 'PostProcess', None),
+    'ATTENTION_TRASH_DAYS':  (int, 'PostProcess', 14),   # Needs attention: days a trashed file is kept
     'ARCHIVE_AUTO_ADD':  (bool, 'PostProcess', False),
     'WEBP_ON_IMPORT': (bool, 'WebP', False),
     'WEBP_SINCE': (str, 'WebP', '2015'),
@@ -383,6 +384,7 @@ _CONFIG_DEFINITIONS = OrderedDict({
 
     'ENABLE_DDL': (bool, 'DDL', False),
     'ENABLE_GETCOMICS': (bool, 'DDL', False),
+    'ENABLE_ARCHIVEORG': (bool, 'DDL', False),
     'ENABLE_EXTERNAL_SERVER': (bool, 'DDL', False),
     'EXTERNAL_SERVER': (str, 'DDL', None),
     'EXTERNAL_USERNAME': (str, 'DDL', None),
@@ -1711,15 +1713,15 @@ class Config(object):
                     self.DDL_PRIORITY_ORDER = json.loads(self.DDL_PRIORITY_ORDER)
                 except Exception as e:
                     logger.warn('[DDL PRIORITY ORDER] Unable to load DDL priority order from setting to default')
-                    setattr(self, 'DDL_PRIORITY_ORDER', ["mega", "mediafire", "pixeldrain", "main"])
+                    setattr(self, 'DDL_PRIORITY_ORDER', ["direct", "cloud", "torrent"])
 
             self.DDL_PRIORITY_ORDER = [str(dpo).lower() for dpo in self.DDL_PRIORITY_ORDER if re.match(r'^[a-z0-9]+$', str(dpo).lower())]
 
         else:
-            setattr(self, 'DDL_PRIORITY_ORDER', ["mega", "mediafire", "pixeldrain", "main"])  #default order
+            setattr(self, 'DDL_PRIORITY_ORDER', ["direct", "cloud", "torrent"])  #default order
             config.set('DDL', 'ddl_priority_order', json.dumps(self.DDL_PRIORITY_ORDER))
 
-        logger.info('[DDL PRIORITY ORDER] DDL will attempt to use the following 3rd party sites in this specific download order: %s' % self.DDL_PRIORITY_ORDER)
+        logger.info('[DDL PRIORITY ORDER] Download sources are tried in this order: %s' % self.DDL_PRIORITY_ORDER)
 
         if self.SEARCH_TIER_CUTOFF is None:
             self.SEARCH_TIER_CUTOFF = 14
@@ -1944,6 +1946,8 @@ class Config(object):
         return ignored_pubs
 
     def provider_sequence(self):
+        # an entry left blank (the default one is 'http://') has nothing to search
+        has_host = lambda h: bool(re.sub(r'^\w+://', '', str(h or '').strip()).strip('/'))
         PR = []
         PR_NUM = 0
         if self.ENABLE_TORRENT_SEARCH:
@@ -1961,6 +1965,9 @@ class Config(object):
             if self.ENABLE_GETCOMICS:
                 PR.append('DDL(GetComics)')
                 PR_NUM +=1
+            if self.ENABLE_ARCHIVEORG:
+                PR.append('DDL(Internet Archive)')
+                PR_NUM +=1
             if self.ENABLE_EXTERNAL_SERVER:
                 PR.append('DDL(External)')
                 PR_NUM +=1
@@ -1968,10 +1975,10 @@ class Config(object):
             PR.append('AirDCPP')
             PR_NUM += 1
 
-        PPR = ['Experimental', 'DDL(GetComics)', 'DDL(External)', 'AirDCPP']
+        PPR = ['Experimental', 'DDL(GetComics)', 'DDL(Internet Archive)', 'DDL(External)', 'AirDCPP']
         if self.NEWZNAB:
             for ens in self.EXTRA_NEWZNABS:
-                if str(ens[5]) == '1': # if newznabs are enabled
+                if str(ens[5]) == '1' and has_host(ens[1]): # if newznabs are enabled
                     if ens[0] == "":
                         en_name = ens[1]
                     else:
@@ -1984,7 +1991,7 @@ class Config(object):
 
         if self.ENABLE_TORZNAB and self.ENABLE_TORRENT_SEARCH:
             for ets in self.EXTRA_TORZNABS:
-                if str(ets[5]) == '1': # if torznabs are enabled
+                if str(ets[5]) == '1' and has_host(ets[1]): # if torznabs are enabled
                     if ets[0] == "":
                         et_name = ets[1]
                     else:
@@ -2134,7 +2141,9 @@ class Config(object):
                    # id of 0 means it hasn't been assigned - so we need to assign it before we build out the dict
                    if 'DDL(GetComics)' in prov_t:
                        t_id = 200
-                   if 'DDL(External)' in prov_t:
+                   elif 'DDL(Internet Archive)' in prov_t:
+                       t_id = 203
+                   elif 'DDL(External)' in prov_t:
                        t_id = 201
                    elif any(['experimental' in prov_t, 'Experimental' in prov_t]):
                        t_id = 101
@@ -2167,10 +2176,13 @@ class Config(object):
                if 'DDL(GetComics)' in tmp_prov:
                    t_type = 'DDL'
                    t_id = 200
-               if 'DDL(External)' in tmp_prov:
+               elif 'DDL(Internet Archive)' in tmp_prov:
+                   t_type = 'DDL'
+                   t_id = 203
+               elif 'DDL(External)' in tmp_prov:
                    t_type = 'DDL(External)'
                    t_id = 201
-               if 'AirDCPP' in tmp_prov:
+               elif 'AirDCPP' in tmp_prov:
                    t_type = 'AirDCPP'
                    t_id = 202
                elif any(['experimental' in tmp_prov, 'Experimental' in tmp_prov]):

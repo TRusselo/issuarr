@@ -2,13 +2,41 @@
 
 import datetime
 import os
+import threading
 import time
 
 import mylar
 from .. import logger, helpers
-from mylar import db
+from mylar import db, getcomics
 from . import ddl
 from mylar.downloaders.jdownloader2 import JDownloader2
+
+# The record id of the item the monitor is working on. It's out of the queue while the monitor
+# checks it and sleeps before putting it back, but it's still at JD2.
+HOLDING = [None]
+# Set once the monitor has put the rows saved with a JD2 job id back in its queue. Until then those
+# rows are still JD2's even though at_jd2() doesn't list them yet.
+LOADED = threading.Event()
+
+# A JD2 job whose download hasn't moved for this long is given up on, whatever JD2 says about it.
+# Long enough that a big, slow download still making progress is never cut short.
+NO_PROGRESS_LIMIT = 6 * 60 * 60
+NO_PROGRESS_TEXT = '6 hours'
+# JD2 job id -> (last progress seen, when it last changed)
+PROGRESS = {}
+
+
+def at_jd2():
+    """Record ids handed to JD2: waiting in its queue, or being checked by the monitor."""
+    ids = ddl._ids(mylar.JD2_QUEUE)
+    if HOLDING[0] is not None:
+        ids.add(HOLDING[0])
+    return ids
+
+
+def loaded():
+    """Whether at_jd2() lists every row JD2 has: the monitor has reloaded its saved rows, or JD2 is off."""
+    return LOADED.is_set() or not getattr(mylar.CONFIG, 'JD2_ENABLE', False)
 
 
 def jd2_queue_monitor(queue):
@@ -17,6 +45,7 @@ def jd2_queue_monitor(queue):
     while True:
         if queue.qsize() >= 1:
             item = queue.get(True)
+            HOLDING[0] = str(item.get('id') or item.get('ID')) if isinstance(item, dict) else None
             if item == 'exit':
                 logger.info('[JD2-QUEUE] Cleaning up workers for shutdown')
                 break
@@ -64,10 +93,12 @@ def jd2_queue_monitor(queue):
                             'jd2_job_id': job_id,
                         }
                         queue.put(queue_payload)
+                LOADED.set()
+                ddl.refile_unfiled(myDB)  # JD2 downloads that finished before a restart; once, whichever worker asks first
                 continue
 
             if item.get('jd2_job_id') == 0:
-                jd2_priority_links = item.get('jd2_priority_links')
+                jd2_priority_links = resolve_links(item.get('jd2_priority_links'))
                 queue_payload = dict(item)
                 queue_payload.pop('jd2_job_id', None)
                 queue_payload.pop('jd2_priority_links', None)
@@ -103,6 +134,8 @@ def jd2_queue_monitor(queue):
             job_filename = None
 
             if jd2_client is not None and job_id:
+                if jd2_job_unwanted(myDB, jd2_client, item, record_id, job_id):
+                    continue
                 try:
                     status_payload = jd2_client.status(job_id, record_id)
                 except Exception as err:
@@ -125,6 +158,7 @@ def jd2_queue_monitor(queue):
                         else:
                             if row is None:
                                 logger.info('[JD2-QUEUE] No ddl_info entry found for id %s; dropping job %s from monitoring.', record_id, job_id)
+                                PROGRESS.pop(str(job_id), None)
                                 continue
                             updated_str = row['updated_date']
 
@@ -144,18 +178,20 @@ def jd2_queue_monitor(queue):
                         time.sleep(10)
                         continue
 
-                    if job_status in completed_states:
-                        myDB.upsert(
-                                'ddl_info',
-                                {
-                                    'status': 'Completed',
-                                    'updated_date': datetime.datetime.now().strftime('%Y-%m-%d %H:%M'),
-                                },
-                                {'id': record_id},
-                            )
-                        logger.info('[JD2-QUEUE] Download for %s completed; status marked as Completed.', record_id)
+                    job_filename = ((status_payload or {}).get('data') or {}).get('name')
+                    if job_status in completed_states and not is_comic_name(job_filename):
+                        # JD2 finished on something else - a script or page from the post - not the comic
+                        logger.warn('[JD2-QUEUE] JD2 finished %s with %s, which is not a comic.', record_id, job_filename)
+                        jd2_client.remove(job_id, record_id)
+                        jd2_give_up(myDB, item, record_id, 'JD2 downloaded %s, not a comic' % job_filename)
+                        continue
 
-                        job_filename = ((status_payload or {}).get('data') or {}).get('name')
+                    if job_status in completed_states:
+                        PROGRESS.pop(str(job_id), None)
+                        # the file is downloaded, so it's post-processed even if the row went while JD2 was asked
+                        jd2_set_row(myDB, record_id, {'status': 'Completed',
+                                                      'updated_date': datetime.datetime.now().strftime('%Y-%m-%d %H:%M')})
+                        logger.info('[JD2-QUEUE] Download for %s completed; status marked as Completed.', record_id)
 
                         if not isinstance(item, dict):
                             logger.warn('[JD2-QUEUE] Unexpected item type %s for job %s; skipping post-processing.', type(item), job_id)
@@ -179,6 +215,7 @@ def jd2_queue_monitor(queue):
                                         'comicid': item.get('comicid'),
                                         'apicall': True,
                                         'ddl': True,
+                                        'pack': ddl.is_pack(dict(item, id=record_id), myDB),
                                         'download_info': {'provider': 'JD2', 'id': record_id, 'job_id': job_id},
                                     })
                                     logger.info('[JD2-QUEUE] Submitted %s for post-processing (folder: %s).', job_filename, nzb_folder)
@@ -198,6 +235,17 @@ def jd2_queue_monitor(queue):
                         jd2_give_up(myDB, item, record_id, 'JD2 status %s' % reason)
                         continue
 
+                    progress = (status_payload or {}).get('loaded')
+                    if progress is None:
+                        progress = job_status
+                    if jd2_waiting(status_payload):
+                        PROGRESS.pop(str(job_id), None)  # its clock starts when JD2 starts on it
+                    elif progress is not None and jd2_no_progress(job_id, progress):
+                        logger.warn('[JD2-QUEUE] Download %s has made no progress in JD2 for %s (%s).', job_filename or record_id, NO_PROGRESS_TEXT, job_status)
+                        jd2_client.remove(job_id, record_id)
+                        jd2_give_up(myDB, item, record_id, 'no progress in JD2 for %s' % NO_PROGRESS_TEXT)
+                        continue
+
                     if job_status not in completed_states:
                         time.sleep(10)
                         queue.put(item)
@@ -206,16 +254,136 @@ def jd2_queue_monitor(queue):
                 logger.warn('[JD2-QUEUE] Missing JD2 client or job id for item: %s', item)
                 jd2_give_up(myDB, item, record_id, 'no JD2 job id to monitor')
         else:
+            HOLDING[0] = None
             time.sleep(10)
 
 
-JD2_DEAD_STATUS = ('offline', 'file not found', 'not available', 'plugin defect', 'aborted', 'blocked by cloudflare')
+COMIC_FILES = ('.cbz', '.cbr', '.cb7', '.cbt', '.pdf', '.zip', '.rar', '.7z')
+
+
+def is_comic_name(name):
+    """Whether a finished JD2 file could be a comic. An unknown name gets the benefit of the doubt."""
+    if not name:
+        return True
+    return str(name).lower().endswith(COMIC_FILES)
+
+
+def resolve_links(links):
+    """{GetComics button: priority} -> {file host address: priority}. JD2 can't follow the
+    buttons itself, and downloads a script from the page instead. Buttons that lead nowhere are dropped."""
+    if not links:
+        return links
+    if not any(getcomics.is_redirect_link(u) for u in links):
+        return links
+    gc = getcomics.GC()
+    out = {}
+    for url, priority in links.items():
+        real = gc.resolve_link(url)
+        if real:
+            out.setdefault(real, priority)
+        else:
+            logger.info('[JD2] Dropping a download button that leads nowhere: %s', url[:60])
+    return out
+
+
+JD2_DEAD_STATUS = ('offline', 'file not found', 'not available', 'plugin defect', 'aborted', 'blocked by cloudflare',
+                   'hosting period', 'only paid users')
+
+
+def jd2_no_progress(job_id, progress, now=None):
+    """Whether a JD2 job's progress (bytes downloaded, or its status when JD2 doesn't say) has
+    stayed the same for NO_PROGRESS_LIMIT seconds."""
+    now = time.monotonic() if now is None else now
+    last = PROGRESS.get(str(job_id))
+    if last is None or last[0] != progress:
+        PROGRESS[str(job_id)] = (progress, now)
+        return False
+    return now - last[1] >= NO_PROGRESS_LIMIT
+
+
+def jd2_waiting(status_payload):
+    """Whether the job is in JD2's download list but JD2 isn't working on it: it's waiting its turn
+    behind other downloads, or JD2 is stopped. JD2 gives such a link no status, which the client
+    reports as 'Queued'. That's waiting, not stuck, so the no-progress clock doesn't run."""
+    payload = status_payload or {}
+    return payload.get('status') == 'Queued' and payload.get('loaded') is not None
+
+
+def jd2_job_unwanted(myDB, jd2_client, item, record_id, job_id):
+    """Stop following a JD2 job the queue no longer wants: the item was removed or aborted, or
+    Restart sent it somewhere else. Removes only this job from JD2 and drops the item, so it isn't
+    polled forever or given up on into a row the user deleted."""
+    why = jd2_unwanted_reason(myDB, record_id, job_id)
+    if not why:
+        return False
+    logger.info('[JD2-QUEUE] Stopped following JD2 job %s for %s: %s.', job_id, item.get('series') or record_id, why)
+    jd2_client.remove(job_id)  # this job only: a newer job for the same item carries on
+    jd2_drop(item, record_id)
+    return True
+
+
+def jd2_unwanted_reason(myDB, record_id, job_id):
+    if str(record_id) in mylar.DDL_CANCEL:
+        return 'it was removed or aborted'
+    try:
+        row = myDB.selectone('SELECT status, jd2_job_id FROM ddl_info WHERE id=?', [record_id]).fetchone()
+    except Exception as err:
+        logger.warn('[JD2-QUEUE] Unable to check %s is still queued: %s', record_id, err)
+        return None
+    if row is None:
+        return 'it was removed from the queue'
+    if row['status'] != 'Queued':
+        return 'it is now %s' % row['status']
+    if str(row['jd2_job_id']) != str(job_id):
+        return 'it was sent again as job %s' % row['jd2_job_id']
+    return None
+
+
+def jd2_drop(item, record_id):
+    """Let go of an item without queueing it anywhere else."""
+    if HOLDING[0] == str(record_id):
+        HOLDING[0] = None
+    PROGRESS.pop(str(item.get('jd2_job_id')), None)
+    if str(record_id) in mylar.DDL_CANCEL:
+        # clears the cancel, so a later grab of the same post isn't dropped, and undoes a pack's Snatched issues
+        ddl.ddl_cancelled(dict(item, id=record_id, series=item.get('series') or record_id, comicid=item.get('comicid')))
+
+
+def jd2_set_row(myDB, record_id, values):
+    """Update the ddl_info row while it's still Queued, never create it: a download the user
+    removed or aborted while JD2 was being asked stays that way. False when it's no longer ours."""
+    cols = ', '.join('%s=?' % k for k in values)
+    result = myDB.action("UPDATE ddl_info SET %s WHERE id=? AND status='Queued'" % cols, list(values.values()) + [record_id])
+    return result is None or result.rowcount != 0
 
 
 def jd2_give_up(myDB, item, record_id, reason):
     """JD2 couldn't finish the download. The DDL failover worker tries Issuarr's own downloaders
     for the same post, file hosts first for big files, and never JD2 again. Only when direct
     downloads are off, or the post can't be read again, is the issue marked Failed here."""
+    job_id = item.get('jd2_job_id')
+    PROGRESS.pop(str(job_id), None)
+    if str(record_id) in mylar.DDL_CANCEL:
+        # aborted or removed while JD2 was being asked
+        logger.info('[JD2-QUEUE] Not retrying %s (%s): it was removed or aborted.', item.get('series') or record_id, reason)
+        jd2_drop(item, record_id)
+        return
+    try:
+        row = myDB.selectone('SELECT jd2_job_id FROM ddl_info WHERE id=?', [record_id]).fetchone()
+    except Exception as err:
+        logger.warn('[JD2-QUEUE] Unable to check the JD2 job for %s: %s', record_id, err)
+        row = False  # unknown, carry on
+    if row is None:
+        logger.info('[JD2-QUEUE] Not retrying %s (%s): it was removed from the queue.', item.get('series') or record_id, reason)
+        jd2_drop(item, record_id)
+        return
+    current = row['jd2_job_id'] if row else None
+    if job_id and current and str(current) != str(job_id):
+        # Restart sent the item to JD2 again; the newer job carries on.
+        logger.info('[JD2-QUEUE] Ignoring JD2 job %s for %s: it was replaced by job %s.', job_id, item.get('series') or record_id, current)
+        return
+    if HOLDING[0] == str(record_id):
+        HOLDING[0] = None  # let go of it, or failover would think JD2 still has it
     if not item.get('mainlink') or not getattr(mylar.CONFIG, 'ENABLE_DDL', False):
         jd2_mark_failed(myDB, item, record_id, reason)
         return
@@ -226,10 +394,15 @@ def jd2_give_up(myDB, item, record_id, reason):
     payload['id'] = record_id
     payload.setdefault('resume', None)
     try:
-        myDB.upsert('ddl_info', {'status': 'Queued', 'jd2_job_id': None,
-                                 'updated_date': datetime.datetime.now().strftime('%Y-%m-%d %H:%M')}, {'id': record_id})
+        kept = jd2_set_row(myDB, record_id, {'status': 'Queued', 'jd2_job_id': None,
+                                             'updated_date': datetime.datetime.now().strftime('%Y-%m-%d %H:%M')})
     except Exception as err:
         logger.warn('[JD2-QUEUE] Unable to reset %s for the built-in downloaders: %s', record_id, err)
+    else:
+        if not kept:
+            logger.info('[JD2-QUEUE] Not retrying %s: it was removed or aborted.', item.get('series') or record_id)
+            jd2_drop(item, record_id)
+            return
     ddl.send_to_failover(payload, {'success': False, 'reason': reason}, jd2_gave_up=True)
 
 
@@ -241,13 +414,21 @@ def jd2_status_is_dead(job_status):
 
 def jd2_mark_failed(myDB, item, record_id, reason):
     # mark both the ddl_info row and the issue itself Failed, so the issue doesn't sit at Snatched forever
+    if str(record_id) in mylar.DDL_CANCEL:
+        logger.info('[JD2-QUEUE] Not marking %s Failed (%s): it was removed or aborted.', item.get('series') or record_id, reason)
+        jd2_drop(item, record_id)
+        return
     logger.info('[JD2-QUEUE] Giving up on %s: %s', item.get('series') or record_id, reason)
     try:
-        myDB.upsert('ddl_info', {'status': 'Failed',
-                                 'updated_date': datetime.datetime.now().strftime('%Y-%m-%d %H:%M')},
-                    {'id': record_id})
+        kept = jd2_set_row(myDB, record_id, {'status': 'Failed',
+                                             'updated_date': datetime.datetime.now().strftime('%Y-%m-%d %H:%M')})
     except Exception as err:
         logger.warn('[JD2-QUEUE] Unable to mark ddl_info %s as Failed: %s', record_id, err)
+    else:
+        if not kept:
+            logger.info('[JD2-QUEUE] Not marking %s Failed: it was removed or aborted.', item.get('series') or record_id)
+            jd2_drop(item, record_id)
+            return
 
     issueid = item.get('issueid') or item.get('IssueID')
     comicid = item.get('comicid') or item.get('ComicID')

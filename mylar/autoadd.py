@@ -209,4 +209,5 @@ def _run(paths):
                                     'comicid': None, 'apicall': False, 'ddl': False, 'download_info': None})
             archives.done('Auto-add finished.')
         finally:
+            archives.done('Auto-add stopped early - check the log.')
             _running.clear()

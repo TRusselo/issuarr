@@ -1,11 +1,13 @@
 <%
 	import mylar
-	from mylar import ui
+	from mylar import ui, attention
+	_attention = attention.count()
 	_theme = ui.theme()
 	_nocss = ui.nocss_requested()
 	_css_url = None if _nocss else ui.safe_stylesheet_url(mylar.CONFIG.CUSTOM_CSS_URL)
 	_css_on = bool(mylar.CONFIG.CUSTOM_CSS_ENABLED) and not _nocss
-	_version = mylar.CURRENT_VERSION_NAME or (mylar.CURRENT_VERSION or 'unknown')[:7]
+	_version = mylar.appversion.VERSION
+	_commit = (mylar.CURRENT_VERSION or '')[:7]
 	_instance = (' - %s' % mylar.CONFIG.INSTANCE_NAME) if mylar.CONFIG.INSTANCE_NAME else ''
 	# Every page lives here: (group label, [items]). An item's children show
 	# under it while one of them is the current page. "match" lists the page
@@ -33,8 +35,9 @@
 	        ]),
 	    ]),
 	    ('Operations', [
-	        dict(label='Downloads', href='queueManage', match='queuemanage', children=[
+	        dict(label='Downloads', href='queueManage', match='queuemanage', count=_attention, children=[
 	            ('Queue', 'queueManage', 'queuemanage'),
+	            ('Needs attention', 'needsAttention', 'needsattention', _attention),
 	            ('History', 'history', 'history'),
 	            ('Failed', 'manageFailed', 'managefailed'),
 	        ]),
@@ -114,11 +117,11 @@
 				%endif
 				%for _it in _items:
 				<div class="nav-item">
-					<a class="nav-link${' is-disabled' if _it.get('disabled') else ''}" href="${'#' if _it.get('disabled') else _it['href']}" data-label="${_it['label'] | h}"${(' data-match="%s"' % _it['match']) if _it.get('match') else ''}${(' data-action="%s"' % _it['action']) if _it.get('action') else ''}${' aria-disabled="true" title="Unavailable while the pull list is being rebuilt"' if _it.get('disabled') else ''}>${_it['label'] | h}${('<span class="nav-badge is-new">%s</span>' % _it['badge']) if _it.get('badge') else ''}</a>
+					<a class="nav-link${' is-disabled' if _it.get('disabled') else ''}" href="${'#' if _it.get('disabled') else _it['href']}" data-label="${_it['label'] | h}"${(' data-match="%s"' % _it['match']) if _it.get('match') else ''}${(' data-action="%s"' % _it['action']) if _it.get('action') else ''}${' aria-disabled="true" title="Unavailable while the pull list is being rebuilt"' if _it.get('disabled') else ''}>${_it['label'] | h}${('<span class="nav-badge is-new">%s</span>' % _it['badge']) if _it.get('badge') else ''}${('<span class="nav-badge is-attention" title="%s files waiting in Needs attention">%s</span>' % (_it['count'], _it['count'])) if _it.get('count') else ''}</a>
 					%if _it.get('children'):
 					<div class="nav-children">
-						%for _cl, _ch, _cm in _it['children']:
-						<a class="nav-child" href="${_ch}" data-label="${_cl | h}" data-match="${_cm}">${_cl | h}</a>
+						%for _c in _it['children']:
+						<a class="nav-child" href="${_c[1]}" data-label="${_c[0] | h}" data-match="${_c[2]}">${_c[0] | h}${('<span class="nav-badge is-attention" title="%s files waiting for you to file, rename or remove">%s</span>' % (_c[3], _c[3])) if len(_c) > 3 and _c[3] else ''}</a>
 						%endfor
 					</div>
 					%endif
@@ -162,13 +165,15 @@
 				<div class="dock-title">Running now</div>
 				<a class="dock-row" id="import_indicator" href="tasks" style="display:none"><span class="ii-spin"></span><span class="ii-text"></span></a>
 				<a class="dock-row" id="dock-pp" href="tasks" hidden><span class="dot"></span><span class="dock-text"></span></a>
+				<a class="dock-row" id="dock-search" href="wanted" hidden><span class="dot"></span><span class="dock-text"></span></a>
 				<a class="dock-row" id="dock-dl" href="queueManage" hidden><span class="dot"></span><span class="dock-text"></span></a>
+				<a class="dock-row" id="dock-webp" href="webpConvert" hidden><span class="dot"></span><span class="dock-text"></span></a>
 				<a class="dock-row is-idle" id="dock-monitor" href="tasks" hidden><span class="dot is-idle"></span><span class="dock-text"></span></a>
 				<div class="dock-row is-idle" id="dock-idle"><span class="dot is-idle"></span><span>Nothing running</span></div>
 			</div>
 
 			<div class="sb-foot">
-				<div class="sb-version">Version <em>${_version | h}</em> (${mylar.CONFIG.GIT_BRANCH | h})</div>
+				<div class="sb-version">Version <em>${_version | h}</em> (${(_commit + ', ' if _commit else '') + str(mylar.CONFIG.GIT_BRANCH) | h})</div>
 				<div id="testing"><a href="#" onclick="check_the_hub();return false;"><span class="ui-icon ui-icon-refresh"></span><span id="version_line">Check for new version</span></a></div>
 				<details class="sb-status">
 					<summary>Service status</summary>
@@ -576,8 +581,14 @@
                 bed = lenc.length + 1;
                 url = url.substring(0,lenc)+url.substring(lenc+10);
             }
-            var tabId = $('.ui-tabs-panel:visible').attr("id");
-            $('.ui-tabs-panel:visible').load(url + " #"+ tabId, function() {
+            var panel = $('.ui-tabs-panel:visible');
+            // A table filled from the server (a series' issues) comes back from the page empty, and
+            // nothing fills it again. reload_table() already refreshed its rows, so keep it.
+            if (panel.find('table.dataTable').length) {
+                return;
+            }
+            var tabId = panel.attr("id");
+            panel.load(url + " #"+ tabId, function() {
                 $("#tabs").tabs({
                     cache: false,
                 });

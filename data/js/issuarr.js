@@ -51,7 +51,25 @@
     var time = t.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     return t.toDateString() === today.toDateString() ? time : t.toLocaleDateString([], { month: 'short', day: 'numeric' }) + ' ' + time;
   }
-  window.Issuarr = { esc: esc, toast: toast, relTime: relTime, clock: clock };
+  function size(n) {
+    if (n >= 1e12) return (n / 1e12).toFixed(2) + ' TB';
+    if (n >= 1e9) return (n / 1e9).toFixed(1) + ' GB';
+    return Math.round(n / 1e6) + ' MB';
+  }
+  // One line for a WebP preview, run or on-import queue (the "webp" field of pp_activity).
+  function webpText(w) {
+    if (!w) return '';
+    var num = function (n) { return (n || 0).toLocaleString(); };
+    if (w.state === 'running') {
+      var count = num(w.done) + '/' + num(w.total);
+      if (w.stopping) return 'Stopping WebP (' + count + ')';
+      return 'WebP: ' + count + ' issues' + (w.saved > 0 ? ', ' + size(w.saved) + ' saved' : '');
+    }
+    if (w.state === 'previewing') return w.stopping ? 'Stopping WebP preview' : 'WebP preview: ' + num(w.scanned) + ' files checked';
+    if (w.state === 'import') return 'WebP on import: ' + num(w.waiting) + (w.waiting === 1 ? ' issue' : ' issues') + ' to convert';
+    return '';
+  }
+  window.Issuarr = { esc: esc, toast: toast, relTime: relTime, clock: clock, webpText: webpText };
 
   /* ---------- Pages whose tab strip moved into the sidebar ---------- */
 
@@ -176,7 +194,7 @@
   function setupDock() {
     var dock = $id('dock');
     if (!dock) return;
-    var rows = { pp: $id('dock-pp'), dl: $id('dock-dl'), mon: $id('dock-monitor'), idle: $id('dock-idle') };
+    var rows = { pp: $id('dock-pp'), search: $id('dock-search'), dl: $id('dock-dl'), webp: $id('dock-webp'), mon: $id('dock-monitor'), idle: $id('dock-idle') };
     var importRow = $id('import_indicator');
     var timer = null;
 
@@ -186,9 +204,17 @@
       if (text) row.querySelector('.dock-text').textContent = text;
     }
     function refreshIdle() {
-      var busy = ['pp', 'dl'].some(function (k) { return rows[k] && !rows[k].hidden; });
+      var busy = ['pp', 'search', 'dl', 'webp'].some(function (k) { return rows[k] && !rows[k].hidden; });
       if (importRow && importRow.style.display !== 'none') busy = true;
       if (rows.idle) rows.idle.hidden = busy;
+    }
+    function searchText(s) {
+      if (!s) return '';
+      var n = (s.waiting || []).length;
+      var waiting = n ? ' (' + n + ' waiting)' : '';
+      if (s.current) return 'Searching ' + (s.current.name || '') + ' #' + (s.current.number == null ? '?' : s.current.number) + waiting;
+      if (s.busy) return 'Checking RSS feeds' + waiting;
+      return n ? n + ' queued for search' : '';
     }
     function poll() {
       if (doc.hidden) return;
@@ -196,10 +222,13 @@
         .then(function (r) { if (!r.ok) throw new Error(r.status); return r.json(); })
         .then(function (d) {
           show(rows.pp, d.state === 'Working' ? 'Post-processing' + (d.detail ? ': ' + d.detail : '') : '');
+          show(rows.search, searchText(d.search));
           var queued = (d.download_counts || {}).Queued || 0;
           var dl = d.download ? 'Downloading ' + d.download : '';
           if (queued) dl = dl ? dl + ' (' + queued + ' queued)' : queued + ' queued for download';
           show(rows.dl, dl);
+          show(rows.webp, webpText(d.webp));
+          if (rows.webp) rows.webp.title = d.webp && d.webp.current ? d.webp.current : '';
           show(rows.mon, d.monitor_enabled ? 'Folder Monitor: ' + (d.monitor_status || 'on') : '');
           refreshIdle();
         })
@@ -208,6 +237,12 @@
     poll();
     timer = setInterval(poll, 20000);
     doc.addEventListener('visibilitychange', function () { if (!doc.hidden && timer) poll(); });
+    // Pages with the flow line poll more often: keep the search row in step with it.
+    doc.addEventListener('issuarr:flow', function (e) {
+      var s = e.detail.now.search;
+      show(rows.search, searchText({ current: s.current, busy: s.busy, waiting: new Array(s.waiting) }));
+      refreshIdle();
+    });
     if (importRow && window.MutationObserver) {
       new MutationObserver(refreshIdle).observe(importRow, { attributes: true, attributeFilter: ['style'] });
     }

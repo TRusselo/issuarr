@@ -12,10 +12,14 @@
                 <p class="page-sub">Everything on its way into your library, from every source: SABnzbd, NZBGet, torrent clients, GetComics and JDownloader 2. <span id="q-pixeldrain" hidden></span></p>
             </div>
             <div class="btn-row">
+                <button type="button" class="btn btn-ghost" id="q-clear-finished" title="Remove finished direct downloads from this list" hidden>Clear finished</button>
+                <button type="button" class="btn btn-ghost" id="q-clear-failed" title="Remove failed direct downloads from this list" hidden>Clear failed</button>
                 <button type="button" class="btn" id="q-restart-queue">Restart queue</button>
                 <button type="button" class="btn btn-danger" id="q-clear-queue" title="Remove every direct download that hasn't started">Clear the queue</button>
             </div>
         </div>
+
+        <section class="flow" id="flow" data-here="queue" aria-label="What Issuarr is doing"></section>
 
         <div class="notice" id="q-stalled" hidden>
             <span><b>Direct downloads look stalled.</b> <span id="q-stalled-text"></span></span>
@@ -58,5 +62,6 @@
 
 <%def name="javascriptIncludes()">
     <script>var queueShowPixeldrain = ${'true' if mylar.CONFIG.ENABLE_DDL else 'false'};</script>
+    <script src="js/flow.js?v=${mylar.CURRENT_VERSION}"></script>
     <script src="js/queue.js?v=${mylar.CURRENT_VERSION}"></script>
 </%def>

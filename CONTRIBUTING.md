@@ -17,7 +17,7 @@ When preparing a release, on `dev` run `python3 .github/changelog.py` to list th
 - Make meaningful commits, squash them if necessary.
 - Use [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/) to format your commit messages - applications like [commitizen](https://commitizen-tools.github.io/commitizen/) can help you get in that habit.
 - Try to keep it to one feature/bug fix per pull request to keep things clean and easy to understand.
-- Ensure that you've enabled a docker image to be built on your own branch using our GitHub Actions workflows.
+- To try a change in Docker before it's merged, build the image yourself with `docker build -t issuarr:test .` Only `main` (`latest`), `dev` (`dev`) and version tags publish images.
 - Test your changes on a real Issuarr instance on real data.
 - Rebase before submitting PRs.  If the `dev` branch has moved on since you started writing, don't expect reviewers to handle merging your code in case it conflicts.
 

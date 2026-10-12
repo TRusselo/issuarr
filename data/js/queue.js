@@ -4,16 +4,22 @@
 (function () {
   'use strict';
 
-  // Tab order. "Active" is everything not finished; Completed only applies to direct downloads.
+  // Tab order. "Active" is everything not finished; Completed only applies to direct downloads, and only
+  // once they're filed: until then they're Waiting to file, Filing, or Not filed.
   var TABS = [['active', 'Active'], ['Downloading', 'Downloading'], ['Queued', 'Queued'], ['Processing', 'Processing'],
-              ['Sent', 'Sent'], ['Paused', 'Paused'], ['Incomplete', 'Incomplete'], ['Failed', 'Failed'], ['Completed', 'Finished'], ['', 'All']];
+              ['Filing', 'Filing'], ['Sent', 'Sent'], ['Paused', 'Paused'], ['Incomplete', 'Incomplete'], ['Failed', 'Failed'],
+              ['Not filed', 'Not filed'], ['Completed', 'Finished'], ['', 'All']];
   var CLASS = { Completed: 'is-have', Downloading: 'is-snatched is-running', Processing: 'is-snatched is-running',
                 Checking: 'is-snatched', Queued: 'is-idle', Sent: 'is-idle', Paused: 'is-idle',
-                Incomplete: 'is-snatched', Failed: 'is-failed' };
+                Incomplete: 'is-snatched', Failed: 'is-failed', 'Waiting to file': 'is-snatched', Filing: 'is-snatched is-running',
+                'Not filed': 'is-failed' };
   var LABEL = { Completed: 'Finished', Sent: 'Waiting on client', Processing: 'Processing' };
   var HELP = { Sent: 'Sent to the download client. Its progress shows here when the client can be reached.',
-               Processing: 'Downloaded. Waiting for the client to unpack it or for Issuarr to file it.' };
-  var st = { tab: 'active', q: '', start: 0, len: 50, items: [], waiting: 0, loaded: false };
+               Processing: 'Downloaded. Waiting for the client to unpack it or for Issuarr to file it.',
+               'Waiting to file': 'Downloaded. Waiting for post-processing to file it into your library.',
+               Filing: 'Downloaded. Post-processing is filing it into your library now.',
+               'Not filed': 'Downloaded, but post-processing didn\'t file it.' };
+  var st = { tab: 'active', q: '', start: 0, len: 50, items: [], stalled: 0, loaded: false };
 
   function $id(id) { return document.getElementById(id); }
   function I() { return window.Issuarr; }
@@ -26,10 +32,26 @@
     }).then(function (t) { try { return JSON.parse(t); } catch (e) { return {}; } });
   }
 
+  function post(url, data) {
+    return fetch(url, { method: 'POST', body: new URLSearchParams(data || {}), credentials: 'same-origin', cache: 'no-store' }).then(function (r) {
+      if (!r.ok) throw new Error(r.status);
+      return r.json();
+    });
+  }
+
+  // Clears finished or failed direct downloads from the list (ddl_clear), not from the library.
+  function clearStatus(status, confirmText) {
+    if (!window.confirm(confirmText)) return;
+    post('ddl_clear', { status: status })
+      .then(function (r) { I().toast(r.message || 'Done', r.status !== false); document.dispatchEvent(new CustomEvent('issuarr:flow-poke')); })
+      .catch(function () { I().toast('That didn\'t work. Check the log.', false); })
+      .then(function () { load(true); });
+  }
+
   function requeue(mode, id, confirmText) {
     if (confirmText && !window.confirm(confirmText)) return;
     call('ddl_requeue?mode=' + encodeURIComponent(mode) + (id != null ? '&id=' + encodeURIComponent(id) : ''))
-      .then(function (r) { I().toast(r.message || 'Done'); })
+      .then(function (r) { I().toast(r.message || 'Done'); document.dispatchEvent(new CustomEvent('issuarr:flow-poke')); })
       .catch(function () { I().toast('That didn\'t work. Check the log.', false); })
       .then(function () { load(true); });
   }
@@ -38,6 +60,7 @@
     if (tab === '') return true;
     if (tab === 'active') return it.status !== 'Completed';
     if (tab === 'Downloading') return it.status === 'Downloading' || it.status === 'Checking';
+    if (tab === 'Filing') return it.status === 'Filing' || it.status === 'Waiting to file';
     return it.status === tab;
   }
 
@@ -57,7 +80,11 @@
   function actionsFor(it) {
     if (it.kind !== 'ddl') return '';
     var id = it.queueid, out = [];
-    var label = { Queued: 'Start', Downloading: 'Restart', Incomplete: 'Restart', Failed: 'Retry', Completed: 'Download again' }[it.status];
+    // Nothing to do while filing has it; starting it again would download a second copy.
+    if (it.status === 'Waiting to file' || it.status === 'Filing') return '';
+    var label = { Queued: 'Start', Downloading: 'Restart', Incomplete: 'Restart', Failed: 'Retry', Completed: 'Download again',
+                  'Not filed': 'Download again' }[it.status];
+    if (it.status === 'Not filed' && /Needs attention/.test(it.message || '')) out.push('<a class="btn btn-sm" href="needsAttention">Needs attention</a>');
     if (it.status === 'Incomplete' || it.status === 'Downloading') out.push('<button type="button" class="btn btn-sm" data-act="resume" data-id="' + esc(id) + '">Resume</button>');
     if (label) out.push('<button type="button" class="btn btn-sm" data-act="restart" data-id="' + esc(id) + '">' + label + '</button>');
     if (it.status === 'Downloading') {
@@ -91,7 +118,7 @@
     if (st.start >= rows.length) st.start = Math.max(0, Math.floor((rows.length - 1) / st.len) * st.len);
     renderRange();
     if (!rows.length) {
-      var msg = q ? 'Nothing matches.' : st.tab === 'active' ? 'Nothing is downloading. Grabs from every source show here until they\'re filed.' : 'Nothing here.';
+      var msg = q ? 'Nothing matches.' : st.tab === 'active' ? idleMessage() : 'Nothing here.';
       tb.innerHTML = '<tr><td colspan="6" class="empty-state">' + msg + '</td></tr>';
       return;
     }
@@ -108,6 +135,18 @@
     }).join('');
   }
 
+  // An empty queue says what's coming from the search side, from the flow line's data.
+  function idleMessage() {
+    var f = window.IssuarrFlow;
+    var msg = 'Nothing is downloading. Grabs from every source show here until they\'re filed.';
+    if (!f) return msg;
+    var n = (f.search.current ? 1 : 0) + f.search.waiting;
+    if (n) return 'Nothing is downloading yet. ' + n + (n === 1 ? ' issue is' : ' issues are') + ' being searched; anything found shows up here.';
+    var t1 = f.wanted.tier1;
+    if (t1) return msg + ' <a href="wanted">' + t1.toLocaleString() + (t1 === 1 ? ' Tier 1 issue is' : ' Tier 1 issues are') + '</a> searched on the next scheduled search.';
+    return msg;
+  }
+
   function renderRange() {
     var from = st.total ? st.start + 1 : 0;
     var to = Math.min(st.start + st.len, st.total);
@@ -116,12 +155,21 @@
     $id('q-next').disabled = st.start + st.len >= st.total;
   }
 
+  // The server decides what's stalled (rows JD2 is holding stay Queued but aren't stuck).
   function renderStalled() {
-    var queued = st.items.filter(function (it) { return it.kind === 'ddl' && it.status === 'Queued'; }).length;
-    var busy = st.items.some(function (it) { return it.kind === 'ddl' && it.status === 'Downloading'; });
-    var stalled = queued && !st.waiting && !busy;
-    $id('q-stalled').hidden = !stalled;
-    if (stalled) $id('q-stalled-text').textContent = queued + ' queued and nothing downloading.';
+    $id('q-stalled').hidden = !st.stalled;
+    if (st.stalled) $id('q-stalled-text').textContent = 'Nothing is downloading or about to pick up ' +
+      (st.stalled === 1 ? '1 queued item.' : st.stalled + ' queued items.');
+  }
+
+  // Only direct downloads can be cleared; a failed grab at the client stays until the client drops it.
+  function ddlCount(status) {
+    return st.items.filter(function (it) { return it.kind === 'ddl' && it.status === status; }).length;
+  }
+
+  function renderClear() {
+    $id('q-clear-finished').hidden = !ddlCount('Completed');
+    $id('q-clear-failed').hidden = !ddlCount('Failed');
   }
 
   /* ---- loading ---- */
@@ -133,11 +181,12 @@
       .then(function (r) { if (!r.ok) throw new Error(r.status); return r.json(); })
       .then(function (d) {
         st.items = d.items || [];
-        st.waiting = d.waiting || 0;
+        st.stalled = d.stalled || 0;
         st.loaded = true;
         renderTabs();
         renderRows();
         renderStalled();
+        renderClear();
       })
       .catch(function () {
         if (!st.loaded) $id('q-table').tBodies[0].innerHTML = '<tr><td colspan="6" class="empty-state">Couldn\'t load the queue. Check the log.</td></tr>';
@@ -166,14 +215,27 @@
     var b = e.target.closest('#main [data-act]');
     if (!b) return;
     var act = b.getAttribute('data-act'), id = b.getAttribute('data-id'), name = b.getAttribute('data-name');
-    if (act === 'remove') requeue('remove', id, 'Remove ' + name + ' from the queue? Any file already downloaded stays where it is.');
-    else if (act === 'abort') requeue('abort', id, 'Stop downloading ' + name + '? It will be marked Failed.');
+    if (act === 'remove') requeue('remove', id, 'Remove ' + name + ' from the queue? Any file already downloaded stays where it is. ' +
+      'If it hadn\'t finished, its issues go back to Wanted to be searched again.');
+    else if (act === 'abort') requeue('abort', id, 'Stop downloading ' + name + '? The download is marked Failed and its issues go back to Wanted to be searched again.');
     else requeue(act, id);
   });
   $id('q-restart-queue').addEventListener('click', function () { requeue('restart_queue'); });
   document.addEventListener('click', function (e) { if (e.target.closest('[data-queue-restart]')) requeue('restart_queue'); });
   $id('q-clear-queue').addEventListener('click', function () {
-    requeue('clear_queue', null, 'Remove every queued direct download? Anything downloading now, finished downloads and grabs at your download client stay.');
+    requeue('clear_queue', null, 'Remove every queued direct download? Their issues go back to Wanted to be searched again. ' +
+      'Anything downloading now, finished downloads and grabs at your download client stay.');
+  });
+  $id('q-clear-finished').addEventListener('click', function () {
+    var n = ddlCount('Completed');
+    clearStatus('Completed', 'Remove ' + n + ' finished ' + (n === 1 ? 'download' : 'downloads') + ' from this list? ' +
+      'The comics and their status in your library stay; only the list entries go, so you won\'t be able to download them again from this page or from the issue\'s history.');
+  });
+  $id('q-clear-failed').addEventListener('click', function () {
+    var n = ddlCount('Failed');
+    clearStatus('Failed', 'Remove ' + n + ' failed ' + (n === 1 ? 'download' : 'downloads') + ' from this list? ' +
+      'The comics in your library stay, and issues still marked Snatched go back to Wanted to be searched again. ' +
+      'The failures also leave the activity history, and you can\'t retry them from here or from the issue\'s history.');
   });
   $id('q-prev').addEventListener('click', function () { st.start = Math.max(0, st.start - st.len); renderRows(); });
   $id('q-next').addEventListener('click', function () { st.start += st.len; renderRows(); });
@@ -190,6 +252,7 @@
     setInterval(load, 5000);
     document.addEventListener('visibilitychange', function () { if (!document.hidden) load(true); });
     document.addEventListener('issuarr:refresh', function () { load(true); });
+    document.addEventListener('issuarr:flow', function () { if (st.loaded && !st.items.some(function (it) { return inTab(it, st.tab); })) renderRows(); });
   }
   if (window.jQuery) window.jQuery(start); else document.addEventListener('DOMContentLoaded', start);
 })();

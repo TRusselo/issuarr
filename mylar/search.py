@@ -35,6 +35,7 @@ from mylar import (
 )
 from mylar.downloaders import external_server as exs
 from mylar.downloaders import airdcpp
+from mylar import archiveorg, ddlsources
 
 import feedparser
 import requests
@@ -272,6 +273,11 @@ def search_init(
                        searchprov['DDL(GetComics)'] = ({'id': 200, 'type': 'DDL', 'lastrun': 0, 'active': True, 'hits': 0})
                     else:
                         searchprov['DDL(GetComics)']['active'] = True
+                elif prov_order[prov_count] == archiveorg.SITE and not provider_blocked and archiveorg.SITE not in checked_once:
+                    if archiveorg.SITE not in searchprov.keys():
+                        searchprov[archiveorg.SITE] = ({'id': 203, 'type': 'DDL', 'lastrun': 0, 'active': True, 'hits': 0})
+                    else:
+                        searchprov[archiveorg.SITE]['active'] = True
                 elif prov_order[prov_count] == 'DDL(External)' and not provider_blocked and 'DDL(External)' not in checked_once:
                     if 'DDL(External)' not in searchprov.keys():
                         searchprov['DDL(External)'] = ({'id': 201, 'type': 'DDL(External)', 'lastrun': 0, 'active': True, 'hits': 0})
@@ -446,6 +452,7 @@ def search_init(
                       ) and ''.join(current_prov.keys()) in (
                           '32P',
                           'DDL(GetComics)',
+                          archiveorg.SITE,
                           'DDL(External)',
                           'Public Torrents',
                           'experimental',
@@ -612,6 +619,15 @@ def provider_order(initial_run=False):
            ]
         ):
             ddlprovider.append('DDL(GetComics)')
+            ddls+=1
+
+        if all(
+           [
+                mylar.CONFIG.ENABLE_ARCHIVEORG is True,
+                not helpers.block_provider_check(archiveorg.SITE),
+           ]
+        ):
+            ddlprovider.append(archiveorg.SITE)
             ddls+=1
 
         if all(
@@ -964,11 +980,18 @@ def NZB_SEARCH(
                          'year':      comyear}
                 b = getcomics.GC(query=fline, provider_stat=provider_stat)
                 verified_matches = b.search(is_info=is_info)
+            elif nzbprov == archiveorg.SITE:
+                b = archiveorg.IA(query={'comicname': findcomic, 'issue': isssearch, 'year': comyear},
+                                  provider_stat=provider_stat)
+                verified_matches = b.search(is_info=is_info)
             elif nzbprov == 'DDL(External)':
                 b = exs.MegaNZ(query='%s' % ComicName, provider_stat=provider_stat)
                 verified_matches = b.ddl_search(is_info=is_info)
             #logger.fdebug('bb returned from %s: %s' % (nzbprov, verified_matches))
 
+        elif RSS == "yes" and nzbprov == archiveorg.SITE:
+            # no feed to read: the Internet Archive is only searched
+            verified_matches = 'no results'
         elif RSS == "yes" and 'DDL(External)' not in nzbprov:
             if 'DDL(GetComics)' in nzbprov:
                 #only GC has an available RSS Feed
@@ -1332,7 +1355,8 @@ def verification(verified_matches, is_info):
                     continue
                 # generate the send-to and actually send the nzb / torrent.
                 try:
-                    links = {'id': verified['entry']['id'], 'link': verified['entry']['link']}
+                    links = {'id': verified['entry']['id'], 'link': verified['entry']['link'],
+                             'torrent': verified['entry'].get('torrent')}
                 except Exception:
                     links = verified['entry']['link']
                 searchresult = searcher(
@@ -1551,10 +1575,24 @@ def queued_issueids():
     return {x.get('issueid') for x in waiting if isinstance(x, dict)}
 
 
+def search_status():
+    """What the search queue is doing, for the Wanted page: the issue being searched and the ones waiting."""
+    def brief(item):
+        return {'issueid': item.get('issueid'), 'name': item.get('comicname'), 'number': item.get('issuenumber')}
+    with mylar.SEARCH_QUEUE.mutex:
+        waiting = [brief(x) for x in mylar.SEARCH_QUEUE.queue if isinstance(x, dict)]
+    current = mylar.SEARCH_CURRENT
+    return {'current': brief(current) if isinstance(current, dict) else None,
+            'waiting': waiting,
+            # The lock without a current issue: the RSS check is running.
+            'busy': bool(mylar.SEARCHLOCK)}
+
+
 def searchforissue(issueid=None, new=False, rsschecker=None, manual=False, all_tiers=False):
     # all_tiers: the Wanted page's "Search all" button. It also queues Tier 2 issues, which the
-    # scheduled search leaves to RSS. Queueing only fills the search queue, so it doesn't need
-    # (or touch) the lock the queue worker holds while it searches.
+    # scheduled search leaves to RSS. Queueing Wanted issues (no issueid, no RSS) only fills the
+    # search queue, so it doesn't need (or touch) the lock the queue worker holds while it searches.
+    queue_only = not issueid and not rsschecker
     if rsschecker == 'yes':
         while mylar.SEARCHLOCK is True:
            # logger.info(
@@ -1563,7 +1601,7 @@ def searchforissue(issueid=None, new=False, rsschecker=None, manual=False, all_t
            # )
             time.sleep(5)
 
-    if mylar.SEARCHLOCK is True and not all_tiers:
+    if mylar.SEARCHLOCK is True and not queue_only:
         logger.info(
             'A search is currently in progress....queueing this up again to try'
             ' in a bit.'
@@ -1579,6 +1617,7 @@ def searchforissue(issueid=None, new=False, rsschecker=None, manual=False, all_t
        and any(
             [
                 mylar.CONFIG.ENABLE_GETCOMICS is True,
+                mylar.CONFIG.ENABLE_ARCHIVEORG is True,
                 mylar.CONFIG.ENABLE_EXTERNAL_SERVER is True,
             ]
        ))
@@ -1609,7 +1648,7 @@ def searchforissue(issueid=None, new=False, rsschecker=None, manual=False, all_t
         )
     ):
         if not issueid or rsschecker:
-            already_queued = queued_issueids() if all_tiers else set()
+            already_queued = queued_issueids() if queue_only else set()
 
             if rsschecker:
                 logger.info(
@@ -1806,6 +1845,7 @@ def searchforissue(issueid=None, new=False, rsschecker=None, manual=False, all_t
                     ' Date-data in the database: %s' % (search_skip)
                 )
 
+            tier_date = helpers.search_tier_date()
             for result in sorted(results, key=itemgetter('StoreDate'), reverse=True):
 
                 try:
@@ -1941,16 +1981,22 @@ def searchforissue(issueid=None, new=False, rsschecker=None, manual=False, all_t
                     else:
                         DateAdded = result['DateAdded']
 
-                    if rsschecker is None and (all_tiers or DateAdded >= mylar.SEARCH_TIER_DATE):
+                    # Tier 1 runs from the later of the day it was added and the day it came out.
+                    # RSS still matches an issue that isn't out yet: if it's in a feed, it's out.
+                    tier, tier_since = helpers.search_tier(DateAdded, StoreDate, DigitalDate, tier_date)
+                    if rsschecker is None and tier == 'soon':
+                        logger.fdebug('[NOT OUT YET] %s #%s comes out %s, searching from then' % (comicname, result['Issue_Number'], tier_since))
+                        continue
+                    if rsschecker is None and (all_tiers or tier == 1):
                         # Story-arc issues are looked up by their arc id (the queue spots the "_");
                         # the plain IssueID isn't found when the series isn't on the watchlist.
                         queue_id = result['IssueArcID'] if result['mode'] == 'story_arc' and result.get('IssueArcID') else result['IssueID']
                         if queue_id in already_queued:
                             continue
                         logger.fdebug(
-                            '[%s] Adding: %s #%s [ComicID:%s / IssueiD: %s][ %s %s %s]'
-                            % ('TIER1' if DateAdded >= mylar.SEARCH_TIER_DATE else 'TIER2', comicname, result['Issue_Number'], result['ComicID'], result['IssueID'],
-                               DateAdded, '>=' if DateAdded >= mylar.SEARCH_TIER_DATE else '<', mylar.SEARCH_TIER_DATE)
+                            '[TIER%s] Adding: %s #%s [ComicID:%s / IssueiD: %s][added %s, out %s, Tier 1 from %s]'
+                            % (tier, comicname, result['Issue_Number'], result['ComicID'], result['IssueID'],
+                               DateAdded, helpers.release_date(StoreDate, DigitalDate), tier_date)
                         )
                         mylar.SEARCH_QUEUE.put(
                             {
@@ -1969,7 +2015,7 @@ def searchforissue(issueid=None, new=False, rsschecker=None, manual=False, all_t
                             sqlquery_name = re.sub(r'[\:\-]', '%', comic['ComicName']).strip()
                             rss_queue.append((comic['ComicName'], sqlquery_name, result['Issue_Number'], ComicYear, SeriesYear, Publisher, IssueDate, StoreDate, result['IssueID'], AlternateSearch, UseFuzzy, ComicVersion, result['SARC'], result['IssueArcID'], result['mode'], rsschecker, result['ComicID'], Comicname_filesafe, AllowPacks, OneOff, TorrentID_32p, DigitalDate, booktype, ignore_booktype))
                     else:
-                        logger.fdebug('[TIER2] %s #%s [%s < %s]' % (comicname, result['Issue_Number'], DateAdded, mylar.SEARCH_TIER_DATE))
+                        logger.fdebug('[TIER2] %s #%s [%s < %s]' % (comicname, result['Issue_Number'], tier_since, tier_date))
                         continue
                     # - removed below - if uncommented will ignore the Tier searches
                     #else:
@@ -2054,6 +2100,7 @@ def searchforissue(issueid=None, new=False, rsschecker=None, manual=False, all_t
                         [
                             mylar.CONFIG.EXPERIMENTAL is True,
                             mylar.CONFIG.ENABLE_GETCOMICS is True,
+                            mylar.CONFIG.ENABLE_ARCHIVEORG is True,
                             mylar.CONFIG.ENABLE_EXTERNAL_SERVER is True,
                         ]
                     )
@@ -2310,8 +2357,6 @@ def searchforissue(issueid=None, new=False, rsschecker=None, manual=False, all_t
                     mylar.SEARCHLOCK = False
             else:
                 logger.info('Completed Queueing API Search scan')
-                if mylar.SEARCHLOCK is True and not all_tiers:
-                    mylar.SEARCHLOCK = False
         else:
             try:
                 mylar.SEARCHLOCK = True
@@ -2555,6 +2600,7 @@ def searchIssueIDList(issuelist):
        and any(
             [
                 mylar.CONFIG.ENABLE_GETCOMICS is True,
+                mylar.CONFIG.ENABLE_ARCHIVEORG is True,
                 mylar.CONFIG.ENABLE_EXTERNAL_SERVER is True,
             ]
         )
@@ -2616,6 +2662,13 @@ def searchIssueIDList(issuelist):
                     ' still wanted, perform a Manual search or mark issue as Skipped'
                     ' or Wanted.'
                 )
+                continue
+
+            # Marking an issue Wanted (or adding a series) doesn't search what isn't out yet:
+            # the scheduled search picks it up from its release date.
+            if helpers.not_out_yet(issue['ReleaseDate'], issue['DigitalDate']):
+                logger.fdebug('[NOT OUT YET] IssueID %s comes out %s, searching from then'
+                              % (issueid, helpers.release_date(issue['ReleaseDate'], issue['DigitalDate'])))
                 continue
 
             if comicname is None:
@@ -2727,6 +2780,8 @@ def provider_sequence(
                             prov_order.append(pr_order[1])
                             break
 
+    # the Internet Archive goes next to GetComics, before or after it as the download sources list says
+    prov_order = ddlsources.place_ia(prov_order, 'DDL(GetComics)', archiveorg.SITE)
     return prov_order, torznab_info, newznab_info
 
 
@@ -2841,7 +2896,9 @@ def searcher(
     comyear = comicinfo[0]['comyear']
     oneoff = comicinfo[0]['oneoff']
     nzbid = comicinfo[0]['nzbid']
+    torrent = None
     if type(link) != str:
+        torrent = link.get('torrent')  # an Internet Archive item's torrent
         link = link['link']
     try:
         SARC = comicinfo[0]['SARC']
@@ -3195,9 +3252,13 @@ def searcher(
             #GC requires an extra step - do it now.
             ggc = getcomics.GC(issueid=tmp_issueid, comicid=ComicID)
             ggc.loadsite(nzbid, link)
+            getcomics.clear_cancel(nzbid)  # a new grab, so an earlier removal of this post no longer applies
             ddl_it = ggc.parse_downloadresults(nzbid, link, comicinfo, pack_info)
             tnzbprov = nzbprov
-            if ddl_it['success'] is True:
+            if ddl_it['success'] is True and ddl_it.get('site') == 'GC-Torrent':
+                t_hash = ddl_it['torrent'].get('hash')
+                logger.info('[%s] Sent the torrent for %s to your torrent client.' % (tnzbprov, nzbname))
+            elif ddl_it['success'] is True:
                 logger.info(
                     '[%s] Successfully snatched %s from DDL site. It is currently being queued'
                     ' to download in position %s' % (tnzbprov, nzbname, mylar.DDL_QUEUE.qsize())
@@ -3205,6 +3266,13 @@ def searcher(
             else:
                 logger.info('[%s] Failed to retrieve %s from the DDL site.' % (tnzbprov, nzbname))
                 return "ddl-fail"
+        elif nzbprov == archiveorg.SITE:
+            ddl_it = archiveorg.queue(nzbid, link, comicinfo, torrent)
+            tnzbprov = nzbprov
+            if ddl_it['site'] == 'IA-Torrent':
+                logger.info('[%s] Sent the archive.org torrent for %s to your torrent client.' % (tnzbprov, nzbname))
+            else:
+                logger.info('[%s] Queued %s to download from the Internet Archive.' % (tnzbprov, nzbname))
         else:
             cinfo = {'id': nzbid,
                      'series': comicinfo[0]['ComicName'],
@@ -3231,7 +3299,10 @@ def searcher(
                 logger.info('[%s] Failed to retrieve %s from the External-DDL site.' % (tnzbprov, nzbname))
                 return "ddl-fail"
 
-        sent_to = "is downloading it directly via %s" % tnzbprov
+        if t_hash is not None:
+            sent_to = "has sent the GetComics torrent to your torrent client"
+        else:
+            sent_to = "is downloading it directly via %s" % tnzbprov
 
     elif mylar.CONFIG.ENABLE_AIRDCPP and nzbprov.lower() == 'airdcpp':
         if all([IssueID is None, IssueArcID is not None]):

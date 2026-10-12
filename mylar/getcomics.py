@@ -25,6 +25,7 @@ import re
 import threading
 import time
 import datetime
+import unicodedata
 from bs4 import BeautifulSoup
 import requests
 import zipfile
@@ -64,6 +65,39 @@ def clear_cancel(post_id):
     post_id = str(post_id)
     for cancelled in [c for c in mylar.DDL_CANCEL if c == post_id or c.startswith(post_id + '-')]:
         mylar.DDL_CANCEL.discard(cancelled)
+
+
+# GetComics lists search results newest first, not by relevance, so a series' older posts can sit
+# several pages in (on 11-12 Oct the trade searches for Birds of Prey and Ghostbusters matched on
+# pages 7-9). Deep pages of a short name are mostly other series ("Powers #1" ran to 14 pages of
+# Power Rangers and Powers of X), and each page costs DDL_QUERY_DELAY. So stop a query once
+# OFF_SERIES_PAGES pages in a row have no post named like the series, and never read more than
+# MAX_SEARCH_PAGES.
+MAX_SEARCH_PAGES = 10
+OFF_SERIES_PAGES = 2
+
+
+def _name_words(name):
+    # fold accents to plain ASCII as filechecker does, so 'Ragnarök' names 'Ragnarok #1'
+    name = unicodedata.normalize('NFKD', name or '').encode('ascii', 'ignore').decode()
+    return [w for w in search_filer._words(re.sub(r"['\u2019]", '', name)) if w not in ('the', 'and', 'a')]
+
+
+def names_series(title, names):
+    """True when a post title could be one of the series names: it starts with the name
+    ("Powers - The Bureau", "Spider-Man" for "Spiderman") or starts with the same word and holds
+    all the name's words in order (GetComics adds words, as in with_extra_words)."""
+    got = _name_words(title)
+    for name in names:
+        want = _name_words(name)
+        if not want or not got:
+            continue
+        if ''.join(got).startswith(''.join(want)):
+            return True
+        rest = iter(got)
+        if got[0] == want[0] and all(word in rest for word in want):
+            return True
+    return False
 
 
 class DownloadCancelled(Exception):
@@ -312,6 +346,9 @@ class GC(object):
             elif self.query.get('year') and self.query.get('issue') not in (None, 'None'):
                 self.search_format.append(pack_query)
 
+            # the name searched for (an alternate name runs as its own search) and the series' own
+            self.series_names = [n for n in (self.query['comicname'], (is_info or {}).get('ComicName')) if n]
+
             queries_run = set()
             for sf in self.search_format:
                 verified_matches = []
@@ -476,6 +513,8 @@ class GC(object):
     def perform_search_queries(self, queryline):
         next_url = self.url
         seen_urls = set()
+        names = getattr(self, 'series_names', None) or [self.query['comicname']]
+        pages = off_series = 0
         while next_url is not None:
             pause_the_search = mylar.CONFIG.DDL_QUERY_DELAY
             diff = mylar.search.check_time(self.provider_stat['lastrun']) # only limit the search queries - the other calls should be direct and not as intensive
@@ -504,6 +543,11 @@ class GC(object):
             mylar.search.last_run_check(write={'DDL(GetComics)': {'id': 200, 'active': True, 'lastrun': write_time, 'type': 'DDL', 'hits': self.provider_stat['hits']+1}})
             self.provider_stat['lastrun'] = write_time
             page_results, next_url = self.parse_search_result(page_html, gc_page.status_code)
+            pages += 1
+            if any(names_series(r.get('title') or r.get('series'), names) for r in page_results):
+                off_series = 0
+            else:
+                off_series += 1
 
             #logger.fdebug('page_results: %s' % page_results)
             possible_choices = []
@@ -521,6 +565,17 @@ class GC(object):
             #if not mylar.CONFIG.PACK_PRIORITY and possible_choices:
             #    logger.info('[pack-last choices] possible choices to check before page-loading next page..: %s' % possible_choices)
             #    yield possible_choices
+
+            if next_url is None:
+                break
+            if off_series >= OFF_SERIES_PAGES:
+                logger.fdebug('[DDL-QUERY] Not reading past page %s of %s - the last %s pages had nothing named like %s'
+                              % (pages, queryline, off_series, ' / '.join(names)))
+                break
+            if pages >= MAX_SEARCH_PAGES:
+                logger.info('[DDL-QUERY] Stopped reading %s at the %s-page limit - GetComics has more pages'
+                            % (queryline, MAX_SEARCH_PAGES))
+                break
 
     def parse_search_result(self, page_html, status_code):
         resultlist = []

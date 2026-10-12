@@ -104,6 +104,25 @@
 		</div>
 	</section>
 
+	<section id="wp-gradual" class="wp-gradual" aria-labelledby="wp-g-title">
+		<h2 id="wp-g-title">A little each night</h2>
+		<p>Converts part of the library each night, largest files first, with the date, quality, CPU threads, files at once and holding folder chosen above. New downloads are already converted when they're filed, if that's turned on in the settings. It waits while downloads are running or being filed, and doesn't run at the same time as a conversion started here.</p>
+		<label class="wp-check"><input type="checkbox" id="wp-g-on"${' checked' if gradual['enabled'] else ''}> Convert the library gradually</label>
+		<label class="wp-row"><span>Issues per night</span>
+			<span><input type="number" id="wp-g-per" value="${gradual['per_night']}" min="1" max="100000" style="width:7em">
+			<small>Every issue it opens counts, including ones it leaves as they are.</small></span>
+		</label>
+		<div class="wp-row"><span>Between</span>
+			<span><input type="time" id="wp-g-start" value="${gradual['start']}" aria-label="Start time"> and <input type="time" id="wp-g-end" value="${gradual['end']}" aria-label="End time">
+			<small>Server time. The times can cross midnight, like 23:00 to 05:00.</small></span>
+		</div>
+		<p id="wp-g-night" class="wp-g-night" aria-live="polite"></p>
+		<div class="lg-build">
+			<span id="wp-g-hint"></span>
+			<button type="button" class="btn btn-primary" id="wp-g-save">Save</button>
+		</div>
+	</section>
+
 	<dialog id="wp-confirm1" class="wp-dialog">
 		<h2>Convert these files?</h2>
 		<div id="wp-c1-body"></div>

@@ -1,3 +1,4 @@
+import datetime
 import io
 import json
 import os
@@ -765,6 +766,7 @@ def status():
     snap['stopping'] = bool(BULK.get('stop'))
     snap['available'] = available()
     snap['import_queue'] = _queue.qsize()
+    snap['gradual'] = gradual_status()
     try:
         snap['memory'] = counts()
     except Exception as e:
@@ -783,10 +785,16 @@ def dock_summary():
             out['current'] = os.path.basename(current) if state == 'previewing' else current
             out['stopping'] = bool(BULK.get('stop'))
             return out
+        night = {k: GRADUAL.get(k) for k in ('state', 'done', 'quota', 'why')}
+        night['current'] = GRADUAL.get('current') or ''
+    if night['state'] == 'running':
+        return dict(night, state='gradual', why='')
     current = _importing[0]
     waiting = _queue.qsize() + (1 if current else 0)
     if waiting:
         return {'state': 'import', 'waiting': waiting, 'current': os.path.basename(current or '')}
+    if night['state'] == 'waiting':
+        return dict(night, state='gradual')
     return None
 
 
@@ -938,6 +946,8 @@ def start_run(token, confirm):
     with _bulk_lock:
         if BULK.get('state') != 'previewed' or token != BULK.get('token'):
             return 'Run the preview again first - the options or the file list have changed.'
+        if GRADUAL.get('state') == 'running':
+            return 'The gradual conversion is working right now. Wait until it stops, or turn it off, then preview again.'
         if str(confirm).strip() != str(BULK.get('count')):
             return 'Type the number of files (%s) to confirm.' % BULK.get('count')
         opts = BULK['opts']
@@ -998,6 +1008,16 @@ def _one(path, opts):
             BULK['errors'] = (BULK['errors'] + ['%s: %s' % (os.path.relpath(path, opts['root']), res['reason'])])[-20:]
 
 
+def _process_pool(threads):
+    try:
+        import multiprocessing
+        from concurrent.futures import ProcessPoolExecutor
+        return ProcessPoolExecutor(threads, mp_context=multiprocessing.get_context('spawn'))
+    except Exception as e:
+        logger.warn('[WEBP] Unable to start worker processes, using threads instead: %s' % e)
+        return None
+
+
 def _run(files, opts):
     logger.info('[WEBP] Converting %s files under %s to WebP q%s (dated %s or later), %s files at once on %s CPU threads%s.' % (
         len(files), opts['root'], opts['quality'], opts['since'] or 'any time', opts['files'], opts['threads'],
@@ -1005,13 +1025,7 @@ def _run(files, opts):
     stopped = False
     with _bulk_lock:
         BULK['active'] = []
-    pool = None
-    try:
-        import multiprocessing
-        from concurrent.futures import ProcessPoolExecutor
-        pool = ProcessPoolExecutor(opts['threads'], mp_context=multiprocessing.get_context('spawn'))
-    except Exception as e:
-        logger.warn('[WEBP] Unable to start worker processes, using threads instead: %s' % e)
+    pool = _process_pool(opts['threads'])
     opts = dict(opts, pool=pool)
     with ThreadPoolExecutor(opts['files']) as ex:
         pending = set()
@@ -1030,3 +1044,282 @@ def _run(files, opts):
         snap = dict(BULK)
     logger.info('[WEBP] %s: %s converted, %s skipped, %s failed, %s saved.' % (
         'Stopped' if stopped else 'Finished', snap['converted'], snap['skipped'], snap['failed'], _mb(snap['saved'])))
+
+
+# Gradual conversion: a little of the library each night. The scheduler looks in every few
+# minutes; inside the window it converts the largest files not handled yet, a file at a time per
+# "files at once", until the night's quota is met or the window closes. It gives way to filing,
+# downloads and on-import conversion, and picks up where it left off when they finish. The
+# night's count is kept in webp_nights, so a restart inside the window carries on the same night.
+GRADUAL_TICK = 5       # minutes between the scheduler's looks
+NIGHT_KEYS = ('done', 'converted', 'skipped', 'failed', 'damaged', 'saved')
+
+
+def _minutes(text, default):
+    m = re.match(r'^\s*(\d{1,2})(?:[:.](\d{2}))?\s*$', str(text or ''))
+    if not m or int(m.group(1)) > 23 or int(m.group(2) or 0) > 59:
+        return default
+    return int(m.group(1)) * 60 + int(m.group(2) or 0)
+
+
+def clock_text(text, default):
+    t = _minutes(text, None)
+    return default if t is None else '%02d:%02d' % divmod(t, 60)
+
+
+def window_night(now, start, end):
+    """The night now falls in, named by the date its window opened, or None outside the window.
+    A window may cross midnight (23:00-05:00); one that starts and ends at the same time is all day."""
+    s, e = _minutes(start, 60), _minutes(end, 420)
+    t = now.hour * 60 + now.minute
+    today = now.date()
+    if s == e or (s < e and s <= t < e) or (s > e and t >= s):
+        return today.isoformat()
+    if s > e and t < e:
+        return (today - datetime.timedelta(days=1)).isoformat()
+    return None
+
+
+def gradual_settings():
+    return {'enabled': bool(_cfg('WEBP_GRADUAL', False)), 'per_night': max(1, int(_cfg('WEBP_PER_NIGHT', 1000))),
+            'start': clock_text(_cfg('WEBP_WINDOW_START', '01:00'), '01:00'),
+            'end': clock_text(_cfg('WEBP_WINDOW_END', '07:00'), '07:00')}
+
+
+def _night(myDB, night):
+    row = myDB.selectone('SELECT * FROM webp_nights WHERE night=?', [night]).fetchone()
+    if row is not None:
+        return dict(row)
+    return dict({k: 0 for k in NIGHT_KEYS}, night=night, quota=0, note='')
+
+
+def _save_night(myDB, row):
+    myDB.upsert('webp_nights', dict({k: row[k] for k in NIGHT_KEYS}, quota=row['quota'], note=row.get('note') or '',
+                                    updated=time.strftime('%Y-%m-%d %H:%M:%S')), {'night': row['night']})
+
+
+def busy_elsewhere():
+    """What the gradual conversion should give way to right now, or '' when nothing is."""
+    try:
+        from mylar import archives
+        if archives.processing() or archives.DDL_FILING:
+            return 'downloads are being filed'
+    except Exception:
+        pass
+    lock = _pp_lock()
+    if not lock.acquire(blocking=False):
+        return 'downloads are being filed'
+    lock.release()
+    if _queue.qsize() or _importing[0]:
+        return 'new issues are being converted'
+    try:
+        from mylar import db
+        if db.DBConnection().selectone("SELECT 1 FROM ddl_info WHERE status='Downloading' LIMIT 1").fetchone():
+            return 'downloads are running'
+    except Exception:
+        pass
+    return ''
+
+
+def _set_gradual(**kw):
+    with _bulk_lock:
+        GRADUAL.clear()
+        GRADUAL.update(kw)
+
+
+def gradual_tick():
+    """The scheduler's look-in: starts the night's conversion in the background when it should run."""
+    if not gradual_settings()['enabled']:
+        if GRADUAL.get('state') == 'waiting':
+            _set_gradual(state='idle')
+        return False
+    if GRADUAL.get('state') == 'running':
+        return False
+    threading.Thread(target=run_gradual, name='WEBP-GRADUAL', daemon=True).start()
+    return True
+
+
+def run_gradual(clock=None, busy=None):
+    """Convert tonight's share, or as much of it as fits before something needs the server.
+    Returns why it stopped (for the log and tests)."""
+    clock = clock or datetime.datetime.now
+    busy = busy or busy_elsewhere
+    cfg = gradual_settings()
+    night = window_night(clock(), cfg['start'], cfg['end'])
+    if not cfg['enabled'] or night is None or not available():
+        if GRADUAL.get('state') != 'running':
+            _set_gradual(state='idle')
+        return 'off' if not cfg['enabled'] else 'outside the window' if night is None else 'no webp'
+    myDB = ensure()
+    row = _night(myDB, night)
+    row['quota'] = cfg['per_night']
+    if row['done'] >= row['quota']:
+        _set_gradual(state='idle', night=night)
+        return 'done for tonight'
+    opts = options(limit=row['quota'] - row['done'])
+    if opts['backup_dir']:
+        problem = check_options(opts)
+        if problem:
+            logger.warn('[WEBP][GRADUAL] Not converting tonight: %s' % problem)
+            row['note'] = problem
+            _save_night(myDB, row)
+            _set_gradual(state='idle', night=night)
+            return problem
+    elif not opts['root'] or not os.path.isdir(opts['root']):
+        _set_gradual(state='idle', night=night)
+        return 'no library folder'
+    why = busy()
+    with _bulk_lock:
+        if GRADUAL.get('state') == 'running':
+            return 'already running'
+        if BULK.get('state') in ('previewing', 'running'):
+            why = why or 'a conversion was started from the WebP page'
+        state = 'waiting' if why else 'running'
+        GRADUAL.clear()
+        GRADUAL.update(state=state, why=why, night=night, done=row['done'], quota=row['quota'], current='')
+    if why:
+        return why
+    try:
+        return _gradual_night(myDB, row, opts, cfg, clock, busy)
+    except Exception as e:
+        logger.warn('[WEBP][GRADUAL] Stopped by an error: %s' % e)
+        _set_gradual(state='idle', night=night)
+        return 'error'
+
+
+def _gradual_pause(row, cfg, clock, busy, backup, size, taken):
+    # Why to stop before starting the next file, or ''.
+    now = gradual_settings()
+    if not now['enabled']:
+        return 'turned off'
+    if window_night(clock(), now['start'], now['end']) != row['night']:
+        return 'the window closed'
+    if row['done'] + taken >= row['quota']:
+        return 'done for tonight'
+    if BULK.get('state') in ('previewing', 'running'):
+        return 'a conversion was started from the WebP page'
+    if backup:
+        probe = backup
+        while probe and not os.path.isdir(probe):
+            probe = os.path.dirname(probe)
+        try:
+            if shutil.disk_usage(probe or '/').free < size * 1.05 + 1073741824:
+                return 'the holding folder is nearly full'
+        except Exception:
+            pass
+    return busy()
+
+
+def _gradual_night(myDB, row, opts, cfg, clock, busy):
+    found = select(opts['root'], opts['since'], False, opts['limit'], stop=lambda: not gradual_settings()['enabled'])
+    files = found['files']
+    if not files:
+        row['note'] = 'nothing left to convert'
+        _save_night(myDB, row)
+        _set_gradual(state='idle', night=row['night'])
+        return 'nothing left to convert'
+    logger.info('[WEBP][GRADUAL] Converting up to %s of the largest files (%s done tonight, %s files at once on %s CPU threads%s).' % (
+        len(files), row['done'], opts['files'], opts['threads'],
+        ', originals kept in %s' % opts['backup_dir'] if opts['backup_dir'] else ', originals NOT kept'))
+    lock = threading.Lock()
+    active = []
+    run = dict(opts, pool=_process_pool(opts['threads']) if opts['threads'] > 1 else None)
+
+    def one(path):
+        with lock:
+            active.append(path)
+            _set_current(active)
+        try:
+            res = convert(path, quality=run['quality'], min_source_q=run['min_q'], threads=run['threads'],
+                          backup_dir=run['backup_dir'] or None, backup_root=run['root'], pool=run['pool'])
+        except Exception as e:
+            res = {'path': path, 'status': 'failed', 'reason': str(e), 'before': 0, 'after': 0}
+        _log(res, '[GRADUAL]')
+        if res['status'] != 'skipped':
+            _journal(dict(res, source='gradual'))
+        status = remember(res)
+        with lock:
+            active.remove(path)
+            _set_current(active)
+            if status is not None:
+                row['done'] += 1
+                key = {'converted': 'converted', 'damaged': 'damaged', 'failed': 'failed'}.get(status, 'skipped')
+                row[key] += 1
+                if status == 'converted':
+                    row['saved'] += max(0, res['before'] - res['after'])
+                _save_night(myDB, row)
+            with _bulk_lock:
+                GRADUAL['done'] = row['done']
+
+    why = ''
+    try:
+        with ThreadPoolExecutor(run['files']) as ex:
+            pending = set()
+            for path in files:
+                try:
+                    size = os.path.getsize(path)
+                except OSError:
+                    continue
+                while len(pending) >= run['files']:
+                    done, pending = wait(pending, return_when=FIRST_COMPLETED)
+                why = _gradual_pause(row, cfg, clock, busy, run['backup_dir'], size, len(pending))
+                if why:
+                    break
+                pending.add(ex.submit(one, path))
+            wait(pending)
+    finally:
+        if run['pool'] is not None:
+            run['pool'].shutdown()
+    why = why or ('done for tonight' if row['done'] >= row['quota'] else 'nothing left to convert')
+    row['note'] = why
+    _save_night(myDB, row)
+    waiting = why in ('downloads are being filed', 'new issues are being converted', 'downloads are running')
+    _set_gradual(state='waiting' if waiting else 'idle', why=why if waiting else '', night=row['night'],
+                 done=row['done'], quota=row['quota'], current='')
+    logger.info('[WEBP][GRADUAL] %s: %s of %s tonight - %s converted, %s skipped, %s damaged, %s saved.' % (
+        'Waiting while %s' % why if waiting else 'Stopped (%s)' % why, row['done'], row['quota'], row['converted'],
+        row['skipped'], row['damaged'], _mb(row['saved'])))
+    return why
+
+
+def _set_current(active):
+    with _bulk_lock:
+        GRADUAL['current'] = ', '.join(os.path.basename(p) for p in active)
+
+
+def gradual_status():
+    cfg = gradual_settings()
+    out = {'settings': cfg, 'tick': GRADUAL_TICK}
+    with _bulk_lock:
+        out.update({k: v for k, v in GRADUAL.items()})
+    try:
+        myDB = ensure()
+        night = window_night(datetime.datetime.now(), cfg['start'], cfg['end'])
+        rows = [dict(r) for r in myDB.select('SELECT * FROM webp_nights ORDER BY night DESC LIMIT 2')]
+        out['tonight'] = next((r for r in rows if r['night'] == night), None)
+        out['last'] = next((r for r in rows if r['night'] != night), None)
+    except Exception as e:
+        logger.fdebug('[WEBP] Unable to read the gradual conversion\'s nights: %s' % e)
+    return out
+
+
+def save_gradual(enabled, per_night, start, end):
+    """Check and keep the gradual settings. Returns a problem to show, or None."""
+    try:
+        per_night = int(per_night)
+    except (TypeError, ValueError):
+        return 'Enter a whole number of issues per night.'
+    if not 1 <= per_night <= 100000:
+        return 'Issues per night must be between 1 and 100,000.'
+    if _minutes(start, None) is None or _minutes(end, None) is None:
+        return 'Enter the times as hours and minutes, like 01:00 and 07:00.'
+    values = {'webp_gradual': bool(enabled), 'webp_per_night': per_night,
+              'webp_window_start': clock_text(start, '01:00'), 'webp_window_end': clock_text(end, '07:00')}
+    try:
+        mylar.CONFIG.writeconfig(values=values)
+    except Exception as e:
+        logger.warn('[WEBP] Unable to save the gradual conversion settings: %s' % e)
+        return 'Could not save the settings: %s' % e
+    logger.info('[WEBP][GRADUAL] %s: %s issues a night between %s and %s.' % (
+        'On' if enabled else 'Off', per_night, values['webp_window_start'], values['webp_window_end']))
+    return None

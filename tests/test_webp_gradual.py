@@ -11,6 +11,8 @@ from mylar import attention, db, webp
 
 from .test_webp import COMICINFO, jpeg, make_cbz, page
 
+ORIGINAL_CONVERT = webp.convert
+
 
 @pytest.fixture(autouse=True)
 def env(monkeypatch, tmp_path):
@@ -277,3 +279,170 @@ def test_cpu_limit_reads_the_container_allowance(tmp_path):
     (tmp_path / 'cpu' / 'cpu.cfs_quota_us').write_text('150000')
     (tmp_path / 'cpu' / 'cpu.cfs_period_us').write_text('100000')
     assert webp._cgroup_cpus(str(tmp_path)) == 2
+
+
+# --- the nightly window ---
+
+import datetime  # noqa: E402
+
+
+def at(hh, mm=0, day=12):
+    return datetime.datetime(2026, 10, day, hh, mm)
+
+
+@pytest.mark.unit
+def test_window_and_the_night_it_belongs_to():
+    assert webp.window_night(at(1), '01:00', '07:00') == '2026-10-12'
+    assert webp.window_night(at(6, 59), '01:00', '07:00') == '2026-10-12'
+    assert webp.window_night(at(7), '01:00', '07:00') is None
+    assert webp.window_night(at(0, 59), '01:00', '07:00') is None
+    # crossing midnight: after midnight still counts as the night that started the evening before
+    assert webp.window_night(at(23, 30), '23:00', '05:00') == '2026-10-12'
+    assert webp.window_night(at(2), '23:00', '05:00') == '2026-10-11'
+    assert webp.window_night(at(5), '23:00', '05:00') is None
+    assert webp.window_night(at(12), '23:00', '05:00') is None
+    assert webp.window_night(at(12), '9', '9') == '2026-10-12'   # same start and end: all day
+
+
+@pytest.fixture
+def night(env, monkeypatch):
+    """Gradual mode on, inside the window, with convert() stubbed to report a saving."""
+    env.cfg.WEBP_GRADUAL, env.cfg.WEBP_PER_NIGHT = True, 3
+    env.cfg.WEBP_WINDOW_START, env.cfg.WEBP_WINDOW_END = '23:00', '05:00'
+    env.cfg.WEBP_THREADS, env.cfg.WEBP_FILES = 1, 1
+    monkeypatch.setattr(webp, 'available', lambda: True)
+    monkeypatch.setattr(webp, '_journal', lambda res: None)
+    seen = []
+
+    def fake(path, **kw):
+        seen.append(path)
+        return {'path': path, 'status': 'converted', 'reason': '', 'before': 1000, 'after': 400, 'pages': 2,
+                'converted': 2, 'kept': 0, 'backup': None}
+    monkeypatch.setattr(webp, 'convert', fake)
+    files = [cbz(env, 'Hero %03d (2019).cbz' % (i + 1), pages=i + 1, seed=i * 3) for i in range(5)]
+    return types.SimpleNamespace(seen=seen, files=files, clock=lambda: at(2))
+
+
+@pytest.mark.unit
+def test_gradual_converts_the_largest_up_to_the_quota(night, env):
+    assert webp.run_gradual(clock=night.clock, busy=lambda: '') == 'done for tonight'
+    assert night.seen == night.files[::-1][:3]
+    row = webp.gradual_status()
+    assert webp.GRADUAL['state'] == 'idle'
+    last = db.DBConnection().selectone("SELECT * FROM webp_nights WHERE night='2026-10-11'").fetchone()
+    assert (last['done'], last['converted'], last['saved'], last['quota']) == (3, 3, 1800, 3)
+    assert row['settings']['per_night'] == 3
+
+
+@pytest.mark.unit
+def test_the_nights_count_survives_a_restart(night, env, monkeypatch):
+    calls = []
+
+    def busy_after_two():
+        calls.append(1)
+        return 'downloads are being filed' if len(night.seen) >= 2 else ''
+    assert webp.run_gradual(clock=night.clock, busy=busy_after_two) == 'downloads are being filed'
+    assert len(night.seen) == 2 and webp.GRADUAL['state'] == 'waiting'
+    assert webp.dock_summary() == {'state': 'gradual', 'done': 2, 'quota': 3, 'why': 'downloads are being filed', 'current': ''}
+    # a restart: everything in memory is gone, the night's count is not
+    monkeypatch.setattr(webp, 'GRADUAL', {'state': 'idle'})
+    monkeypatch.setattr(webp, '_ensured', [None])
+    assert webp.run_gradual(clock=night.clock, busy=lambda: '') == 'done for tonight'
+    assert len(night.seen) == 3 and len(set(night.seen)) == 3
+    # the next night starts afresh
+    assert webp.run_gradual(clock=lambda: at(2, day=13), busy=lambda: '') == 'nothing left to convert'
+    assert len(night.seen) == 5
+    assert webp.run_gradual(clock=lambda: at(23, day=13), busy=lambda: '') == 'nothing left to convert'
+
+
+@pytest.mark.unit
+def test_gradual_waits_while_something_else_is_busy(night):
+    assert webp.run_gradual(clock=night.clock, busy=lambda: 'downloads are running') == 'downloads are running'
+    assert night.seen == [] and webp.GRADUAL['state'] == 'waiting'
+    assert webp.run_gradual(clock=lambda: at(12), busy=lambda: '') == 'outside the window'
+    assert night.seen == [] and webp.GRADUAL['state'] == 'idle'
+
+
+@pytest.mark.unit
+def test_gradual_stops_when_the_window_closes(night):
+    times = iter([at(4, 58), at(4, 59), at(5, 0), at(5, 1), at(5, 2)])
+    assert webp.run_gradual(clock=lambda: next(times), busy=lambda: '') == 'the window closed'
+    assert len(night.seen) == 1
+
+
+@pytest.mark.unit
+def test_gradual_and_a_manual_run_never_overlap(night):
+    webp.BULK.update(state='running')
+    assert webp.run_gradual(clock=night.clock, busy=lambda: '') == 'a conversion was started from the WebP page'
+    assert night.seen == []
+    webp.BULK.update(state='previewed', token='t', count=1, opts=webp.options(no_backup=True), files=['x'], bytes=1)
+    webp.GRADUAL.update(state='running')
+    assert 'gradual conversion is working' in webp.start_run('t', '1')
+
+
+@pytest.mark.unit
+def test_gradual_damaged_file_is_counted_and_left_alone(night, env, monkeypatch):
+    monkeypatch.setattr(webp, 'convert', ORIGINAL_CONVERT)
+    damage(night.files[-1])
+    env.cfg.WEBP_PER_NIGHT = 1
+    assert webp.run_gradual(clock=night.clock, busy=lambda: '') == 'done for tonight'
+    row = db.DBConnection().selectone("SELECT damaged, done FROM webp_nights").fetchone()
+    assert (row['damaged'], row['done']) == (1, 1)
+    assert db.DBConnection().selectone('SELECT reason FROM attention WHERE path=?', [night.files[-1]]).fetchone()['reason'] == 'damaged'
+    assert night.files[-1] not in select(env)['files']
+
+
+@pytest.mark.unit
+def test_gradual_settings_are_saved_post_only(env, monkeypatch):
+    import cherrypy
+    with pytest.raises(cherrypy.HTTPError):
+        _web(monkeypatch, 'GET').webp_gradual(enabled='1', per_night='500', start='22:30', end='04:00')
+    monkeypatch.setattr(webp, 'gradual_tick', lambda: False)
+    monkeypatch.setattr(webp, 'available', lambda: True)
+    out = json.loads(_web(monkeypatch, 'POST').webp_gradual(enabled='1', per_night='500', start='22:30', end='4:00',
+                                                            no_backup='1', threads='3', files='2', quality='80'))
+    assert out.get('saved'), out
+    assert webp.gradual_settings() == {'enabled': True, 'per_night': 500, 'start': '22:30', 'end': '04:00'}
+    assert (env.saved['webp_threads'], env.saved['webp_files'], env.saved['webp_quality']) == (3, 2, 80)
+    bad = json.loads(_web(monkeypatch, 'POST').webp_gradual(enabled='1', per_night='lots', start='22:30', end='04:00', no_backup='1'))
+    assert 'whole number' in bad['error']
+
+
+@pytest.mark.unit
+def test_busy_signals_filing_and_on_import_conversion(env, monkeypatch):
+    import threading
+    from mylar import PostProcessor, archives
+    monkeypatch.setattr(archives, 'processing', lambda: False)
+    assert webp.busy_elsewhere() == ''
+    held, release = threading.Event(), threading.Event()
+
+    def hold():
+        with PostProcessor.PP_LOCK:
+            held.set()
+            release.wait(5)
+    t = threading.Thread(target=hold)
+    t.start()
+    held.wait(5)
+    try:
+        assert webp.busy_elsewhere() == 'downloads are being filed'
+    finally:
+        release.set()
+        t.join()
+    webp._queue.put('/comics/new.cbz')
+    assert webp.busy_elsewhere() == 'new issues are being converted'
+    monkeypatch.setattr(archives, 'processing', lambda: True)
+    assert webp.busy_elsewhere() == 'downloads are being filed'
+
+
+@pytest.mark.unit
+def test_the_scheduler_status_ignores_the_gradual_job(env, monkeypatch):
+    from apscheduler.schedulers.background import BackgroundScheduler
+    from apscheduler.triggers.interval import IntervalTrigger
+    from mylar import helpers
+    sched = BackgroundScheduler()
+    sched.add_job(func=webp.gradual_tick, id='webp', name='WebP Gradual', max_instances=1,
+                  trigger=IntervalTrigger(minutes=webp.GRADUAL_TICK, timezone='UTC'))
+    sched.add_job(func=lambda: None, id='monitor', name='Folder Monitor', trigger=IntervalTrigger(minutes=5, timezone='UTC'))
+    monkeypatch.setattr(mylar, 'SCHED', sched, raising=False)
+    out = helpers.job_management()
+    assert [j['jobname'] for j in out] == ['Folder Monitor']

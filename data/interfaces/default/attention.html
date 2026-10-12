@@ -113,14 +113,16 @@
 
         function row(i) {
             var r = REASON[i.reason] || REASON.series;
-            var where = i.in_review ? 'In review' : i.folder;
             var job = i.job && i.job.state === 'failed' ? '<p class="att-job is-failed">' + esc(i.job.note) + '</p>' : '';
             return '<article class="att-item is-' + r[0] + '" data-path="' + esc(i.path) + '">' +
                 '<div class="att-head">' +
                     '<h2 class="att-name mono">' + esc(i.name) + '</h2>' +
-                    '<p class="att-meta muted"><span title="' + esc(i.folder) + '">' + esc(where) + '</span>' +
+                    '<p class="att-meta muted">' + (i.in_review ? '<span>In review</span>' : '') +
                     (i.size != null ? '<span>' + mb(i.size) + '</span>' : '') + '<span>' + esc(ago(i.modified)) + '</span></p>' +
                 '</div>' +
+                /* where the file is now, in full, for handling it by hand */
+                '<p class="att-path"><span class="mono">' + esc(i.folder) + '</span>' +
+                    '<button type="button" class="link-btn" data-copy>Copy path</button></p>' +
                 '<div class="att-body">' + covers(i) + '<div class="att-main">' +
                 '<p class="att-why"><b>' + r[1] + '</b>' + (i.detail ? ' ' + esc(i.detail) : '') + '</p>' +
                 reading(i) + others(i) + job + actions(i) +
@@ -256,10 +258,31 @@
             draw();
         });
 
+        // The clipboard API needs https or localhost; on a plain-http LAN address use the old way.
+        function copyPath(path) {
+            function done(ok) { window.Issuarr.toast(ok ? 'Path copied' : 'Couldn\'t copy - select the path and copy it', ok); }
+            if (navigator.clipboard && window.isSecureContext) {
+                navigator.clipboard.writeText(path).then(function () { done(true); }, function () { done(false); });
+                return;
+            }
+            var t = document.createElement('textarea');
+            t.value = path;
+            t.setAttribute('readonly', '');
+            t.style.position = 'fixed';
+            t.style.opacity = '0';
+            document.body.appendChild(t);
+            t.select();
+            var ok = false;
+            try { ok = document.execCommand('copy'); } catch (err) { ok = false; }
+            document.body.removeChild(t);
+            done(ok);
+        }
+
         list.addEventListener('click', function (e) {
             var i = itemOf(e.target), b;
             if (!i) return;
             if (e.target.closest('[data-zoom]')) { e.target.closest('.att-covers').classList.toggle('is-large'); return; }
+            if (e.target.closest('[data-copy]')) return copyPath(i.path);
             if ((b = e.target.closest('[data-file]'))) return fileAs(i, b.getAttribute('data-file'));
             if (e.target.closest('[data-pick]')) { open = open === i.path ? null : i.path; draw(); return; }
             if (e.target.closest('[data-trash]')) return act('attention_trash', i);

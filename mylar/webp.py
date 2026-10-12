@@ -1156,6 +1156,10 @@ def run_gradual(clock=None, busy=None):
     if row['done'] >= row['quota']:
         _set_gradual(state='idle', night=night)
         return 'done for tonight'
+    if row.get('note') == 'nothing left to convert':
+        # the library was walked tonight and nothing was left; don't walk it again every few minutes
+        _set_gradual(state='idle', night=night)
+        return 'nothing left to convert'
     opts = options(limit=row['quota'] - row['done'])
     if opts['backup_dir']:
         problem = check_options(opts)

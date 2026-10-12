@@ -446,3 +446,15 @@ def test_the_scheduler_status_ignores_the_gradual_job(env, monkeypatch):
     monkeypatch.setattr(mylar, 'SCHED', sched, raising=False)
     out = helpers.job_management()
     assert [j['jobname'] for j in out] == ['Folder Monitor']
+
+
+@pytest.mark.unit
+def test_a_night_with_nothing_left_does_not_walk_the_library_again(monkeypatch):
+    calls = []
+    monkeypatch.setattr(webp, 'gradual_settings', lambda: {'enabled': True, 'start': '00:00', 'end': '23:59', 'per_night': 1000})
+    monkeypatch.setattr(webp, 'available', lambda: True)
+    monkeypatch.setattr(webp, 'ensure', lambda: object())
+    monkeypatch.setattr(webp, '_night', lambda db, night: {'night': night, 'done': 3, 'quota': 1000, 'note': 'nothing left to convert'})
+    monkeypatch.setattr(webp, 'select', lambda *a, **k: calls.append(a) or {'files': []})
+    assert webp.run_gradual(busy=lambda: '') == 'nothing left to convert'
+    assert calls == []

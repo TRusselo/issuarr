@@ -376,10 +376,10 @@ class PostProcessor(object):
     def Process(self):
         archives.RUNS[0] += 1
         if self.nzb_name in ('Manual Run', 'Manual+Run'):
-            job = (None, None)
+            self.job = (None, None)
         else:
-            job = (self.comicid, archives.own_issue(self.issueid, self.ddl, self.pack))
-        archives.JOBS.append(job)
+            self.job = (self.comicid, archives.own_issue(self.issueid, self.ddl, self.pack))
+        archives.JOBS.append(self.job)
         try:
             if not PP_LOCK.acquire(blocking=False):
                 logger.info('[POST-PROCESSING] Another post-processing run is working - %s will start when it finishes.' % self.nzb_name)
@@ -390,11 +390,17 @@ class PostProcessor(object):
                 PP_LOCK.release()
         finally:
             archives.RUNS[0] -= 1
-            archives.JOBS.remove(job)
+            archives.JOBS.remove(self.job)
             # Early returns and exceptions skip the unlocks inside the run; a lock left on would
             # stop the post-processing queue and folder monitor for good.
             if self.apicall:
                 mylar.APILOCK = False
+
+    def _widen_job(self):
+        job = getattr(self, 'job', None)
+        if job in archives.JOBS:
+            self.job = (None, None)
+            archives.JOBS[archives.JOBS.index(job)] = self.job
 
     def _locked_process(self):
         self.extracted = []
@@ -503,6 +509,8 @@ class PostProcessor(object):
                     self.nzb_name = 'Manual Run'
                     self.issueid = None
                     self.comicid = None
+                    # it can now file anything, so stop letting searches past it
+                    self._widen_job()
 
             myDB = db.DBConnection()
 

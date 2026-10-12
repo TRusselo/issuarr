@@ -44,8 +44,9 @@ def processing():
 
 def own_issue(issueid, ddl=False, pack=None):
     """The issue a download can only be, or None when it could hold other issues of its series:
-    packs, JD2 items whose pack status isn't known, and anything that isn't a DDL download."""
-    if ddl is True and pack is False and issueid not in (None, '', 'None'):
+    packs, JD2 items whose pack status isn't known, and anything that isn't a DDL download.
+    Story-arc ids (IssueArcID, 'x_y') never match a series search, so they hold the series."""
+    if ddl is True and pack is False and issueid not in (None, '', 'None') and '_' not in str(issueid):
         return str(issueid)
     return None
 

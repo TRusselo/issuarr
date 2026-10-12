@@ -78,6 +78,37 @@ def test_post_processing_registers_its_series_while_it_runs(filing, monkeypatch)
         assert seen.pop() == expected and archives.JOBS == []
 
 
+class _Stop(Exception):
+    pass
+
+
+@pytest.mark.unit
+def test_a_single_issue_download_that_unpacks_as_a_pack_holds_every_search(filing, monkeypatch):
+    from mylar import PostProcessor
+    seen = []
+
+    def stop():
+        seen.append((archives.holds('93160', '585072'), archives.holds('1', '2')))
+        raise _Stop()
+    monkeypatch.setattr(PostProcessor.PostProcessor, '_locked_process', lambda self: self._process_main())
+    monkeypatch.setattr(PostProcessor.archives, 'prepare', lambda folder: (('pack', '/dl/Supergirl 007'), []))
+    monkeypatch.setattr(PostProcessor.db, 'DBConnection', stop)
+    for name in ('fdebug', 'info'):
+        monkeypatch.setattr(PostProcessor.logger, name, lambda *a, **k: None)
+    pp = PostProcessor.PostProcessor.__new__(PostProcessor.PostProcessor)
+    pp.nzb_name, pp.nzb_folder, pp.module, pp.log = 'Supergirl 007 (2017).zip', '/dl', '[PP]', ''
+    pp.comicid, pp.issueid, pp.apicall, pp.ddl, pp.pack = '93160', '585070', False, True, False
+    with pytest.raises(_Stop):
+        pp.Process()
+    assert seen == [(True, True)] and archives.JOBS == []
+
+
+@pytest.mark.unit
+def test_a_story_arc_download_holds_its_series():
+    assert archives.own_issue('585070', True, False) == '585070'
+    assert archives.own_issue('123_456', True, False) is None
+
+
 def supergirl(issueid, **payload):
     return dict({'nzb_name': 'Supergirl 007 (2017) [__%s__].cbz' % issueid, 'comicid': '93160',
                  'issueid': issueid, 'ddl': True}, **payload)

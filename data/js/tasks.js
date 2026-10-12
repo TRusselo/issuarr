@@ -8,8 +8,11 @@
   function $id(id) { return document.getElementById(id); }
   function I() { return window.Issuarr; }
 
-  function statusClass(s) {
-    if (s === 'Running') return 'is-snatched is-running';
+  // Search jobs run in magenta, like the Searching stop on the flow line.
+  var SEARCH_JOBS = { 'Auto-Search': 1, 'RSS Feeds': 1 };
+
+  function statusClass(s, job) {
+    if (s === 'Running') return (SEARCH_JOBS[job] ? 'is-wanted' : 'is-snatched') + ' is-running';
     if (s === 'Paused') return 'is-ignored';
     return 'is-idle';
   }
@@ -34,7 +37,7 @@
       var actions = (j.force ? '<button type="button" class="btn btn-sm" data-run="' + esc(j.force) + '" data-name="' + esc(j.jobname) + '">Run now</button>' : '') +
         '<button type="button" class="btn btn-sm btn-ghost" data-toggle="' + esc(j.jobname) + '" data-mode="' + (paused ? 'resume' : 'pause') + '">' + (paused ? 'Resume' : 'Pause') + '</button>';
       return '<tr><td><b>' + esc(j.jobname) + '</b></td>' +
-        '<td><span class="status ' + statusClass(j.status) + '">' + esc(j.status || 'Unknown') + '</span></td>' +
+        '<td><span class="status ' + statusClass(j.status, j.jobname) + '">' + esc(j.status || 'Unknown') + '</span></td>' +
         '<td>' + every + '</td><td class="nowrap">' + next + '</td><td class="nowrap">' + last + '</td>' +
         '<td class="actions">' + actions + '</td></tr>';
     }).join('');

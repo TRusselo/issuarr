@@ -21,7 +21,6 @@ def myDB(monkeypatch, tmp_path):
     monkeypatch.setattr(mylar, 'DATA_DIR', str(tmp_path), raising=False)
     monkeypatch.setattr(mylar, 'CONFIG', types.SimpleNamespace(ANNUALS_ON=False, UPCOMING_STORYARCS=False, EXTRA_TORZNABS=[],
                                                               DDL_LOCATION=str(tmp_path)), raising=False)
-    monkeypatch.setattr(mylar, 'SEARCH_TIER_DATE', ago(days=14)[:10], raising=False)
     monkeypatch.setattr(mylar, 'SEARCH_QUEUE', queue.Queue(), raising=False)
     monkeypatch.setattr(mylar, 'SEARCH_CURRENT', None, raising=False)
     monkeypatch.setattr(mylar, 'SEARCHLOCK', False, raising=False)
@@ -43,7 +42,8 @@ def myDB(monkeypatch, tmp_path):
     for name in ('fdebug', 'info', 'warn', 'error'):
         monkeypatch.setattr(activity.logger, name, lambda *a, **k: None)
     d = db.DBConnection()
-    d.action('CREATE TABLE issues (IssueID TEXT, ComicID TEXT, ComicName TEXT, Issue_Number TEXT, Status TEXT, DateAdded TEXT)')
+    d.action('CREATE TABLE issues (IssueID TEXT, ComicID TEXT, ComicName TEXT, Issue_Number TEXT, Status TEXT, DateAdded TEXT, '
+             'ReleaseDate TEXT, DigitalDate TEXT)')
     d.action('CREATE TABLE annuals (IssueID TEXT, ComicID TEXT, Issue_Number TEXT, Status TEXT)')
     d.action('CREATE TABLE storyarcs (IssueArcID TEXT, Status TEXT)')
     d.action('CREATE TABLE oneoffhistory (IssueID TEXT, Status TEXT)')
@@ -144,14 +144,15 @@ def test_a_download_in_flight_wins_over_an_old_empty_search(myDB):
 @pytest.mark.unit
 def test_wanted_counts_tiers_and_events_run_newest_first(myDB):
     filed = ago(minutes=5)
-    myDB.action("INSERT INTO issues (IssueID, Status, DateAdded) VALUES ('1', 'Wanted', ?), ('2', 'Wanted', ?), ('3', 'Downloaded', ?)",
-                [ago(days=1)[:10], ago(days=60)[:10], ago(days=1)[:10]])
+    soon = (datetime.date.today() + datetime.timedelta(days=5)).isoformat()
+    myDB.action("INSERT INTO issues (IssueID, Status, DateAdded, ReleaseDate) VALUES ('1', 'Wanted', ?, NULL), ('2', 'Wanted', ?, NULL), "
+                "('3', 'Downloaded', ?, NULL), ('5', 'Wanted', ?, ?)", [ago(days=1)[:10], ago(days=60)[:10], ago(days=1)[:10], ago(days=60)[:10], soon])
     myDB.action("INSERT INTO snatched (IssueID, ComicName, Issue_Number, DateAdded, Status, Provider) VALUES "
                 "('3', 'Alpha', '1', ?, 'Snatched', 'DDL(GetComics)'), ('3', 'Alpha', '1', ?, 'Post-Processed', 'DDL(GetComics)')",
                 [ago(minutes=20), filed])
     ddl_row(myDB, 'f', '4', 'Failed', series='Beta', updated=ago(minutes=10)[:16])
     out = activity.flow()
-    assert out['wanted'] == {'count': 2, 'tier1': 1}
+    assert out['wanted'] == {'count': 3, 'tier1': 1, 'soon': 1, 'next_out': soon}
     assert [e['kind'] for e in out['events']] == ['filed', 'failed', 'found']
     assert out['added_today'] == (1 if filed[:10] == ago()[:10] else 0)
 

@@ -26,7 +26,7 @@ import threading
 import time
 
 import mylar
-from mylar import archives, db, downloadqueue, logger
+from mylar import archives, db, downloadqueue, helpers, logger
 
 # How searches from the search queue ended. Kept in memory: a restart starts it empty.
 RECENT = collections.deque(maxlen=60)
@@ -73,15 +73,15 @@ def searched(item, started, on_disk=False):
 
 
 def _wanted(myDB):
-    """Wanted issues, as the Wanted page counts them, and how many are Tier 1."""
-    out = {'count': 0, 'tier1': 0}
-    tier_date = getattr(mylar, 'SEARCH_TIER_DATE', None)
+    """Wanted issues, as the Wanted page counts them: how many are Tier 1 and how many aren't out yet."""
+    out = {'count': 0, 'tier1': 0, 'soon': 0, 'next_out': None}
+    tier_date = helpers.search_tier_date()
     seen = set()
-    queries = ["SELECT IssueID, DateAdded FROM issues WHERE Status='Wanted'"]
+    queries = ["SELECT IssueID, DateAdded, ReleaseDate, DigitalDate FROM issues WHERE Status='Wanted'"]
     if mylar.CONFIG.ANNUALS_ON:
-        queries.append("SELECT IssueID, DateAdded FROM annuals WHERE NOT Deleted AND Status='Wanted'")
+        queries.append("SELECT IssueID, DateAdded, ReleaseDate, DigitalDate FROM annuals WHERE NOT Deleted AND Status='Wanted'")
     if mylar.CONFIG.UPCOMING_STORYARCS:
-        queries.append("SELECT IssueID, DateAdded FROM storyarcs WHERE Status='Wanted'")
+        queries.append("SELECT IssueID, DateAdded, ReleaseDate, DigitalDate FROM storyarcs WHERE Status='Wanted'")
     for q in queries:
         try:
             rows = myDB.select(q)
@@ -92,7 +92,12 @@ def _wanted(myDB):
                 continue
             seen.add(r['IssueID'])
             out['count'] += 1
-            if not tier_date or not r['DateAdded'] or r['DateAdded'] > tier_date:
+            tier, since = helpers.search_tier(r['DateAdded'], r['ReleaseDate'], r['DigitalDate'], tier_date)
+            if tier == 'soon':
+                out['soon'] += 1
+                if not out['next_out'] or since < out['next_out']:
+                    out['next_out'] = since
+            elif tier == 1:
                 out['tier1'] += 1
     return out
 

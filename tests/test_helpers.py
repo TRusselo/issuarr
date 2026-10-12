@@ -605,3 +605,28 @@ def test_issue_exception_list_pattern(monkeypatch):
 ])
 def test_filesafe_strips_unsafe_characters(name, expected):
     assert helpers.filesafe(name) == expected
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize('store, digital, expected', [
+    ('2026-10-14', '0000-00-00', '2026-10-14'),
+    ('2026-10-14', '2026-10-13', '2026-10-13'),
+    ('0000-00-00', '2026-10-13', '2026-10-13'),
+    ('0000-00-00', '0000-00-00', None),
+    (None, None, None),
+])
+def test_release_date_is_the_earlier_known_date(store, digital, expected):
+    assert helpers.release_date(store, digital) == expected
+
+
+@pytest.mark.unit
+def test_search_tier_counts_from_the_later_of_added_and_released(monkeypatch):
+    monkeypatch.setattr(helpers, 'today', lambda: '2026-10-11')
+    cut = '2026-09-27'
+    assert helpers.search_tier('2026-01-01', '2026-10-20', None, cut) == ('soon', '2026-10-20')
+    assert helpers.search_tier('2026-01-01', '2026-10-11', None, cut) == (1, '2026-10-11')
+    assert helpers.search_tier('2026-01-01', '2026-09-27', None, cut) == (1, '2026-09-27')
+    assert helpers.search_tier('2026-01-01', '2026-09-26', None, cut) == (2, '2026-09-26')
+    assert helpers.search_tier('2026-10-05', '2020-01-01', None, cut) == (1, '2026-10-05')
+    assert helpers.search_tier('2026-01-01', '0000-00-00', '0000-00-00', cut) == (2, '2026-01-01')
+    assert helpers.search_tier(None, None, None, cut) == (1, '')

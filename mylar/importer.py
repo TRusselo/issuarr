@@ -717,6 +717,9 @@ def addComictoDB(comicid, mismatch=None, pullupd=None, imported=None, ogcname=No
                 for chkit in chkwant:
                     logger.fdebug('checking ' + chkit['IssueNumber'] + ' against ' + result['Issue_Number'])
                     if chkit['IssueNumber'] == result['Issue_Number']:
+                        if helpers.not_out_yet(result['ReleaseDate'], result['DigitalDate']):
+                            logger.fdebug('Not searching for %s yet, it comes out %s' % (result['Issue_Number'], helpers.release_date(result['ReleaseDate'], result['DigitalDate'])))
+                            continue
                         logger.fdebug('Searching for : ' + result['Issue_Number'])
                         logger.fdebug('Status of : ' + str(result['Status']))
                         search.searchforissue(result['IssueID'])
@@ -1098,6 +1101,8 @@ def GCDimport(gcomicid, pullupd=None, imported=None, ogcname=None):
 
             for result in results:
                 foundNZB = "none"
+                if helpers.not_out_yet(result['ReleaseDate'], result['DigitalDate']):
+                    continue   # the scheduled search picks it up from its release date
                 if (mylar.CONFIG.NZBSU or mylar.CONFIG.DOGNZB or mylar.CONFIG.EXPERIMENTAL or mylar.CONFIG.NEWZNAB) and (mylar.CONFIG.SAB_HOST):
                     foundNZB = search.searchforissue(result['IssueID'])
                     if foundNZB == "yes":

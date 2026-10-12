@@ -150,6 +150,39 @@ def today():
     yyyymmdd = datetime.date.isoformat(today)
     return yyyymmdd
 
+def release_date(storedate, digitaldate=None):
+    """The day an issue comes out: the earlier of its store and digital dates ('YYYY-MM-DD'),
+    or None when neither is known. The cover date isn't used, it runs months ahead of release."""
+    known = [str(d)[:10] for d in (storedate, digitaldate) if d and str(d)[:4] not in ('0000', 'None', '')]
+    return min(known) if known else None
+
+def not_out_yet(storedate, digitaldate=None):
+    """True for an issue whose release date is still to come. Automatic searches leave it alone."""
+    out = release_date(storedate, digitaldate)
+    return bool(out) and out > today()
+
+def search_tier_date():
+    """Tier 1 holds issues added or released on or after this day (SEARCH_TIER_CUTOFF days ago).
+    Worked out each time, so a server that runs for weeks still moves issues to Tier 2."""
+    try:
+        days = int(mylar.CONFIG.SEARCH_TIER_CUTOFF)
+    except (AttributeError, TypeError, ValueError):
+        days = 14
+    mylar.SEARCH_TIER_DATE = (datetime.date.today() - timedelta(days=days)).isoformat()
+    return mylar.SEARCH_TIER_DATE
+
+def search_tier(dateadded, storedate=None, digitaldate=None, tier_date=None):
+    """(tier, since) for a Wanted issue. tier is 'soon' while it isn't out yet (since is the
+    release date), else 1 or 2. An issue stays in Tier 1 for SEARCH_TIER_CUTOFF days after the
+    later of the day it was added and the day it came out; since is that later day."""
+    out = release_date(storedate, digitaldate)
+    if out and out > today():
+        return 'soon', out
+    since = max([str(d)[:10] for d in (dateadded, out) if d] or [''])
+    if not since:
+        return 1, ''
+    return (1 if since >= (tier_date or search_tier_date()) else 2), since
+
 def now(format_string=None):
     now = datetime.datetime.now()
     if format_string is None:

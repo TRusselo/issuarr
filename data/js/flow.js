@@ -30,6 +30,10 @@
     var h = Math.floor(m / 60), r = m % 60;
     return 'in ' + h + ' h' + (r ? ' ' + r + ' min' : '');
   }
+  function day(iso) {
+    var t = new Date(iso + 'T00:00:00');
+    return isNaN(t) ? iso : t.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+  }
   function provider(p) { return String(p || '').replace(/^DDL\((.*)\)$/, '$1') || 'a provider'; }
 
   /* ---- the five stops ---- */
@@ -37,10 +41,12 @@
     var s = d.search, dl = d.download, f = d.filing, now = d.now;
     var out = [];
 
-    out.push({ key: 'wanted', name: 'Wanted', href: 'wanted', count: d.wanted.count,
-               now: !d.wanted.count ? 'Nothing wanted' : d.wanted.tier1 === d.wanted.count ? 'All in Tier 1' :
-                    !d.wanted.tier1 ? 'All in Tier 2, RSS only' : fmt(d.wanted.tier1) + ' in Tier 1',
-               state: d.wanted.count ? 'on' : 'idle' });
+    var w = d.wanted, soon = w.soon || 0, tier2 = w.count - w.tier1 - soon;
+    out.push({ key: 'wanted', name: 'Wanted', href: 'wanted', count: w.count,
+               now: !w.count ? 'Nothing wanted' : w.tier1 === w.count ? 'All in Tier 1' : tier2 === w.count ? 'All in Tier 2, RSS only' :
+                    soon === w.count ? 'None out yet' : fmt(w.tier1) + ' in Tier 1',
+               meta: soon ? fmt(soon) + ' not out yet' + (w.next_out ? ', next ' + day(w.next_out) : '') : '',
+               state: w.count ? 'on' : 'idle' });
 
     var searching = (s.current ? 1 : 0) + s.waiting;
     var sNow, sState = 'idle', sMeta = '';

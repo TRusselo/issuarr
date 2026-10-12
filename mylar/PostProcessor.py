@@ -374,6 +374,8 @@ class PostProcessor(object):
 
     def Process(self):
         archives.RUNS[0] += 1
+        job = None if self.nzb_name in ('Manual Run', 'Manual+Run') else self.comicid
+        archives.JOBS.append(job)
         try:
             if not PP_LOCK.acquire(blocking=False):
                 logger.info('[POST-PROCESSING] Another post-processing run is working - %s will start when it finishes.' % self.nzb_name)
@@ -384,6 +386,7 @@ class PostProcessor(object):
                 PP_LOCK.release()
         finally:
             archives.RUNS[0] -= 1
+            archives.JOBS.remove(job)
             # Early returns and exceptions skip the unlocks inside the run; a lock left on would
             # stop the post-processing queue and folder monitor for good.
             if self.apicall:

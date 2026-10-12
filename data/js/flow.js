@@ -48,8 +48,8 @@
       sNow = issue(s.current); sState = 'live';
       sMeta = s.waiting ? fmt(s.waiting) + ' waiting' : 'Nothing else waiting';
     } else if (s.blocked === 'filing') {
-      sNow = 'Waiting for filing to finish'; sState = 'held';
-      sMeta = 'Searches start when it\'s done';
+      sNow = 'Waiting for filing'; sState = 'held';
+      sMeta = 'Its series is being filed, searching after';
     } else if (s.busy) {
       sNow = 'Checking RSS feeds'; sState = 'live';
       sMeta = s.waiting ? fmt(s.waiting) + ' waiting' : '';

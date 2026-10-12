@@ -7,17 +7,46 @@ import mylar
 from .. import logger, helpers, archives, activity
 
 
+# Items put back because their series is being filed: issueid -> when it was first held.
+HELD = {}
+HOLD_LIMIT = 1800
+
+
+def held(item):
+    """Put an item back while filing could still be handling its series, so an issue that's
+    already downloaded isn't grabbed again. Other series' items search in the meantime."""
+    key = item.get('issueid')
+    if not archives.holds(item.get('comicid')):
+        HELD.pop(key, None)
+        return False
+    first = key not in HELD
+    since = HELD.setdefault(key, time.time())
+    if time.time() - since > HOLD_LIMIT:
+        logger.info('[SEARCH-QUEUE] %s #%s waited %s minutes for filing - searching anyway.'
+                    % (item.get('comicname'), item.get('issuenumber'), HOLD_LIMIT // 60))
+        HELD.pop(key, None)
+        return False
+    if first:
+        logger.info('[SEARCH-QUEUE] Filing may include %s - searching #%s after it, so an issue already downloaded isn\'t grabbed again.'
+                    % (item.get('comicname'), item.get('issuenumber')))
+    return True
+
+
 def search_queue(queue):
     while True:
         if mylar.SEARCHLOCK is True:
             time.sleep(5)
 
         elif mylar.SEARCHLOCK is False and queue.qsize() >= 1:
-            archives.wait_idle('[SEARCH-QUEUE]')
             item = queue.get(True)
             if item == 'exit':
                 logger.info('[SEARCH-QUEUE] Cleaning up workers for shutdown')
                 break
+            if isinstance(item, dict) and held(item):
+                queue.put(item)
+                # every item waiting on filing: don't spin through them
+                time.sleep(5 if len(HELD) >= queue.qsize() else 0.2)
+                continue
 
             gumbo_line = True
             if item['issueid'] in mylar.PACK_ISSUEIDS_DONT_QUEUE:

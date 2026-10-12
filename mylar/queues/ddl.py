@@ -17,7 +17,7 @@ from queue import Empty, Queue
 
 import mylar
 from .. import logger, helpers
-from mylar import db, getcomics
+from mylar import archiveorg, db, getcomics
 from mylar.downloaders import mediafire, mega, pixeldrain
 
 
@@ -337,6 +337,9 @@ def ddl_process(myDB, item):
             ddzstat = pdrain.ddl_download(item['link'], item['id'], item['issueid'])
         else:
             ddzstat = {'success': False, 'filename': None, 'path': None, 'link_type': item['link_type']}
+
+    elif item['site'] == archiveorg.SITE:
+        ddzstat = archiveorg.download(item)
 
     elif item['site'] == 'DDL(External)':
         meganz = mega.MegaNZ()

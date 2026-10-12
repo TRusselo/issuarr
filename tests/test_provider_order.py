@@ -10,7 +10,7 @@ from mylar import config as cfg
 def order(monkeypatch, **kw):
     monkeypatch.setattr(cfg, 'config', configparser.ConfigParser(), raising=False)
     me = types.SimpleNamespace(ENABLE_TORRENT_SEARCH=False, ENABLE_32P=False, EXPERIMENTAL=False, ENABLE_DDL=False,
-                               ENABLE_GETCOMICS=False, ENABLE_EXTERNAL_SERVER=False, ENABLE_AIRDCPP=False,
+                               ENABLE_GETCOMICS=False, ENABLE_ARCHIVEORG=False, ENABLE_EXTERNAL_SERVER=False, ENABLE_AIRDCPP=False,
                                NEWZNAB=False, EXTRA_NEWZNABS=[], ENABLE_TORZNAB=False, EXTRA_TORZNABS=[],
                                PROVIDER_ORDER=None, write_out_provider_searches=lambda: None)
     for k, v in kw.items():
@@ -56,3 +56,9 @@ def test_a_provider_turned_on_later_joins_the_end(monkeypatch):
     nz = [('DOGnzb', 'https://api.dognzb.cr', '1', 'key', '', '1', 2)]
     assert order(monkeypatch, PROVIDER_ORDER='0, DOGnzb', NEWZNAB=True, EXTRA_NEWZNABS=nz,
                  ENABLE_DDL=True, ENABLE_GETCOMICS=True) == ['DOGnzb', 'DDL(GetComics)']
+
+
+@pytest.mark.unit
+def test_the_internet_archive_follows_getcomics(monkeypatch):
+    assert order(monkeypatch, ENABLE_DDL=True, ENABLE_GETCOMICS=True, ENABLE_ARCHIVEORG=True) == ['DDL(GetComics)', 'DDL(Internet Archive)']
+    assert order(monkeypatch, ENABLE_DDL=False, ENABLE_ARCHIVEORG=True) == []

@@ -186,6 +186,8 @@ class search_check(object):
                                     comsize_b = None
                                 else:
                                     comsize_b = helpers.human2bytes(entry['size'])
+                        elif entry['site'] == 'DDL(Internet Archive)':
+                            comsize_b = entry['size']  # bytes, from the item's file list
                         elif entry['site'] == 'DDL(External)':
                             comsize_b = '0' #External links ! filesize
                         elif entry['site'] == 'AirDCPP':
@@ -915,8 +917,7 @@ class search_check(object):
             # pack support.
             nowrite = False
             if 'DDL' in nzbprov:
-                if 'getcomics' in entry['link']:
-                    nzbid = entry['id']
+                nzbid = entry['id']
             else:
                 nzbid = search.generate_id(provider_stat, entry['link'], ComicName)
             if all([manual is not True, alt_match is False]):

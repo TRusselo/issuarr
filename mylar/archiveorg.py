@@ -40,7 +40,7 @@ import zipfile
 import requests
 
 import mylar
-from mylar import db, logger, search_filer
+from mylar import db, ddlsources, logger, search_filer
 
 SITE = 'DDL(Internet Archive)'
 LINK_TYPE = 'IA'
@@ -115,9 +115,19 @@ def comic_files(files):
             yield f
 
 
+def torrent_for(item, files):
+    """The item's torrent, when it's worth using: archive.org's torrent always holds the whole
+    item, so it's only offered for an item of one comic, never for a run of many issues."""
+    if len(list(comic_files(files))) != 1:
+        return None
+    name = next((f.get('name') for f in files or [] if (f.get('name') or '').endswith('_archive.torrent')), None)
+    return DOWNLOAD_URL % (item['identifier'], urllib.parse.quote(name)) if name else None
+
+
 def entries_for(item, files, token, year):
     """Search results for the files of one item that might be the wanted issue."""
     item_year = _year(item.get('date'))
+    torrent = torrent_for(item, files)
     for f in comic_files(files):
         base, ext = os.path.splitext(os.path.basename(f['name']))
         if token is not None and not token.search(base):
@@ -145,6 +155,7 @@ def entries_for(item, files, token, year):
             'link': DOWNLOAD_URL % (item['identifier'], urllib.parse.quote(f['name'])),
             'id': 'IA-' + hashlib.sha1(('%s/%s' % (item['identifier'], f['name'])).encode('utf-8')).hexdigest()[:16],
             'item': item['identifier'],
+            'torrent': torrent,
             'site': SITE,
         }
 
@@ -164,7 +175,7 @@ class IA(object):
         try:
             from mylar import search
             now = time.time()
-            search.last_run_check(write={SITE: {'id': 202, 'active': True, 'lastrun': now, 'type': 'DDL',
+            search.last_run_check(write={SITE: {'id': 203, 'active': True, 'lastrun': now, 'type': 'DDL',
                                                 'hits': self.provider_stat.get('hits', 0) + 1}})
             self.provider_stat['lastrun'] = now
         except Exception as e:
@@ -207,11 +218,39 @@ class IA(object):
         return [match] if match is not None else 'no results'
 
 
-def queue(nzbid, link, comicinfo):
-    """Save the grab to ddl_info and hand it to the download queue."""
+def send_torrent(torrent, info, issueid):
+    """Send an item's torrent to the torrent client. True when the client took it."""
+    name = info.get('ComicName') or 'archive.org'
+    logger.info('[INTERNET-ARCHIVE] Sending the archive.org torrent for %s #%s to your torrent client.' % (name, info.get('IssueNumber')))
+    sent = ddlsources.send_torrent(name, info.get('IssueNumber'), info.get('comyear'), torrent, SITE, issueid,
+                                   info.get('ComicID'), info.get('nzbtitle') or name)
+    if not sent:
+        logger.info('[INTERNET-ARCHIVE] The torrent client didn\'t take the torrent for %s.' % name)
+    return bool(sent)
+
+
+def torrent_fallback(item):
+    """After a failed download from archive.org: send the item's torrent instead, when torrents
+    can be used. True when the client took it."""
+    torrent = item.get('torrent')
+    if not torrent or not ddlsources.torrent_ready() or not ddlsources.is_enabled('torrent'):
+        return False
+    info = dict((item.get('comicinfo') or [{}])[0] or {})
+    info.setdefault('ComicName', item.get('series'))
+    info.setdefault('ComicID', item.get('comicid'))
+    return send_torrent(torrent, info, item.get('issueid'))
+
+
+def queue(nzbid, link, comicinfo, torrent=None):
+    """Send the grab's torrent when torrents come before the Internet Archive in the download
+    sources list; otherwise save it to ddl_info and hand it to the download queue."""
     info = comicinfo[0]
     issueid = info.get('IssueArcID') if info.get('IssueID') is None else info.get('IssueID')
     entry = info.get('entry') or {}
+    if torrent and ddlsources.torrent_first(['ia']):
+        if send_torrent(torrent, info, issueid):
+            return {'success': True, 'site': 'IA-Torrent'}
+        torrent = None  # the client refused it, so it's no fallback either
     vals = {'series': info.get('ComicName'), 'year': info.get('comyear'), 'size': info.get('size'),
             'issues': info.get('IssueNumber'), 'issueid': issueid, 'comicid': info.get('ComicID'), 'link': link,
             'mainlink': link, 'site': SITE, 'pack': False, 'link_type': LINK_TYPE, 'filename': info.get('nzbtitle'),
@@ -221,7 +260,7 @@ def queue(nzbid, link, comicinfo):
     mylar.DDL_QUEUE.put({'link': link, 'mainlink': link, 'series': vals['series'], 'year': vals['year'], 'size': vals['size'],
                          'comicid': vals['comicid'], 'issueid': issueid, 'oneoff': info.get('oneoff'), 'id': nzbid,
                          'link_type': LINK_TYPE, 'filename': vals['filename'], 'comicinfo': comicinfo, 'packinfo': None,
-                         'site': SITE, 'remote_filesize': vals['remote_filesize'], 'resume': None})
+                         'site': SITE, 'remote_filesize': vals['remote_filesize'], 'resume': None, 'torrent': torrent})
     return {'success': True, 'site': LINK_TYPE}
 
 

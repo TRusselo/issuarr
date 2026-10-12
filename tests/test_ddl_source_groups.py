@@ -1,4 +1,4 @@
-"""The download sources list is three groups: GetComics direct, cloud shares, and torrent."""
+"""The download sources list is four groups: GetComics direct, cloud shares, torrent, and the Internet Archive."""
 import types
 
 import pytest
@@ -10,7 +10,7 @@ from mylar import ddlsources
 @pytest.fixture(autouse=True)
 def cfg(monkeypatch):
     monkeypatch.setattr(mylar, 'CONFIG', types.SimpleNamespace(DDL_PRIORITY_ORDER='["direct","cloud","torrent"]', DDL_DISABLED_SOURCES='[]',
-                                                              DDL_MAIN_LARGE_LAST=False, DDL_MAIN_LARGE_MB=400,
+                                                              DDL_MAIN_LARGE_LAST=False, DDL_MAIN_LARGE_MB=400, ENABLE_ARCHIVEORG=True,
                                                               ENABLE_TORRENTS=True, ENABLE_TORRENT_SEARCH=True), raising=False)
     monkeypatch.setattr(mylar, 'USE_DELUGE', True, raising=False)
     monkeypatch.setattr(ddlsources, 'pixeldrain_fits', lambda b: True)
@@ -27,7 +27,7 @@ def test_every_host_belongs_to_a_group(host, grp):
 def test_a_host_by_host_order_keeps_each_group_where_its_first_host_was():
     # the live order before the groups: Pixeldrain first, GetComics direct last
     mylar.CONFIG.DDL_PRIORITY_ORDER = '["pixeldrain","vikingfile","mega","userscloud","main"]'
-    assert ddlsources.configured_groups() == ['cloud', 'direct', 'torrent']
+    assert ddlsources.configured_groups() == ['cloud', 'direct', 'torrent', 'ia']
 
 
 @pytest.mark.unit

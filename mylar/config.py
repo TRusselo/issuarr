@@ -2141,7 +2141,9 @@ class Config(object):
                    # id of 0 means it hasn't been assigned - so we need to assign it before we build out the dict
                    if 'DDL(GetComics)' in prov_t:
                        t_id = 200
-                   if 'DDL(External)' in prov_t:
+                   elif 'DDL(Internet Archive)' in prov_t:
+                       t_id = 203
+                   elif 'DDL(External)' in prov_t:
                        t_id = 201
                    elif any(['experimental' in prov_t, 'Experimental' in prov_t]):
                        t_id = 101
@@ -2174,10 +2176,13 @@ class Config(object):
                if 'DDL(GetComics)' in tmp_prov:
                    t_type = 'DDL'
                    t_id = 200
-               if 'DDL(External)' in tmp_prov:
+               elif 'DDL(Internet Archive)' in tmp_prov:
+                   t_type = 'DDL'
+                   t_id = 203
+               elif 'DDL(External)' in tmp_prov:
                    t_type = 'DDL(External)'
                    t_id = 201
-               if 'AirDCPP' in tmp_prov:
+               elif 'AirDCPP' in tmp_prov:
                    t_type = 'AirDCPP'
                    t_id = 202
                elif any(['experimental' in tmp_prov, 'Experimental' in tmp_prov]):

@@ -1331,7 +1331,6 @@ class GC(object):
     def _send_torrent(self, entry, id, mainlink, comicinfo, packinfo, link_type_failure):
         """Send a post's torrent or magnet link to the torrent client. If the client won't take it,
         the post's other sources are tried instead."""
-        from mylar import downloadqueue, rsscheck
         try:
             info = comicinfo[0]
         except Exception:
@@ -1342,18 +1341,11 @@ class GC(object):
             self.comicid = info.get('ComicID')
         name = info.get('ComicName') or entry.get('series') or 'getcomics'
         logger.info('[DDL] Sending the torrent for %s from GetComics to your torrent client.' % (entry.get('series') or name))
-        try:
-            sent = rsscheck.torsend2client(name, info.get('IssueNumber') or entry.get('issues') or '', info.get('comyear') or entry.get('year') or '',
-                                           entry['links'], 'DDL(GetComics)')
-        except Exception as e:
-            logger.warn('[DDL] Sending the torrent failed: %s' % e)
-            sent = 'fail'
-        if not isinstance(sent, dict) or not sent.get('hash'):
+        sent = ddlsources.send_torrent(name, info.get('IssueNumber') or entry.get('issues'), info.get('comyear') or entry.get('year'),
+                                       entry['links'], 'DDL(GetComics)', self.issueid, self.comicid, entry.get('series') or name)
+        if not sent:
             logger.info('[DDL] The torrent client didn\'t take the torrent for %s - trying the post\'s other sources.' % name)
             return self.parse_downloadresults(id, mainlink, comicinfo, packinfo, list(link_type_failure or []) + ['GC-Torrent'])
-        downloadqueue.record_job(self.issueid, None, self.comicid, sent.get('clientmode'), sent['hash'], entry.get('series') or name)
-        if (mylar.USE_RTORRENT or mylar.USE_DELUGE) and (mylar.CONFIG.AUTO_SNATCH or mylar.CONFIG.LOCAL_TORRENT_PP):
-            mylar.SNATCHED_QUEUE.put({'issueid': self.issueid, 'comicid': self.comicid, 'hash': sent['hash']})
         try:
             # after a failed download the item is no longer a direct download - the client has it now
             db.DBConnection().action('DELETE FROM ddl_info WHERE id=?', [id])

@@ -11,12 +11,16 @@ import mylar
 from mylar import logger
 
 # What the download sources list orders: GetComics' own server, the cloud shares a post links
-# to (any host other than those two), and its torrent or magnet link.
-GROUPS = ['direct', 'cloud', 'torrent']
-GROUP_LABELS = {'direct': 'GetComics direct', 'cloud': 'Cloud shares', 'torrent': 'Torrent or magnet link'}
+# to (any host other than those two), torrent or magnet links (a GetComics post's or an
+# Internet Archive item's), and files straight from the Internet Archive.
+GROUPS = ['direct', 'cloud', 'torrent', 'ia']
+GROUP_LABELS = {'direct': 'GetComics direct', 'cloud': 'Cloud shares', 'torrent': 'Torrent or magnet link',
+                'ia': 'Internet Archive'}
 GROUP_VIA = {'direct': 'Download Now, Main Server and Mirror, through FlareSolverr',
              'cloud': 'Mega, MediaFire and Pixeldrain by Issuarr; other hosts such as TeraBox through JD2',
-             'torrent': 'Sent to your torrent client, when torrent search is on'}
+             'torrent': 'Sent to your torrent client, when torrent search is on. Includes Internet Archive torrents',
+             'ia': 'Searches archive.org for Wanted issues, mostly older ones, and downloads the file from there'}
+GETCOMICS = ['direct', 'cloud', 'torrent']
 DEFAULT_GROUPS = list(GROUPS)
 BUILTIN = ['main', 'mega', 'mediafire', 'pixeldrain']
 # cloud shares in the order they're tried; the order inside the group doesn't matter much
@@ -92,8 +96,52 @@ def configured_groups():
 
 
 def disabled():
-    """Groups that are turned off. Of the old per-host switches only GetComics direct and torrent carry over."""
-    return {group(n) for n in _as_list(getattr(mylar.CONFIG, 'DDL_DISABLED_SOURCES', None)) if n in GROUPS or n in ('main', 'torrent')}
+    """Groups that are turned off. Of the old per-host switches only GetComics direct and torrent carry over.
+    The Internet Archive's switch is ENABLE_ARCHIVEORG, which also turns its search on or off."""
+    off = {group(n) for n in _as_list(getattr(mylar.CONFIG, 'DDL_DISABLED_SOURCES', None)) if n in GROUPS or n in ('main', 'torrent')}
+    off.discard('ia')
+    if not getattr(mylar.CONFIG, 'ENABLE_ARCHIVEORG', False):
+        off.add('ia')
+    return off
+
+
+def ia_before_getcomics():
+    """Whether the Internet Archive is searched before GetComics: it is when its group is above
+    every GetComics group that can be used, otherwise it's searched right after GetComics."""
+    groups = [g for g in configured_groups() if g not in disabled()]
+    if 'ia' not in groups:
+        return False
+    gc = [groups.index(g) for g in GETCOMICS if g in groups and (g != 'torrent' or torrent_ready())]
+    return not gc or groups.index('ia') < min(gc)
+
+
+def place_ia(providers, gc_name='DDL(GetComics)', ia_name='DDL(Internet Archive)'):
+    """The search order with the Internet Archive moved next to GetComics, before or after it
+    as the download sources list puts it. Without GetComics it keeps its own place."""
+    if gc_name not in providers or ia_name not in providers:
+        return providers
+    out = [p for p in providers if p != ia_name]
+    at = out.index(gc_name)
+    out.insert(at if ia_before_getcomics() else at + 1, ia_name)
+    return out
+
+
+def send_torrent(name, issue, year, url, site, issueid, comicid, label):
+    """Send a torrent or magnet link to the torrent client and watch the job like any other
+    snatched torrent. Returns what torsend2client gave back, or None if the client didn't take it."""
+    from mylar import downloadqueue, rsscheck
+    try:
+        sent = rsscheck.torsend2client(name, issue or '', year or '', url, site)
+    except Exception as e:
+        logger.warn('[DDL] Sending the torrent failed: %s' % e)
+        return None
+    if not isinstance(sent, dict) or not sent.get('hash'):
+        return None
+    downloadqueue.record_job(issueid, None, comicid, sent.get('clientmode'), sent['hash'], label)
+    if (getattr(mylar, 'USE_RTORRENT', False) or getattr(mylar, 'USE_DELUGE', False)) and \
+            (mylar.CONFIG.AUTO_SNATCH or mylar.CONFIG.LOCAL_TORRENT_PP):
+        mylar.SNATCHED_QUEUE.put({'issueid': issueid, 'comicid': comicid, 'hash': sent['hash']})
+    return sent
 
 
 def all_sources():
@@ -119,14 +167,14 @@ def large_limit():
 
 
 def order(size_bytes=None):
-    """Every source, host by host, in the order to try them."""
+    """Every GetComics source, host by host, in the order to try them."""
     off = disabled()
     cloud = list(CLOUD)
     if size_bytes and not pixeldrain_fits(size_bytes):
         cloud.remove('pixeldrain')
         cloud.append('pixeldrain')
         logger.fdebug('[DDL-SOURCES] Pixeldrain allowance too low for %s bytes - trying it last of the cloud shares.' % size_bytes)
-    hosts = {'direct': ['main'], 'cloud': cloud, 'torrent': ['torrent']}
+    hosts = {'direct': ['main'], 'cloud': cloud, 'torrent': ['torrent'], 'ia': []}  # the Internet Archive isn't a GetComics source
     groups = [g for g in configured_groups() if g not in off]
     limit = large_limit()
     if 'direct' in groups and 'cloud' in groups and size_bytes and limit and size_bytes > limit \

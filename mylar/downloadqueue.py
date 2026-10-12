@@ -818,3 +818,218 @@ def _eta(s):
     if s < 5400:
         return 'about %d min left' % round(s / 60.0)
     return 'about %.1f h left' % (s / 3600.0)
+
+
+# ---- back to Wanted -------------------------------------------------------
+# A grab marks its issues Snatched. When the download is removed or stopped before it finished,
+# or was lost (a restart while it waited to be filed, old JD2 grabs), nothing changes them again.
+
+# How long a Snatched issue with nothing downloading it is given before stuck_snatched lists it.
+STUCK_HOURS = 6
+SETTLED = ('Completed', 'Failed')   # every other ddl_info status is still on its way
+
+
+def unsnatch(myDB, issueids):
+    """Put issues that are still Snatched back to Wanted, so they're searched again. Anything
+    else (Downloaded, Archived, Failed, already Wanted) is left as it is. Returns the ids changed."""
+    changed = []
+    for iid in dict.fromkeys(str(i) for i in issueids if i not in (None, '', 'None')):
+        if iid.startswith('S'):   # a story-arc issue, as nzblog keeps it
+            targets = [('storyarcs', 'IssueArcID', iid[1:])]
+        else:
+            targets = [('issues', 'IssueID', iid), ('annuals', 'IssueID', iid), ('storyarcs', 'IssueID', iid)]
+        hit = False
+        for table, key, value in targets:
+            try:
+                cur = myDB.action("UPDATE %s SET Status='Wanted' WHERE %s=? AND Status='Snatched'" % (table, key), [value])
+            except Exception:
+                continue   # no annuals or story arcs table yet
+            if cur is not None and cur.rowcount:
+                hit = True
+        if hit:
+            changed.append(iid)
+    return changed
+
+
+def grabbed_ids(myDB, row):
+    """The issues a direct download marked Snatched: its own, and for a pack every issue it took.
+
+    The pack's issues are known in memory while it's queued (PACK_ISSUEIDS_DONT_QUEUE) and, across
+    restarts, from nzblog, which records the ddl_info id against each issue the grab snatched.
+    """
+    rid = str(_field(row, 'id'))
+    ids = [str(row['issueid'])] if row['issueid'] not in (None, '', 'None') else []
+    if _field(row, 'pack'):
+        ids += [str(i) for i, p in dict(mylar.PACK_ISSUEIDS_DONT_QUEUE).items() if str(p) == rid]
+        try:
+            ids += [str(r['IssueID']) for r in myDB.select(
+                "SELECT IssueID FROM nzblog WHERE ID=? AND PROVIDER LIKE 'DDL%'", [rid])]
+        except Exception:
+            pass
+    return list(dict.fromkeys(ids))
+
+
+def claim(rows):
+    """Take a removed or stopped pack's issues out of PACK_ISSUEIDS_DONT_QUEUE. Call it before the
+    row is cancelled: a download thread that sees the cancel first marks every mapped issue Skipped."""
+    rows = [r for r in rows if r is not None]
+    ids = {str(_field(r, 'id')) for r in rows}
+    for i, p in dict(mylar.PACK_ISSUEIDS_DONT_QUEUE).items():
+        if str(p) in ids:
+            mylar.PACK_ISSUEIDS_DONT_QUEUE.pop(i, None)
+    return rows
+
+
+def release(myDB, rows):
+    """Direct downloads the owner removed or stopped before they finished: their issues that are
+    still Snatched go back to Wanted. Finished downloads are left alone, and so is any issue another
+    grab has since taken over (a retry, an nzb or torrent, a pack), or the next search grabs it twice."""
+    rows = [r for r in claim(rows) if r['status'] != 'Completed']
+    if not rows:
+        return []
+    grabs = Grabs(myDB)
+    changed = []
+    for row in rows:
+        rid = str(_field(row, 'id'))
+        ids, kept = [], []
+        for iid in grabbed_ids(myDB, row):
+            (kept if grabs.held(iid, _field(row, 'comicid'), skip=rid) else ids).append(iid)
+        if kept:
+            logger.info('[DDL-REMOVE] Left %s Snatched: another grab or filing still has %s.'
+                        % (', '.join(kept), 'it' if len(kept) == 1 else 'them'))
+        done = unsnatch(myDB, ids)
+        if done:
+            logger.info('[DDL-REMOVE] %s %s back to Wanted: %s was removed before it finished.'
+                        % (len(done), 'issue is' if len(done) == 1 else 'issues are', row['series'] or rid))
+        changed += done
+    return changed
+
+
+class Grabs(object):
+    """Everything that could still be getting a Snatched issue, read once: ddl_info rows and the
+    nzblog/pack links to them, the DDL and JD2 queues, filing, download-client jobs, Needs attention,
+    and the latest grab in the snatched table. release and stuck_snatched both ask it."""
+
+    def __init__(self, myDB):
+        from mylar import archives, attention
+        from mylar.queues import ddl, jd2
+        self.last = {}
+        try:
+            for r in myDB.select("SELECT IssueID, Provider, DateAdded FROM snatched WHERE Status='Snatched'"):
+                iid = str(r['IssueID'])
+                if (r['DateAdded'] or '') >= (self.last.get(iid, {}).get('at') or ''):
+                    self.last[iid] = {'at': r['DateAdded'] or '', 'provider': r['Provider'] or ''}
+        except Exception:
+            self.last = None   # can't tell which grab is the latest, so every issue is held
+        self.rows = {str(r['ID']): r for r in myDB.select('SELECT * FROM ddl_info')}
+        self.linked = {}
+        for r in self.rows.values():
+            if r['issueid'] is not None:
+                self.linked.setdefault(str(r['issueid']), set()).add(str(r['ID']))
+        try:
+            for r in myDB.select("SELECT IssueID, ID FROM nzblog WHERE PROVIDER LIKE 'DDL%'"):
+                if r['ID'] is not None:
+                    self.linked.setdefault(str(r['IssueID']), set()).add(str(r['ID']))
+        except Exception:
+            pass
+        for i, p in dict(mylar.PACK_ISSUEIDS_DONT_QUEUE).items():
+            self.linked.setdefault(str(i), set()).add(str(p))
+        try:
+            self.jobs = {str(r['IssueID']) for r in myDB.select('SELECT IssueID FROM client_jobs') if r['IssueID'] is not None}
+        except Exception:
+            self.jobs = set()
+        self.busy = ddl.waiting_ids() | jd2.at_jd2() | {str(i) for i in mylar.DDL_QUEUED} | set(archives.DDL_FILING)
+        try:
+            self.flagged = attention.shown_paths(myDB)
+        except Exception:
+            self.flagged = []
+        self.names = _listing(getattr(mylar.CONFIG, 'DDL_LOCATION', None))
+        self.jd2_dirs = _listing(getattr(mylar.CONFIG, 'JD2_DEST_DIR', None))
+        self.holds = archives.holds
+
+    def held(self, iid, comicid, skip=None):
+        """Whether something other than ddl_info row `skip` is still getting or filing this issue."""
+        iid = str(iid)
+        if self.last is None:
+            return True
+        grab = self.last.get(iid)
+        if grab is not None and not grab['provider'].upper().startswith('DDL'):
+            return True   # last sent to SABnzbd, NZBGet or a torrent client, which can't be seen from here
+        if iid in self.jobs or self.holds(comicid, iid):
+            return True
+        if any('[__%s__]' % iid in p for p in self.flagged):
+            return True
+        for rid in self.linked.get(iid, ()):
+            if rid == skip:
+                continue
+            row = self.rows.get(rid)
+            if rid in self.busy or (row is not None and row['status'] not in SETTLED):
+                return True
+            if row is not None and row['status'] == 'Completed' and _left_on_disk(rid, row, self.names, self.jd2_dirs):
+                return True
+            if row is not None and _in_attention({'filename': _field(row, 'filename'), 'issueid': row['issueid'],
+                                                  'queueid': rid}, self.flagged):
+                return True
+        return False
+
+
+def _left_on_disk(rid, row, names, jd2_dirs):
+    """Whether a finished direct download's file or folder is still where it was downloaded to."""
+    tags = {'[__%s__]' % t for t in (_tag_id({'filename': _field(row, 'filename')}), row['issueid']) if t not in (None, '', 'None')}
+    for name in (_field(row, 'filename'), _field(row, 'tmp_filename')):
+        if name and (name in names or os.path.splitext(name)[0] in names):
+            return True
+    if any(t in n for t in tags for n in names):
+        return True
+    return any(d.endswith(' - %s' % rid) for d in jd2_dirs)
+
+
+def _listing(path):
+    if not path or path == 'None':
+        return set()
+    try:
+        return set(os.listdir(path))
+    except OSError:
+        return set()
+
+
+def stuck_snatched(myDB, hours=STUCK_HOURS, now=None):
+    """Issues marked Snatched by a direct download more than `hours` ago that nothing is getting.
+
+    Left out: anything a ddl_info row is still downloading or queueing, held by JDownloader 2,
+    waiting for or being filed, a grab with a download-client job, a finished download whose file
+    is still in the download folder (it can be filed again) or that is waiting in Needs attention,
+    and grabs sent to SABnzbd, NZBGet or a torrent client, which can't be seen from here.
+    """
+    now = now or datetime.datetime.now()
+    cutoff = (now - datetime.timedelta(hours=hours)).strftime('%Y-%m-%d %H:%M:%S')
+
+    snatched = {}
+    for sql in ("SELECT IssueID, ComicID, ComicName, Issue_Number FROM issues WHERE Status='Snatched'",
+                "SELECT IssueID, ComicID, ReleaseComicName AS ComicName, Issue_Number FROM annuals "
+                "WHERE Status='Snatched' AND NOT Deleted"):
+        try:
+            for r in myDB.select(sql):
+                snatched.setdefault(str(r['IssueID']), r)
+        except Exception:
+            continue
+    if not snatched:
+        return []
+
+    grabs = Grabs(myDB)
+    out = []
+    for iid, r in snatched.items():
+        grab = (grabs.last or {}).get(iid)
+        if grab is None or not grab['provider'].upper().startswith('DDL') or grab['at'] > cutoff:
+            continue
+        if grabs.held(iid, r['ComicID']):
+            continue
+        out.append({'issueid': iid, 'comicid': r['ComicID'], 'series': r['ComicName'], 'issue': r['Issue_Number'],
+                    'snatched': grab['at']})
+    out.sort(key=lambda x: (str(x['series'] or '').lower(), _issue_key(x['issue'])))
+    return out
+
+
+def _issue_key(n):
+    m = re.match(r'-?\d+(?:\.\d+)?', str(n or ''))
+    return (0, float(m.group(0)), str(n)) if m else (1, 0.0, str(n or ''))

@@ -268,6 +268,32 @@
       .then(function (r) { if (!r.ok) throw new Error(r.status); I().toast('Saved Wanted_list.csv in the data folder.'); })
       .catch(function () { I().toast('That didn\'t work. Check the log.', false); });
   });
+  // Snatched issues whose download was lost or removed: nothing would ever change them again.
+  $id('w-stuck').addEventListener('click', function () {
+    $id('w-more').open = false;
+    fetch('stuck_snatched', { credentials: 'same-origin', cache: 'no-store' })
+      .then(function (r) { if (!r.ok) throw new Error(r.status); return r.json(); })
+      .then(function (d) {
+        if (!d.count && d.filing) {
+          I().toast('Files are being added to the library right now, so nothing can be checked. Try again when that finishes.');
+          return;
+        }
+        if (!d.count) {
+          I().toast('No snatched issues are stuck. Everything marked Snatched is still downloading, waiting to be filed, or was snatched in the last ' + d.hours + ' hours.');
+          return;
+        }
+        var names = d.issues.slice(0, 12).map(function (i) { return i.series + ' #' + i.issue; });
+        if (d.count > names.length) names.push('and ' + fmt(d.count - names.length) + ' more');
+        if (!window.confirm(plural(d.count) + (d.count === 1 ? ' has' : ' have') + ' been Snatched for over ' + d.hours + ' hours with nothing downloading or filing ' +
+          (d.count === 1 ? 'it' : 'them') + ':\n\n' + names.join('\n') + '\n\nPut ' + (d.count === 1 ? 'it' : 'them') +
+          ' back to Wanted so ' + (d.count === 1 ? 'it is' : 'they are') + ' searched again?')) return;
+        var body = new URLSearchParams({ issueids: d.issues.map(function (i) { return i.issueid; }).join(',') });
+        return fetch('reset_stuck_snatched', { method: 'POST', credentials: 'same-origin', cache: 'no-store', body: body })
+          .then(function (r) { if (!r.ok) throw new Error(r.status); return r.json(); })
+          .then(function (res) { I().toast(res.message + '.'); return load(); });
+      })
+      .catch(function () { I().toast('That didn\'t work. Check the log.', false); });
+  });
   var qTimer = null;
   $id('w-q').addEventListener('input', function (e) {
     clearTimeout(qTimer);

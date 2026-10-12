@@ -3853,6 +3853,20 @@ class WebInterface(object):
 
     annualDelete.exposed = True
 
+    def _jd2_orphans(self, myDB):
+        """Queued rows left with a JD2 job id that JD2 no longer holds. Nothing would ever pick them
+        up, so the job id is cleared and the built-in downloaders take them instead."""
+        from mylar.queues import jd2
+        if not jd2.loaded():
+            return []  # at startup JD2's saved rows aren't back in its queue yet
+        held = jd2.at_jd2()
+        rows = [r for r in myDB.select("SELECT * FROM ddl_info WHERE status = 'Queued' AND jd2_job_id IS NOT NULL "
+                                       "ORDER BY updated_date ASC") if str(r['id']) not in held]
+        for r in rows:
+            logger.info('[DDL-RESTART-QUEUE] JD2 is no longer watching %s - handing it to the built-in downloaders.' % r['series'])
+            myDB.upsert('ddl_info', {'jd2_job_id': None}, {'id': r['id']})
+        return rows
+
     def ddl_requeue(self, mode, id=None, issueid=None):
         logger.info('id: %s / mode: %s / issueid: %s' % (id, mode, issueid))
         myDB = db.DBConnection()
@@ -3872,6 +3886,8 @@ class WebInterface(object):
 
         if id is None:
             items = myDB.select("SELECT * FROM ddl_info WHERE status = 'Queued' AND jd2_job_id IS NULL ORDER BY updated_date ASC")
+            if mode == 'restart_queue':
+                items = list(items) + self._jd2_orphans(myDB)
         else:
             oneitem = myDB.selectone("SELECT * FROM DDL_INFO WHERE ID=?", [id]).fetchone()
             items = [oneitem]
@@ -3998,6 +4014,44 @@ class WebInterface(object):
         return json.dumps({'status': True, 'message': linemessage})
     ddl_requeue.exposed = True
 
+    # Statuses ddl_clear may delete, with the word the queue page uses for them. Never Queued or
+    # Downloading: the DDL and JD2 workers still use those rows.
+    DDL_CLEARABLE = {'Completed': 'finished', 'Failed': 'failed'}
+
+    def ddl_clear(self, status=None):
+        # Tidies the queue list only: files, issue status, snatched and nzblog stay as they are.
+        if cherrypy.request.method != 'POST':
+            raise cherrypy.HTTPError(405)
+        word = self.DDL_CLEARABLE.get(status) if isinstance(status, str) else None
+        if word is None:
+            return json.dumps({'status': False, 'message': 'Only finished or failed downloads can be cleared'})
+        myDB = db.DBConnection()
+        # A stopped download keeps running until its thread sees DDL_CANCEL, and its next write would
+        # bring a deleted row back as a blank Queued entry - leave those rows until the thread lets go.
+        pending = [str(i) for i in list(mylar.DDL_CANCEL)]
+        held, kept = '', 0
+        if pending:
+            marks = ','.join('?' * len(pending))
+            held = ' AND ID NOT IN (%s)' % marks
+            chk = myDB.fetch("SELECT ID FROM ddl_info WHERE status = ? AND ID IN (%s)" % marks, [status] + pending)
+            kept = len(chk.fetchall()) if chk is not None else 0
+        cur = myDB.action("DELETE FROM ddl_info WHERE status = ?" + held, [status] + pending)
+        if cur is None:   # the database stayed locked through every retry
+            return json.dumps({'status': False, 'message': 'The database was busy, so nothing was cleared; try again'})
+        removed = cur.rowcount
+        logger.info('[DDL-CLEAR] Removed %s %s downloads from the queue list, kept %s still stopping' % (removed, word, kept))
+        if removed == 0 and kept == 0:
+            return json.dumps({'status': True, 'message': 'There were no %s downloads to clear' % word})
+        if removed == 0:
+            message = 'Nothing was cleared'
+        else:
+            message = 'Cleared %s %s download%s from the list' % (removed, word, '' if removed == 1 else 's')
+        if kept:
+            message += '. %s still stopping, so %s stayed; try again in a moment' % (
+                '1 download is' if kept == 1 else '%s downloads are' % kept, 'it' if kept == 1 else 'they')
+        return json.dumps({'status': True, 'message': message})
+    ddl_clear.exposed = True
+
     def queueManage(self):
         # The page loads its rows from queueManageIt and check_ActiveDDL.
         return serve_template(templatename="queue_management.html", title="Queue")
@@ -4050,8 +4104,9 @@ class WebInterface(object):
     def downloadQueue(self):
         # Everything on its way: direct downloads plus grabs at SABnzbd, NZBGet or a torrent client.
         myDB = db.DBConnection()
+        # stalled follows the flow line's rule, so rows JD2 is holding never count as stuck
         return json.dumps({'items': downloadqueue.build(myDB, rate=downloadqueue.download_rate),
-                           'waiting': ddl_queue.waiting_count()})
+                           'stalled': activity.stalled_downloads(myDB)})
     downloadQueue.exposed = True
 
     def previewRename(self, **args): #comicid=None, comicidlist=None):
@@ -8080,6 +8135,10 @@ class WebInterface(object):
         out.update(monitor_status=mylar.MONITOR_STATUS, monitor_enabled=bool(mylar.CONFIG.ENABLE_CHECK_FOLDER),
                    monitor_folder=mylar.CONFIG.CHECK_FOLDER or '', interval=mylar.CONFIG.DOWNLOAD_SCAN_INTERVAL,
                    review_dir=archives.review_dir(), now=time.time())
+        try:
+            out['webp'] = webp.dock_summary()
+        except Exception:
+            out['webp'] = None
         return json.dumps(out)
     pp_activity.exposed = True
 

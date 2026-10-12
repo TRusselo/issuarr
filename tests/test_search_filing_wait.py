@@ -154,8 +154,9 @@ class FakeDB:
         self.pack = pack
 
     def selectone(self, query, args):
-        rows = [] if self.pack is None else [{'pack': self.pack}]
-        return type('Cursor', (), {'fetchone': lambda _: rows[0] if rows else None})()
+        # the JD2 monitor also checks the row is still queued under this job before acting on it
+        row = {'pack': self.pack, 'status': 'Queued', 'jd2_job_id': '1791766601125', 'updated_date': None}
+        return type('Cursor', (), {'fetchone': lambda _: row})()
 
 
 @pytest.mark.unit
@@ -225,10 +226,10 @@ def test_a_jd2_download_says_whether_it_is_a_pack(filing, monkeypatch, extra, db
         def status(self, job_id, record_id):
             return {'found': True, 'status': 'Finished', 'data': {'name': 'Ghostbusters (v01-v09) (2012-2014) GetComics.INFO.zip'}}
 
-        def remove(self, job_id, record_id):
+        def remove(self, job_id, record_id=None):
             pass
     monkeypatch.setattr(jd2, 'JDownloader2', Client)
-    monkeypatch.setattr(jd2.db, 'DBConnection', lambda: types.SimpleNamespace(upsert=lambda *a, **k: None,
+    monkeypatch.setattr(jd2.db, 'DBConnection', lambda: types.SimpleNamespace(upsert=lambda *a, **k: None, action=lambda *a, **k: None,
                                                                              selectone=FakeDB(db_pack).selectone))
     for name in ('info', 'warn', 'debug'):
         monkeypatch.setattr(jd2.logger, name, lambda *a, **k: None)

@@ -223,3 +223,33 @@ def test_download_speed_is_tracked_per_download(monkeypatch):
     b = downloadqueue.download_rate('b', 1048576, 10 * 1048576)
     assert a['a_speed'] == '1.0 MB/s'
     assert b['a_speed'] == '256 KB/s'
+
+
+@pytest.mark.unit
+def test_source_says_who_downloads_and_jd2_promises_no_host(myDB, monkeypatch):
+    import queue
+    from mylar.queues import jd2
+    monkeypatch.setattr(mylar, 'JD2_QUEUE', queue.Queue(), raising=False)
+    monkeypatch.setattr(jd2, 'HOLDING', [None])
+    for qid, site, link_type, job in (('mega', 'DDL(GetComics)', 'GC-Mega', None),
+                                      ('pixel', 'DDL(GetComics)', 'GC-Pixel', None),
+                                      ('main', 'DDL(GetComics)', 'GC-Main', None),
+                                      ('mirror', 'DDL(GetComics)', 'GC-Mirror', None),
+                                      ('ia', 'DDL(Internet Archive)', None, None),
+                                      ('handed', 'DDL(GetComics)', 'GC-Mega', None),
+                                      ('jd2', 'DDL(GetComics)', 'GC-Media', '17917'),
+                                      ('jd2-only', 'DDL(GetComics)', 'Unknown', '17918'),
+                                      ('jd2-old', 'DDL(GetComics)', 'GC-Main', '17919')):
+        myDB.action("INSERT INTO ddl_info (ID, series, status, site, link_type, jd2_job_id, updated_date) "
+                    "VALUES (?, 'Alpha', 'Queued', ?, ?, ?, '2026-10-11 10:00')", [qid, site, link_type, job])
+    mylar.JD2_QUEUE.put({'id': 'handed'})       # in the JD2 queue, no job id yet
+    rows = {r['queueid']: (r['source'], r['via']) for r in downloadqueue.build(myDB) if r['kind'] == 'ddl'}
+    assert rows['mega'] == ('Issuarr', 'Mega')
+    assert rows['pixel'] == ('Issuarr', 'Pixeldrain')
+    assert rows['main'] == ('GetComics', 'GetComics')
+    assert rows['mirror'] == ('GetComics', 'GetComics mirror')
+    assert rows['ia'][0] == 'Direct download'
+    assert rows['handed'] == ('JDownloader 2', 'Mega or another mirror')
+    assert rows['jd2'] == ('JDownloader 2', 'Mediafire or another mirror')
+    assert rows['jd2-only'] == ('JDownloader 2', 'Any mirror')
+    assert rows['jd2-old'] == ('JDownloader 2', 'Any mirror')

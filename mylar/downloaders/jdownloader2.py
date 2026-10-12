@@ -169,10 +169,11 @@ class JDownloader2(object):
         return data if isinstance(data, list) else []
 
     DONE = ('finished', 'finished(mirror)', 'done', 'extraction ok', 'crc ok')
-    DEAD = ('offline', 'file not found', 'not available', 'plugin defect', 'aborted', 'blocked by cloudflare', 'failed', 'error')
+    DEAD = ('offline', 'file not found', 'not available', 'plugin defect', 'aborted', 'blocked by cloudflare', 'failed', 'error',
+            'hosting period', 'only paid users')
 
     def _links(self, endpoint, query):
-        extra = {'availability': True} if endpoint.startswith('linkgrabber') else {'finished': True}
+        extra = {'availability': True} if endpoint.startswith('linkgrabber') else {'finished': True, 'bytesLoaded': True}
         query = dict(query, status=True, packageUUID=True, jobUUID=True, uuid=True, name=True, maxResults=1000, startAt=0, **extra)
         r = self.session.get(self._url(endpoint), params={'queryParams': json.dumps(query)}, timeout=self.timeout)
         r.raise_for_status()
@@ -221,7 +222,9 @@ class JDownloader2(object):
             reasons = {str(l.get('status')) for l in links} | {str(l.get('availability')) for l in grabber}
             return {'found': True, 'status': 'Failed', 'data': (links or grabber)[0], 'reason': '; '.join(sorted(reasons))}
         first = (links or grabber)[0]
-        return {'found': True, 'status': first.get('status') or 'Queued', 'data': first}
+        # bytes downloaded so far across the package, so the monitor can tell a slow download from a stuck one
+        loaded = [l['bytesLoaded'] for l in links if isinstance(l.get('bytesLoaded'), (int, float))]
+        return {'found': True, 'status': first.get('status') or 'Queued', 'data': first, 'loaded': sum(loaded) if loaded else None}
 
     def remove(self, job_id: str, record_id: Optional[str] = None) -> None:
         if not job_id and not record_id:

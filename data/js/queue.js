@@ -13,7 +13,7 @@
   var LABEL = { Completed: 'Finished', Sent: 'Waiting on client', Processing: 'Processing' };
   var HELP = { Sent: 'Sent to the download client. Its progress shows here when the client can be reached.',
                Processing: 'Downloaded. Waiting for the client to unpack it or for Issuarr to file it.' };
-  var st = { tab: 'active', q: '', start: 0, len: 50, items: [], waiting: 0, loaded: false };
+  var st = { tab: 'active', q: '', start: 0, len: 50, items: [], stalled: 0, loaded: false };
 
   function $id(id) { return document.getElementById(id); }
   function I() { return window.Issuarr; }
@@ -24,6 +24,22 @@
       if (!r.ok) throw new Error(r.status);
       return r.text();
     }).then(function (t) { try { return JSON.parse(t); } catch (e) { return {}; } });
+  }
+
+  function post(url, data) {
+    return fetch(url, { method: 'POST', body: new URLSearchParams(data || {}), credentials: 'same-origin', cache: 'no-store' }).then(function (r) {
+      if (!r.ok) throw new Error(r.status);
+      return r.json();
+    });
+  }
+
+  // Clears finished or failed direct downloads from the list (ddl_clear), not from the library.
+  function clearStatus(status, confirmText) {
+    if (!window.confirm(confirmText)) return;
+    post('ddl_clear', { status: status })
+      .then(function (r) { I().toast(r.message || 'Done', r.status !== false); document.dispatchEvent(new CustomEvent('issuarr:flow-poke')); })
+      .catch(function () { I().toast('That didn\'t work. Check the log.', false); })
+      .then(function () { load(true); });
   }
 
   function requeue(mode, id, confirmText) {
@@ -128,12 +144,21 @@
     $id('q-next').disabled = st.start + st.len >= st.total;
   }
 
+  // The server decides what's stalled (rows JD2 is holding stay Queued but aren't stuck).
   function renderStalled() {
-    var queued = st.items.filter(function (it) { return it.kind === 'ddl' && it.status === 'Queued'; }).length;
-    var busy = st.items.some(function (it) { return it.kind === 'ddl' && it.status === 'Downloading'; });
-    var stalled = queued && !st.waiting && !busy;
-    $id('q-stalled').hidden = !stalled;
-    if (stalled) $id('q-stalled-text').textContent = queued + ' queued and nothing downloading.';
+    $id('q-stalled').hidden = !st.stalled;
+    if (st.stalled) $id('q-stalled-text').textContent = 'Nothing is downloading or about to pick up ' +
+      (st.stalled === 1 ? '1 queued item.' : st.stalled + ' queued items.');
+  }
+
+  // Only direct downloads can be cleared; a failed grab at the client stays until the client drops it.
+  function ddlCount(status) {
+    return st.items.filter(function (it) { return it.kind === 'ddl' && it.status === status; }).length;
+  }
+
+  function renderClear() {
+    $id('q-clear-finished').hidden = !ddlCount('Completed');
+    $id('q-clear-failed').hidden = !ddlCount('Failed');
   }
 
   /* ---- loading ---- */
@@ -145,11 +170,12 @@
       .then(function (r) { if (!r.ok) throw new Error(r.status); return r.json(); })
       .then(function (d) {
         st.items = d.items || [];
-        st.waiting = d.waiting || 0;
+        st.stalled = d.stalled || 0;
         st.loaded = true;
         renderTabs();
         renderRows();
         renderStalled();
+        renderClear();
       })
       .catch(function () {
         if (!st.loaded) $id('q-table').tBodies[0].innerHTML = '<tr><td colspan="6" class="empty-state">Couldn\'t load the queue. Check the log.</td></tr>';
@@ -186,6 +212,16 @@
   document.addEventListener('click', function (e) { if (e.target.closest('[data-queue-restart]')) requeue('restart_queue'); });
   $id('q-clear-queue').addEventListener('click', function () {
     requeue('clear_queue', null, 'Remove every queued direct download? Anything downloading now, finished downloads and grabs at your download client stay.');
+  });
+  $id('q-clear-finished').addEventListener('click', function () {
+    var n = ddlCount('Completed');
+    clearStatus('Completed', 'Remove ' + n + ' finished ' + (n === 1 ? 'download' : 'downloads') + ' from this list? ' +
+      'The comics and their status in your library stay; only the list entries go, so you won\'t be able to download them again from this page or from the issue\'s history.');
+  });
+  $id('q-clear-failed').addEventListener('click', function () {
+    var n = ddlCount('Failed');
+    clearStatus('Failed', 'Remove ' + n + ' failed ' + (n === 1 ? 'download' : 'downloads') + ' from this list? ' +
+      'The comics and their status in your library stay. The failures also leave the activity history, and you can\'t retry them from here or from the issue\'s history.');
   });
   $id('q-prev').addEventListener('click', function () { st.start = Math.max(0, st.start - st.len); renderRows(); });
   $id('q-next').addEventListener('click', function () { st.start += st.len; renderRows(); });

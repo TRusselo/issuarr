@@ -1,6 +1,7 @@
 """The flow line: search, download and filing side by side, and what happened to each issue lately."""
 import collections
 import datetime
+import json
 import queue
 import time
 import types
@@ -60,9 +61,10 @@ def item(iid='1', name='Iron Man', number='18'):
     return {'issueid': iid, 'comicid': '100', 'comicname': name, 'issuenumber': number}
 
 
-def ddl_row(d, qid, iid, status, series='Iron Man', updated=None, jd2_job=None):
-    d.action("INSERT INTO ddl_info (ID, series, issueid, comicid, status, updated_date, site, jd2_job_id) "
-             "VALUES (?, ?, ?, '100', ?, ?, 'DDL(GetComics)', ?)", [qid, series, iid, status, updated or ago(minutes=1)[:16], jd2_job])
+def ddl_row(d, qid, iid, status, series='Iron Man', updated=None, jd2_job=None, link_type='GC-Main'):
+    d.action("INSERT INTO ddl_info (ID, series, issueid, comicid, status, updated_date, site, jd2_job_id, link_type) "
+             "VALUES (?, ?, ?, '100', ?, ?, 'DDL(GetComics)', ?, ?)",
+             [qid, series, iid, status, updated or ago(minutes=1)[:16], jd2_job, link_type])
 
 
 @pytest.mark.unit
@@ -133,9 +135,98 @@ def test_download_stage_tells_downloading_from_queued_and_jd2(myDB):
 
 
 @pytest.mark.unit
+def test_builtin_cloud_download_is_issuarrs_not_getcomics(myDB):
+    ddl_row(myDB, 'a', '1', 'Downloading', link_type='GC-Mega')
+    assert [n['via'] for n in activity.flow()['download']['now']] == ['Issuarr']
+
+
+@pytest.mark.unit
 def test_queued_downloads_with_nothing_moving_are_stalled(myDB):
     ddl_row(myDB, 'b', '2', 'Queued')
     assert activity.flow()['download']['stalled'] is True
+
+
+@pytest.mark.unit
+def test_rows_jd2_is_holding_are_not_stalled(myDB):
+    # JD2's rows stay Queued while it works on them; the Queue page notice must not count them
+    ddl_row(myDB, 'c', '3', 'Queued', jd2_job='17917')
+    ddl_row(myDB, 'd', '4', 'Queued', jd2_job='17918')
+    mylar.JD2_QUEUE.put({'id': 'c'})
+    jd2.HOLDING[0] = 'd'
+    assert activity.stalled_downloads(myDB) == 0
+    assert activity.flow()['download']['stalled'] is False
+
+
+@pytest.mark.unit
+def test_a_stuck_row_next_to_jd2_work_is_still_stalled(myDB):
+    ddl_row(myDB, 'b', '2', 'Queued')
+    ddl_row(myDB, 'c', '3', 'Queued', jd2_job='17917')
+    mylar.JD2_QUEUE.put({'id': 'c'})
+    jd2.HOLDING[0] = 'c'
+    # JD2 never picks up row b, so its job (stuck or not) doesn't hide b
+    assert activity.stalled_downloads(myDB) == 1
+    assert activity.flow()['download']['stalled'] is True
+    ddl_row(myDB, 'a', '1', 'Downloading')
+    assert activity.stalled_downloads(myDB) == 0
+
+
+@pytest.mark.unit
+def test_a_leftover_jd2_job_id_nothing_holds_counts_as_stalled(myDB):
+    ddl_row(myDB, 'b', '2', 'Queued')
+    ddl_row(myDB, 'c', '3', 'Queued', jd2_job='17917')     # JD2 no longer watching it
+    assert activity.stalled_downloads(myDB) == 2
+
+
+@pytest.mark.unit
+def test_queued_rows_waiting_their_turn_are_not_stalled(myDB):
+    ddl_row(myDB, 'b', '2', 'Queued')
+    mylar.DDL_QUEUE.put({'id': 'b'})
+    assert activity.stalled_downloads(myDB) == 0
+
+
+@pytest.mark.unit
+def test_a_ghost_row_is_stalled_even_while_others_wait_their_turn(myDB):
+    ddl_row(myDB, 'b', '2', 'Queued')                       # in no queue: nothing will pick it up
+    ddl_row(myDB, 'e', '5', 'Queued')
+    ddl.GC_QUEUE.put({'id': 'e'})
+    assert activity.stalled_downloads(myDB) == 1
+    assert activity.flow()['download']['queued'] == 2
+
+
+@pytest.mark.unit
+def test_a_row_a_worker_or_failover_is_handling_is_not_stalled(myDB):
+    # it stays Queued while its link is resolved or failover picks the next source
+    ddl_row(myDB, 'b', '2', 'Queued')
+    ddl.ACTIVE.add('b')
+    assert activity.stalled_downloads(myDB) == 0
+    ddl.ACTIVE.clear()
+    ddl.PENDING.append({'id': 'b'})
+    assert activity.stalled_downloads(myDB) == 0
+
+
+@pytest.mark.unit
+def test_jd2_rows_are_not_stalled_before_its_monitor_reloads_them(myDB, monkeypatch):
+    monkeypatch.setattr(mylar.CONFIG, 'JD2_ENABLE', True, raising=False)
+    monkeypatch.setattr(jd2, 'LOADED', jd2.threading.Event())
+    ddl_row(myDB, 'c', '3', 'Queued', jd2_job='17917')
+    assert activity.stalled_downloads(myDB) == 0
+    assert activity.flow()['issues']['3']['state'] == 'jd2'
+    jd2.LOADED.set()                                        # reloaded, and c wasn't among them
+    assert activity.stalled_downloads(myDB) == 1
+
+
+@pytest.mark.unit
+def test_download_queue_json_carries_the_stalled_count(myDB, monkeypatch):
+    from mylar import webserve
+    ddl_row(myDB, 'b', '2', 'Queued')
+    ddl_row(myDB, 'c', '3', 'Queued', jd2_job='17917')
+    mylar.JD2_QUEUE.put({'id': 'c'})
+    monkeypatch.setattr(webserve.downloadqueue, 'client_snatches', lambda d: [])
+    out = json.loads(webserve.WebInterface().downloadQueue())
+    assert {i['queueid'] for i in out['items'] if i['kind'] == 'ddl'} == {'b', 'c'}
+    assert out['stalled'] == 1                                  # b only: JD2 is holding c
+    mylar.JD2_QUEUE.get()
+    assert json.loads(webserve.WebInterface().downloadQueue())['stalled'] == 2
 
 
 @pytest.mark.unit

@@ -152,18 +152,33 @@ def _rows(myDB):
     return {r['path']: dict(r) for r in myDB.select('SELECT * FROM attention')}
 
 
+def _shown(p, r):
+    """Whether Needs attention lists this row's file: it's still there and not ignored, or changed since."""
+    return os.path.isfile(p) and (r['status'] != 'ignored' or r['size'] != _size(p))
+
+
 def _open_paths(myDB):
     rows = _rows(myDB)
     paths = {}
     for p, r in rows.items():
-        if os.path.isfile(p):
-            if r['status'] != 'ignored' or r['size'] != _size(p):
-                paths[p] = r
-        else:
+        if _shown(p, r):
+            paths[p] = r
+        elif not os.path.isfile(p):
             myDB.action('DELETE FROM attention WHERE path=?', [p])   # filed, moved or deleted since
     for p in review_files():
         if p not in rows:
             paths[p] = {'path': p, 'reason': 'unclaimed', 'detail': '', 'comicid': None, 'status': 'open', 'added': None}
+    return paths
+
+
+def shown_paths(myDB):
+    """The files Needs attention lists, without tidying away rows whose file has gone (the page does that)."""
+    rows = _rows(myDB)
+    paths = [p for p, r in rows.items() if _shown(p, r)]
+    try:
+        paths += [p for p in review_files() if p not in rows]
+    except Exception:
+        pass
     return paths
 
 

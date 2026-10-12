@@ -1318,6 +1318,9 @@ a.w-where:hover { color: var(--text); text-decoration-color: currentColor; }
    file was turned down shows without reading the log. */
 .nav-badge.is-attention { color: var(--snatched); }
 .nav-item.is-active > .nav-link .nav-badge.is-attention { color: var(--ink); }
+/* With the menu open the count sits on Needs attention itself, so it's clear what it counts. */
+.nav-item.is-open > .nav-link .nav-badge.is-attention { display: none; }
+.nav-child .nav-badge { margin-left: auto; padding-left: 8px; }
 .link-btn { background: none; border: 0; padding: 0; font: inherit; color: var(--text); text-decoration: underline;
   text-decoration-color: var(--line); text-underline-offset: 3px; cursor: pointer; }
 .link-btn:hover { text-decoration-color: currentColor; }

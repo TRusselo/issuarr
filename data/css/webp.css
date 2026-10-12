@@ -22,4 +22,8 @@
 .wp-dialog::backdrop { background: rgba(0, 0, 0, .55); }
 .wp-dialog h2 { margin: 0 0 10px; }
 .wp-dialog-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 14px; }
+.wp-memory { display: flex; flex-direction: column; gap: 6px; margin: 14px 0; }
+.wp-memory p { margin: 0; }
+.wp-memory-act { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.wp-memory-act small { color: var(--t-muted); font-size: 12px; }
 @media (max-width: 640px) { .wp-row { grid-template-columns: 1fr; } }

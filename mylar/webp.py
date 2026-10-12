@@ -41,6 +41,7 @@ _worker = [None]
 _importing = [None]
 _bulk_lock = threading.Lock()
 BULK = {'state': 'idle'}
+GRADUAL = {'state': 'idle'}
 
 
 def available():
@@ -261,7 +262,7 @@ def convert(path, quality=None, min_source_q=None, backup_dir=None, backup_root=
         _update_size(path, new_size)
         return res
     except Exception as e:
-        return dict(res, status='failed', reason='%s: %s' % (type(e).__name__, e))
+        return dict(res, status='failed', reason='%s: %s' % (type(e).__name__, e), damaged=_damaged(e))
     finally:
         if os.path.exists(tmp):
             try:
@@ -270,6 +271,14 @@ def convert(path, quality=None, min_source_q=None, backup_dir=None, backup_root=
                 pass
         with _busy_lock:
             _busy.discard(path)
+
+
+def _damaged(e):
+    # The archive itself can't be read (a broken zip, a bad checksum, a cut-off file, a
+    # compression or encryption zipfile can't open), as opposed to a full disk or a locked file.
+    if isinstance(e, (zipfile.BadZipFile, zlib.error, EOFError, NotImplementedError)):
+        return True
+    return isinstance(e, RuntimeError) and 'encrypted' in str(e)
 
 
 def _update_size(path, size):
@@ -292,6 +301,162 @@ def _journal(res):
             f.write(json.dumps(dict(res, at=time.strftime('%Y-%m-%d %H:%M:%S'))) + '\n')
     except Exception as e:
         logger.fdebug('[WEBP] Unable to write the journal: %s' % e)
+
+
+# What happened to each library file, by path, so later runs don't open the same files again.
+# A row only counts while the file's size and time still match it: a changed file (re-tagged,
+# replaced) is looked at afresh. A converted file is recorded with its new size and time.
+SETTLED = ('converted', 'nothing to gain', 'already webp', 'damaged')
+# Failures worth another try on a later run; any other failure waits until the file changes.
+TRANSIENT = ('not enough free space', 'already being converted', 'file changed while', 'backup copy is incomplete',
+             'missing', 'PermissionError', 'OSError', 'TimeoutError', 'BlockingIOError', 'InterruptedError')
+_ensured = [None]
+
+
+def ensure(myDB=None):
+    """Create the tables on first use, and bring in what the old journal file knew."""
+    from mylar import db
+    myDB = myDB or db.DBConnection()
+    if _ensured[0] == mylar.DATA_DIR:
+        return myDB
+    new = myDB.selectone("SELECT name FROM sqlite_master WHERE type='table' AND name='webp_files'").fetchone() is None
+    myDB.action('CREATE TABLE IF NOT EXISTS webp_files (path TEXT PRIMARY KEY, size INTEGER, mtime REAL, status TEXT, '
+                'reason TEXT, at TEXT, saved INTEGER)')
+    myDB.action('CREATE TABLE IF NOT EXISTS webp_nights (night TEXT PRIMARY KEY, quota INTEGER, done INTEGER, converted INTEGER, '
+                'skipped INTEGER, failed INTEGER, damaged INTEGER, saved INTEGER, updated TEXT, note TEXT)')
+    if new:
+        try:
+            n = _import_journal(myDB)
+            if n:
+                logger.info('[WEBP] Remembered %s files from the WebP journal, so they aren\'t converted again.' % n)
+        except Exception as e:
+            logger.warn('[WEBP] Unable to read the WebP journal: %s' % e)
+    _ensured[0] = mylar.DATA_DIR
+    return myDB
+
+
+def outcome(res):
+    """The remembered status for a convert() result, or None for one not worth remembering."""
+    status, reason = res.get('status'), res.get('reason') or ''
+    if status == 'converted':
+        return 'converted'
+    if status == 'skipped':
+        if reason == 'already webp':
+            return 'already webp'
+        if reason == 'already being converted':
+            return None
+        if reason == 'not a cbz':
+            return 'damaged'
+        return 'nothing to gain'
+    if status == 'failed':
+        return 'damaged' if res.get('damaged') else 'failed'
+    return None
+
+
+def _transient(reason):
+    return str(reason or '').startswith(TRANSIENT)
+
+
+def settled(row, size, mtime):
+    """Whether a remembered row still covers the file as it is now."""
+    if not row or row['size'] != size or row['mtime'] != mtime:
+        return False
+    return row['status'] in SETTLED or (row['status'] == 'failed' and not _transient(row['reason']))
+
+
+def remembered(myDB=None):
+    myDB = ensure(myDB)
+    return {r['path']: dict(r) for r in myDB.select('SELECT * FROM webp_files')}
+
+
+def remember(res):
+    """Record a convert() result. A damaged archive goes to Downloads > Needs attention."""
+    status = outcome(res)
+    path = res.get('path')
+    if status is None or not path:
+        return None
+    if res.get('reason') == 'not a cbz' and _is_rar(path):
+        status, res = 'failed', dict(res, reason='a RAR archive named .cbz')   # readable, just not converted
+    try:
+        myDB = ensure()
+        st = os.stat(path)
+        before = myDB.selectone('SELECT status FROM webp_files WHERE path=?', [path]).fetchone()
+        saved = max(0, (res.get('before') or 0) - (res.get('after') or 0)) if status == 'converted' else 0
+        myDB.upsert('webp_files', {'size': st.st_size, 'mtime': st.st_mtime, 'status': status,
+                                   'reason': res.get('reason') or '', 'at': time.strftime('%Y-%m-%d %H:%M:%S'),
+                                   'saved': saved}, {'path': path})
+    except Exception as e:
+        logger.fdebug('[WEBP] Unable to remember %s: %s' % (path, e))
+        return status
+    from mylar import attention
+    if status == 'damaged':
+        why = str(res.get('reason') or '')
+        if why == 'not a cbz':
+            why = 'it isn\'t a zip archive'
+        elif re.match(r'\w+: ', why):
+            why = why.split(': ', 1)[1]   # the error's message without its Python name
+        attention.record(path, 'damaged', 'Found while converting to WebP: %s. It won\'t be tried again until the file changes.' % why)
+    elif before is not None and before['status'] == 'damaged':
+        attention.forget(path)   # replaced with a good copy since
+    return status
+
+
+def _is_rar(path):
+    try:
+        from lib.rarfile import rarfile
+        return bool(rarfile.is_rarfile(path))
+    except Exception:
+        return False
+
+
+def recheck():
+    """Forget the files that had nothing to gain, so the next run looks at them again."""
+    myDB = ensure()
+    n = myDB.selectone("SELECT count(*) AS n FROM webp_files WHERE status='nothing to gain'").fetchone()['n']
+    myDB.action("DELETE FROM webp_files WHERE status='nothing to gain'")
+    return n
+
+
+def counts(myDB=None):
+    myDB = ensure(myDB)
+    out = {r['status']: r['n'] for r in myDB.select('SELECT status, count(*) AS n FROM webp_files GROUP BY status')}
+    out['saved'] = myDB.selectone('SELECT sum(saved) AS s FROM webp_files').fetchone()['s'] or 0
+    return out
+
+
+def _import_journal(myDB):
+    # The journal (one JSON line per result) only ever held conversions and failures, with the
+    # file's size afterwards but not its time. A converted file whose size still matches is
+    # taken as it is now; one that changed size since is left to be looked at again.
+    path = os.path.join(mylar.CONFIG.CACHE_DIR or mylar.DATA_DIR or '.', 'webp_journal.jsonl')
+    if not os.path.isfile(path):
+        return 0
+    last = {}
+    with open(path, encoding='utf-8', errors='replace') as f:
+        for line in f:
+            try:
+                d = json.loads(line)
+            except ValueError:
+                continue
+            if isinstance(d, dict) and d.get('path') and 'target' not in d:   # .cbr repacks are followed by their conversion
+                last[d['path']] = d
+    rows = []
+    for p, d in last.items():
+        status = outcome(d)
+        if status is None:
+            continue
+        try:
+            st = os.stat(p)
+        except OSError:
+            continue
+        if status == 'converted' and d.get('after') and d['after'] != st.st_size:
+            continue
+        saved = max(0, (d.get('before') or 0) - (d.get('after') or 0)) if status == 'converted' else 0
+        rows.append((p, st.st_size, st.st_mtime, status, d.get('reason') or '', d.get('at') or '', saved))
+    if rows:
+        myDB.action('INSERT OR REPLACE INTO webp_files (path, size, mtime, status, reason, at, saved) VALUES (?, ?, ?, ?, ?, ?, ?)',
+                    rows, executemany=True)
+    return len(rows)
 
 
 def _mb(n):
@@ -525,6 +690,7 @@ def _process(path):
     _log(res, '[IMPORT]')
     if res['status'] != 'skipped':
         _journal(dict(res, source='import'))
+    remember(res)
     return res
 
 
@@ -576,6 +742,11 @@ def status():
     snap['stopping'] = bool(BULK.get('stop'))
     snap['available'] = available()
     snap['import_queue'] = _queue.qsize()
+    try:
+        snap['memory'] = counts()
+    except Exception as e:
+        logger.fdebug('[WEBP] Unable to count the remembered files: %s' % e)
+        snap['memory'] = {}
     return snap
 
 
@@ -636,44 +807,72 @@ def start_preview(opts):
     return True
 
 
+def select(root, since, unknown=False, limit=0, stop=None, progress=None):
+    """The .cbz files under root worth converting, largest first. Files a run already handled
+    (and that haven't changed since) aren't opened again, so each run moves on through the
+    library. Only stat()s the whole tree; dates and pages are read from the largest down until
+    limit files are found."""
+    out = {'files': [], 'bytes': 0, 'scanned': 0, 'too_old': 0, 'no_date': 0, 'already': 0, 'other': 0,
+           'remembered': 0, 'stopped': False}
+    stop = stop or (lambda: False)
+    known = remembered()
+    pool = []
+    for folder, dirs, names in os.walk(root):
+        dirs[:] = sorted(d for d in dirs if not d.startswith('.'))
+        for name in sorted(names):
+            if stop():
+                out['stopped'] = True
+                return out
+            if not name.lower().endswith('.cbz'):
+                if name.lower().endswith(('.cbr', '.cb7', '.pdf')):
+                    out['other'] += 1
+                continue
+            path = os.path.join(folder, name)
+            out['scanned'] += 1
+            if progress:
+                progress(out['scanned'], path)
+            try:
+                st = os.stat(path)
+            except OSError:
+                continue
+            if settled(known.get(path), st.st_size, st.st_mtime):
+                out['remembered'] += 1
+                continue
+            pool.append((st.st_size, path))
+    pool.sort(key=lambda f: (-f[0], f[1]))
+    for size, path in pool:
+        if stop():
+            out['stopped'] = True
+            break
+        if progress:
+            progress(out['scanned'], path)
+        date = issue_date(path)
+        if date is None and not unknown:
+            out['no_date'] += 1
+            continue
+        if not on_or_after(date, since, unknown):
+            out['too_old'] += 1
+            continue
+        if _webp_already(path):
+            out['already'] += 1
+            remember({'path': path, 'status': 'skipped', 'reason': 'already webp'})
+            continue
+        out['files'].append(path)
+        out['bytes'] += size
+        if limit and len(out['files']) >= limit:
+            break
+    return out
+
+
 def _preview(opts):
-    files, too_old, no_date, already, other, size = [], 0, 0, 0, 0, 0
     try:
-        for root, dirs, names in os.walk(opts['root']):
-            dirs[:] = sorted(d for d in dirs if not d.startswith('.'))
-            for name in sorted(names):
-                if BULK.get('stop'):
-                    raise StopIteration
-                if not name.lower().endswith('.cbz'):
-                    if name.lower().endswith(('.cbr', '.cb7', '.pdf')):
-                        other += 1
-                    continue
-                path = os.path.join(root, name)
-                _set(scanned=BULK.get('scanned', 0) + 1, current=path)
-                date = issue_date(path)
-                if date is None and not opts['unknown']:
-                    no_date += 1
-                    continue
-                if not on_or_after(date, opts['since'], opts['unknown']):
-                    too_old += 1
-                    continue
-                if _webp_already(path):
-                    already += 1
-                    continue
-                try:
-                    s = os.path.getsize(path)
-                except OSError:
-                    continue
-                files.append(path)
-                size += s
-                if opts['limit'] and len(files) >= opts['limit']:
-                    raise StopIteration
-    except StopIteration:
-        pass
+        found = select(opts['root'], opts['since'], opts['unknown'], opts['limit'], stop=lambda: BULK.get('stop'),
+                       progress=lambda n, path: _set(scanned=n, current=path))
     except Exception as e:
         _set(state='idle', error='Preview failed: %s' % e)
         return
-    if BULK.get('stop') and not (opts['limit'] and len(files) >= opts['limit']):
+    files, size = found['files'], found['bytes']
+    if found['stopped'] and not (opts['limit'] and len(files) >= opts['limit']):
         _set(state='idle', stop=False, error='Preview stopped.')
         return
     sample = random.sample(files, min(SAMPLE_FILES, len(files)))
@@ -692,7 +891,8 @@ def _preview(opts):
             free = None
     token = '%x' % random.getrandbits(48)
     _set(state='previewed', files=files, token=token, current='', count=len(files), bytes=size, est_saving=int(size * rate),
-         too_old=too_old, no_date=no_date, already=already, other=other, backup_free=free,
+         too_old=found['too_old'], no_date=found['no_date'], already=found['already'], other=found['other'],
+         remembered=found['remembered'], scanned=found['scanned'], backup_free=free, stop=False,
          examples=[os.path.relpath(p, opts['root']) for p in files[:8]], finished=time.time())
 
 
@@ -709,7 +909,7 @@ def start_run(token, confirm):
         if opts['backup_dir'] and BULK.get('backup_free') is not None and BULK['backup_free'] < BULK['bytes'] * 1.05:
             return 'The holding folder does not have room for the originals.'
         files = BULK['files']
-        BULK.update(state='running', total=len(files), done=0, converted=0, skipped=0, failed=0, saved=0, before=0, after=0,
+        BULK.update(state='running', total=len(files), done=0, converted=0, skipped=0, failed=0, damaged=0, saved=0, before=0, after=0,
                     errors=[], started=time.time(), finished=None, stop=False, token=None, current='')
     threading.Thread(target=_run, args=(files, opts), name='WEBP-BULK', daemon=True).start()
     return None
@@ -744,6 +944,8 @@ def _one(path, opts):
     _log(res, '[BULK]')
     if res['status'] != 'skipped':
         _journal(dict(res, source='bulk'))
+    if remember(res) == 'damaged':
+        res['status'] = 'damaged'
     with _bulk_lock:
         BULK['active'].remove(path)
         BULK['current'] = ', '.join(os.path.basename(p) for p in BULK['active'])
@@ -753,7 +955,7 @@ def _one(path, opts):
             BULK['before'] += res['before']
             BULK['after'] += res['after']
             BULK['saved'] = BULK['before'] - BULK['after']
-        elif res['status'] == 'failed':
+        elif res['status'] in ('failed', 'damaged'):
             BULK['errors'] = (BULK['errors'] + ['%s: %s' % (os.path.relpath(path, opts['root']), res['reason'])])[-20:]
 
 

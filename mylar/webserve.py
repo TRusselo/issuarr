@@ -4924,6 +4924,16 @@ class WebInterface(object):
         return json.dumps({'stopping': webp.stop(), 'status': webp.status()})
     webp_stop.exposed = True
 
+    def webp_recheck(self, **kwargs):
+        # Forget the files that had nothing to gain (say, after lowering the quality), so the
+        # next run looks at them again.
+        self._attention_post()
+        cherrypy.response.headers['Content-Type'] = 'application/json'
+        n = webp.recheck()
+        logger.info('[WEBP] %s files that had nothing to gain will be looked at again.' % n)
+        return json.dumps({'reopened': n, 'status': webp.status()})
+    webp_recheck.exposed = True
+
     def webp_reset(self, **kwargs):
         cherrypy.response.headers['Content-Type'] = 'application/json'
         return json.dumps({'reset': webp.reset(), 'status': webp.status()})

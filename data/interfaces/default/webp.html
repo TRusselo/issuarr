@@ -27,6 +27,14 @@
 		</ul>
 	</div>
 
+	<section class="wp-memory" aria-live="polite">
+		<p id="wp-memory-text">Each file a run looks at is remembered, and isn't opened again until it changes. The largest files go first.</p>
+		<div class="wp-memory-act">
+			<button type="button" class="btn" id="wp-recheck" hidden>Re-check skipped files</button>
+			<small>Looks again at the files that had nothing to gain, for example after lowering the WebP quality.</small>
+		</div>
+	</section>
+
 	<form id="wp-form" class="wp-form" autocomplete="off">
 		<fieldset>
 			<legend>What to convert</legend>

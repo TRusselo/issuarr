@@ -326,11 +326,13 @@ def items():
             mtime = os.path.getmtime(path)
         except OSError:
             continue
+        library = in_library(path)
         out.append({'path': path, 'name': os.path.basename(path), 'folder': os.path.dirname(path),
                     'in_review': bool(review) and os.path.normpath(path).startswith(review + os.sep),
+                    'in_library': library,
                     'reason': row.get('reason') or 'unclaimed', 'detail': row.get('detail') or '',
                     'size': _size(path), 'modified': mtime, 'parsed': parsed,
-                    'matches': suggest(parsed, comicid=row.get('comicid')), 'job': JOBS.get(path)})
+                    'matches': [] if library else suggest(parsed, comicid=row.get('comicid')), 'job': JOBS.get(path)})
     out.sort(key=lambda i: -i['modified'])
     _COUNT[:] = [time.time(), len(out)]
     return out
@@ -466,6 +468,17 @@ def issue_cover(issueid):
         COVER_SLOTS.release()
 
 
+def in_library(path):
+    """Whether a listed file is one already filed in the library (one WebP conversion found
+    damaged), rather than a download waiting to be filed. Filing it again would copy or move it
+    over itself, so the page only offers the trash or ignoring it."""
+    try:
+        row = db.DBConnection().selectone('SELECT status FROM webp_files WHERE path=?', [path]).fetchone()
+    except Exception:   # no WebP conversion has run yet
+        return False
+    return row is not None
+
+
 def _known(path):
     """Only files this page lists may be acted on."""
     path = os.path.normpath(path)
@@ -509,6 +522,8 @@ def file_as(path, comicid, issueid):
     filing's matching, so the checks that turned the file down don't run again."""
     if not _known(path):
         return {'ok': False, 'note': 'That file is no longer waiting for a decision.'}
+    if in_library(path):
+        return {'ok': False, 'note': 'That file is already in your library. Replace it with a good copy, or move it to the trash.'}
     myDB = db.DBConnection()
     issue = myDB.selectone('SELECT i.IssueID, i.Issue_Number, i.ComicID, c.ComicName, c.ComicYear FROM issues i '
                            'JOIN comics c ON c.ComicID=i.ComicID WHERE i.IssueID=? AND i.ComicID=?', [issueid, comicid]).fetchone()

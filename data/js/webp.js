@@ -54,6 +54,7 @@
       $id('wp-hint').textContent = 'Preview first: it only reads your files.';
     }
 
+    renderMemory();
     var res = $id('wp-result');
     res.hidden = st.state !== 'previewed';
     if (st.state === 'previewed') renderPreview();
@@ -62,6 +63,20 @@
     run.hidden = ['running', 'finished', 'stopped'].indexOf(st.state) < 0;
     if (!run.hidden) renderRun();
     form.hidden = !run.hidden;
+  }
+
+  function renderMemory() {
+    var m = st.memory || {}, parts = [];
+    if (m.converted) parts.push(num(m.converted) + ' converted (' + gb(m.saved) + ' saved)');
+    if (m['nothing to gain']) parts.push(num(m['nothing to gain']) + ' with nothing to gain');
+    if (m['already webp']) parts.push(num(m['already webp']) + ' already WebP');
+    if (m.failed) parts.push(num(m.failed) + ' that failed a check');
+    if (m.damaged) parts.push(num(m.damaged) + ' damaged (listed in <a href="needsAttention">Needs attention</a>)');
+    $id('wp-memory-text').innerHTML = (parts.length ? 'Files looked at so far: ' + parts.join(', ') + '. ' : '') +
+      'Each file is remembered and isn\'t opened again until it changes. The largest files go first.';
+    var re = $id('wp-recheck');
+    re.hidden = !m['nothing to gain'];
+    re.disabled = st.state === 'previewing' || st.state === 'running';
   }
 
   function renderPreview() {
@@ -73,10 +88,11 @@
       tile(num(st.too_old), 'dated before ' + esc(o.since || '-'), 'left alone', 'var(--lg-before)') +
       tile(num(st.no_date), 'with no date', o.unknown ? 'included' : 'left alone', 'var(--lg-before)') +
       tile(num(st.already), 'already WebP', 'skipped', 'var(--lg-before)') +
+      tile(num(st.remembered), 'looked at before', 'not opened again', 'var(--lg-before)') +
       tile(num(st.other), '.cbr / .cb7 / .pdf', 'not converted', 'var(--lg-before)');
     var lines = [];
     lines.push('<p>Folder <code>' + esc(o.root) + '</code> &middot; WebP quality ' + o.quality + ' &middot; JPEG pages below quality ' + o.min_q + ' left as they are &middot; ' + o.threads + ' CPU threads, ' + o.files + ' files at once' + (o.limit ? ' &middot; <b>stops after ' + num(o.limit) + ' files</b>' : '') + '</p>');
-    if (o.limit && st.count >= o.limit) lines.push('<p>Looked at ' + num(st.scanned) + ' files to find the first ' + num(st.count) + ' that match, then stopped. The counts above only cover the files looked at; set "Stop after" to 0 to see the whole library.</p>');
+    if (o.limit && st.count >= o.limit) lines.push('<p>Found the ' + num(st.count) + ' largest of ' + num(st.scanned) + ' files that match, then stopped. The counts above only cover the files looked at; set "Stop after" to 0 to see the whole library.</p>');
     if (o.no_backup) lines.push('<p class="wp-danger"><b>Originals will not be kept.</b> The conversion can\'t be undone.</p>');
     else lines.push('<p>Originals go to <code>' + esc(o.backup_dir) + '</code>' + (room ? ' (' + room + ', needs about ' + gb(st.bytes) + ')' : '') + '.</p>');
     if (st.examples && st.examples.length) lines.push('<details><summary>First files</summary><ul>' + st.examples.map(function (e) { return '<li><code>' + esc(e) + '</code></li>'; }).join('') + '</ul></details>');
@@ -138,6 +154,14 @@
     post('webp_reset').then(function (r) { st = r.status; dirty = false; showError(''); render(); });
   }
   $id('wp-reset').addEventListener('click', reset);
+  $id('wp-recheck').addEventListener('click', function () {
+    var n = (st.memory || {})['nothing to gain'] || 0;
+    if (!confirm('Look again at the ' + num(n) + ' files that had nothing to gain? Nothing is changed until you run a conversion.')) return;
+    post('webp_recheck').then(function (r) {
+      st = r.status; render();
+      window.Issuarr.toast(num(r.reopened) + ' files will be looked at again.', true);
+    });
+  });
   $id('wp-done').addEventListener('click', reset);
   $id('wp-stop').addEventListener('click', function () {
     post('webp_stop').then(function (r) { st = r.status; st.stopping = true; render(); });

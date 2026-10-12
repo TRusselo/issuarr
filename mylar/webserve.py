@@ -3879,10 +3879,15 @@ class WebInterface(object):
             if countchk == 0:
                 return json.dumps({'status': True, 'message': 'Queue already cleared - there was nothing to clear from the Queue'})
 
-            for row in myDB.select("SELECT id FROM ddl_info WHERE status = 'Queued'"):
+            cleared = myDB.select("SELECT * FROM ddl_info WHERE status = 'Queued'")
+            for row in cleared:
                 mylar.DDL_CANCEL.add(str(row['id']))
             myDB.action("DELETE FROM ddl_info WHERE status = 'Queued'")
-            return json.dumps({'status': True, 'message': 'Successfully cleared %s items from the Queue' % countchk})
+            wanted = downloadqueue.release(myDB, cleared)
+            message = 'Successfully cleared %s items from the Queue' % countchk
+            if wanted:
+                message += '. %s back to Wanted' % ('1 issue is' if len(wanted) == 1 else '%s issues are' % len(wanted))
+            return json.dumps({'status': True, 'message': message})
 
         if id is None:
             items = myDB.select("SELECT * FROM ddl_info WHERE status = 'Queued' AND jd2_job_id IS NULL ORDER BY updated_date ASC")
@@ -3927,6 +3932,7 @@ class WebInterface(object):
         from mylar.queues.jd2 import at_jd2
         waiting = waiting_ids() | at_jd2()  # JD2 too, or a second Restart queues it twice
         added, already = 0, 0
+        wanted = []
         if itemlist is not None:
             for item in itemlist:
                 seriesname = item['series']
@@ -3956,10 +3962,12 @@ class WebInterface(object):
                 elif mode == 'abort':
                     mylar.DDL_CANCEL.add(str(item['id']))
                     myDB.upsert("ddl_info", {'Status': 'Failed'}, {'id': id}) #DELETE FROM ddl_info where ID=?', [id])
+                    wanted = downloadqueue.release(myDB, items)
                     continue
                 elif mode == 'remove':
                     mylar.DDL_CANCEL.add(str(item['id']))
                     myDB.action('DELETE FROM ddl_info where ID=?', [id])
+                    wanted = downloadqueue.release(myDB, items)   # only if it hadn't finished
                     continue
                 else:
                     resume = None
@@ -4009,6 +4017,8 @@ class WebInterface(object):
             elif mode == 'remove':
                 logger.info('[DDL-REMOVE] Successfully removed %s [%s]..' % (seriesname, seriessize))
                 linemessage = 'Successfully removed %s [%s] from queue/history' % (seriesname, seriessize)
+            if mode in ('abort', 'remove') and wanted:
+                linemessage += '. %s back to Wanted' % ('Its issue is' if len(wanted) == 1 else '%s issues are' % len(wanted))
         else:
             linemessage = "No items to requeue"
         return json.dumps({'status': True, 'message': linemessage})
@@ -4019,7 +4029,8 @@ class WebInterface(object):
     DDL_CLEARABLE = {'Completed': 'finished', 'Failed': 'failed'}
 
     def ddl_clear(self, status=None):
-        # Tidies the queue list only: files, issue status, snatched and nzblog stay as they are.
+        # Tidies the queue list: files, snatched and nzblog stay as they are. A failed download's
+        # issues that are still Snatched go back to Wanted; finished ones keep their status.
         if cherrypy.request.method != 'POST':
             raise cherrypy.HTTPError(405)
         word = self.DDL_CLEARABLE.get(status) if isinstance(status, str) else None
@@ -4039,10 +4050,12 @@ class WebInterface(object):
         unfiled = [i for i in downloadqueue.unfiled_ids(myDB) if i not in pending] if status == 'Completed' else []
         if unfiled:
             held += ' AND ID NOT IN (%s)' % ','.join('?' * len(unfiled))
+        cleared = myDB.select("SELECT * FROM ddl_info WHERE status = ?" + held, [status] + pending + unfiled) if status == 'Failed' else []
         cur = myDB.action("DELETE FROM ddl_info WHERE status = ?" + held, [status] + pending + unfiled)
         if cur is None:   # the database stayed locked through every retry
             return json.dumps({'status': False, 'message': 'The database was busy, so nothing was cleared; try again'})
         removed = cur.rowcount
+        wanted = downloadqueue.release(myDB, cleared)
         logger.info('[DDL-CLEAR] Removed %s %s downloads from the queue list, kept %s still stopping and %s not filed yet'
                     % (removed, word, kept, len(unfiled)))
         if removed == 0 and kept == 0 and not unfiled:
@@ -4057,8 +4070,34 @@ class WebInterface(object):
         if unfiled:
             message += '. %s not filed yet, so %s stayed' % (
                 '1 download is' if len(unfiled) == 1 else '%s downloads are' % len(unfiled), 'it' if len(unfiled) == 1 else 'they')
+        if wanted:
+            message += '. %s back to Wanted' % ('1 issue is' if len(wanted) == 1 else '%s issues are' % len(wanted))
         return json.dumps({'status': True, 'message': message})
     ddl_clear.exposed = True
+
+    def stuck_snatched(self):
+        # Read only: what reset_stuck_snatched would put back to Wanted, for its confirm.
+        cherrypy.response.headers['Content-Type'] = 'application/json'
+        issues = downloadqueue.stuck_snatched(db.DBConnection())
+        return json.dumps({'hours': downloadqueue.STUCK_HOURS, 'count': len(issues), 'issues': issues})
+    stuck_snatched.exposed = True
+
+    def reset_stuck_snatched(self):
+        if cherrypy.request.method != 'POST':
+            raise cherrypy.HTTPError(405)
+        cherrypy.response.headers['Content-Type'] = 'application/json'
+        myDB = db.DBConnection()
+        issues = downloadqueue.stuck_snatched(myDB)
+        done = downloadqueue.unsnatch(myDB, [i['issueid'] for i in issues])
+        if done:
+            names = ['%s #%s' % (i['series'], i['issue']) for i in issues if i['issueid'] in done]
+            logger.info('[SNATCHED-RESET] Put %s stuck Snatched issues back to Wanted: %s' % (len(done), ', '.join(names)))
+        if not done:
+            message = 'No snatched issues were stuck'
+        else:
+            message = 'Put %s back to Wanted' % ('1 issue' if len(done) == 1 else '%s issues' % len(done))
+        return json.dumps({'status': True, 'count': len(done), 'message': message})
+    reset_stuck_snatched.exposed = True
 
     def queueManage(self):
         # The page loads its rows from queueManageIt and check_ActiveDDL.

@@ -215,14 +215,16 @@
     var b = e.target.closest('#main [data-act]');
     if (!b) return;
     var act = b.getAttribute('data-act'), id = b.getAttribute('data-id'), name = b.getAttribute('data-name');
-    if (act === 'remove') requeue('remove', id, 'Remove ' + name + ' from the queue? Any file already downloaded stays where it is.');
-    else if (act === 'abort') requeue('abort', id, 'Stop downloading ' + name + '? It will be marked Failed.');
+    if (act === 'remove') requeue('remove', id, 'Remove ' + name + ' from the queue? Any file already downloaded stays where it is. ' +
+      'If it hadn\'t finished, its issues go back to Wanted to be searched again.');
+    else if (act === 'abort') requeue('abort', id, 'Stop downloading ' + name + '? The download is marked Failed and its issues go back to Wanted to be searched again.');
     else requeue(act, id);
   });
   $id('q-restart-queue').addEventListener('click', function () { requeue('restart_queue'); });
   document.addEventListener('click', function (e) { if (e.target.closest('[data-queue-restart]')) requeue('restart_queue'); });
   $id('q-clear-queue').addEventListener('click', function () {
-    requeue('clear_queue', null, 'Remove every queued direct download? Anything downloading now, finished downloads and grabs at your download client stay.');
+    requeue('clear_queue', null, 'Remove every queued direct download? Their issues go back to Wanted to be searched again. ' +
+      'Anything downloading now, finished downloads and grabs at your download client stay.');
   });
   $id('q-clear-finished').addEventListener('click', function () {
     var n = ddlCount('Completed');
@@ -232,7 +234,8 @@
   $id('q-clear-failed').addEventListener('click', function () {
     var n = ddlCount('Failed');
     clearStatus('Failed', 'Remove ' + n + ' failed ' + (n === 1 ? 'download' : 'downloads') + ' from this list? ' +
-      'The comics and their status in your library stay. The failures also leave the activity history, and you can\'t retry them from here or from the issue\'s history.');
+      'The comics in your library stay, and issues still marked Snatched go back to Wanted to be searched again. ' +
+      'The failures also leave the activity history, and you can\'t retry them from here or from the issue\'s history.');
   });
   $id('q-prev').addEventListener('click', function () { st.start = Math.max(0, st.start - st.len); renderRows(); });
   $id('q-next').addEventListener('click', function () { st.start += st.len; renderRows(); });

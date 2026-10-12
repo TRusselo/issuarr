@@ -10,8 +10,9 @@
         ci = a['comicinfo']
         repo = 'https://github.com/issuarr/issuarr'
         website = 'https://issuarr.github.io/issuarr/'
-        version = a['br_version_name'] or a['br_version'] or 'unknown'
-        short = version[:7] if (not a['br_version_name'] and len(version) == 40) else version
+        version = a['app_version']
+        commit = a['br_version'] or ''
+        short = commit[:7] if len(commit) == 40 else commit
         def n(x):
             try:
                 return '{:,}'.format(int(x or 0))
@@ -24,7 +25,10 @@
             <img class="about-logo" src="images/issuarr-logo-transparent.png" alt="" width="88" height="88" />
             <div class="head-text">
                 <h1>Issuarr</h1>
-                <p class="page-sub">Version <span class="mono" title="${version | h}">${short | h}</span>
+                <p class="page-sub">Version <span class="mono">${version | h}</span>
+                %if short:
+                    (commit <span class="mono" title="${commit | h}">${short | h}</span>)
+                %endif
                 %if a['br_release_name']:
                     (${a['br_release_name'] | h})
                 %endif

@@ -178,6 +178,37 @@ def test_queued_rows_waiting_their_turn_are_not_stalled(myDB):
 
 
 @pytest.mark.unit
+def test_a_ghost_row_is_stalled_even_while_others_wait_their_turn(myDB):
+    ddl_row(myDB, 'b', '2', 'Queued')                       # in no queue: nothing will pick it up
+    ddl_row(myDB, 'e', '5', 'Queued')
+    ddl.GC_QUEUE.put({'id': 'e'})
+    assert activity.stalled_downloads(myDB) == 1
+    assert activity.flow()['download']['queued'] == 2
+
+
+@pytest.mark.unit
+def test_a_row_a_worker_or_failover_is_handling_is_not_stalled(myDB):
+    # it stays Queued while its link is resolved or failover picks the next source
+    ddl_row(myDB, 'b', '2', 'Queued')
+    ddl.ACTIVE.add('b')
+    assert activity.stalled_downloads(myDB) == 0
+    ddl.ACTIVE.clear()
+    ddl.PENDING.append({'id': 'b'})
+    assert activity.stalled_downloads(myDB) == 0
+
+
+@pytest.mark.unit
+def test_jd2_rows_are_not_stalled_before_its_monitor_reloads_them(myDB, monkeypatch):
+    monkeypatch.setattr(mylar.CONFIG, 'JD2_ENABLE', True, raising=False)
+    monkeypatch.setattr(jd2, 'LOADED', jd2.threading.Event())
+    ddl_row(myDB, 'c', '3', 'Queued', jd2_job='17917')
+    assert activity.stalled_downloads(myDB) == 0
+    assert activity.flow()['issues']['3']['state'] == 'jd2'
+    jd2.LOADED.set()                                        # reloaded, and c wasn't among them
+    assert activity.stalled_downloads(myDB) == 1
+
+
+@pytest.mark.unit
 def test_download_queue_json_carries_the_stalled_count(myDB, monkeypatch):
     from mylar import webserve
     ddl_row(myDB, 'b', '2', 'Queued')

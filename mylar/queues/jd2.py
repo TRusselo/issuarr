@@ -2,6 +2,7 @@
 
 import datetime
 import os
+import threading
 import time
 
 import mylar
@@ -13,6 +14,9 @@ from mylar.downloaders.jdownloader2 import JDownloader2
 # The record id of the item the monitor is working on. It's out of the queue while the monitor
 # checks it and sleeps before putting it back, but it's still at JD2.
 HOLDING = [None]
+# Set once the monitor has put the rows saved with a JD2 job id back in its queue. Until then those
+# rows are still JD2's even though at_jd2() doesn't list them yet.
+LOADED = threading.Event()
 
 
 def at_jd2():
@@ -21,6 +25,11 @@ def at_jd2():
     if HOLDING[0] is not None:
         ids.add(HOLDING[0])
     return ids
+
+
+def loaded():
+    """Whether at_jd2() lists every row JD2 has: the monitor has reloaded its saved rows, or JD2 is off."""
+    return LOADED.is_set() or not getattr(mylar.CONFIG, 'JD2_ENABLE', False)
 
 
 def jd2_queue_monitor(queue):
@@ -77,6 +86,7 @@ def jd2_queue_monitor(queue):
                             'jd2_job_id': job_id,
                         }
                         queue.put(queue_payload)
+                LOADED.set()
                 continue
 
             if item.get('jd2_job_id') == 0:

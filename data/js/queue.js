@@ -131,7 +131,8 @@
   // The server decides what's stalled (rows JD2 is holding stay Queued but aren't stuck).
   function renderStalled() {
     $id('q-stalled').hidden = !st.stalled;
-    if (st.stalled) $id('q-stalled-text').textContent = st.stalled + ' queued and nothing downloading.';
+    if (st.stalled) $id('q-stalled-text').textContent = 'Nothing is downloading or about to pick up ' +
+      (st.stalled === 1 ? '1 queued item.' : st.stalled + ' queued items.');
   }
 
   /* ---- loading ---- */

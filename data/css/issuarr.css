@@ -309,6 +309,12 @@ input:invalid, textarea:invalid { box-shadow: none !important; }
 .ddl-src { display: flex !important; align-items: center; gap: 6px; grid-column: 3; min-width: 0; margin: 0 !important; float: none !important; width: auto !important; font-weight: 600; color: var(--text) !important; }
 .ddl-src input { margin: 0 !important; flex: none; width: 16px; }
 .ddl-via { grid-column: 3; color: var(--muted); font-size: 12.5px; line-height: 1.35; padding-left: 22px; overflow-wrap: anywhere; }
+/* the search order: numbered, since it's the order providers are tried in */
+.prov-order { counter-reset: prov; width: 100%; }
+.prov-order li { counter-increment: prov; }
+.prov-name { grid-column: 3; display: flex; align-items: center; gap: 8px; min-width: 0; font-weight: 600; color: var(--text); overflow-wrap: anywhere; }
+.prov-name::before { content: counter(prov); flex: none; display: inline-grid; place-items: center; min-width: 18px; height: 18px; border-radius: 50%; background: var(--raised); color: var(--muted); font-family: var(--font-mono); font-size: 11px; }
+.prov-order .ddl-via { padding-left: 26px; }
 
 /* ---------- Page building blocks (rebuilt pages) ---------- */
 

@@ -40,3 +40,19 @@ def test_the_blank_default_indexer_is_not_a_provider(monkeypatch):
     assert order(monkeypatch, ENABLE_TORRENT_SEARCH=True, ENABLE_TORZNAB=True, EXTRA_TORZNABS=blank,
                  NEWZNAB=True, EXTRA_NEWZNABS=[('', ' ', '0', '', '', '1', 2)],
                  ENABLE_DDL=True, ENABLE_GETCOMICS=True) == ['DDL(GetComics)']
+
+
+@pytest.mark.unit
+def test_an_order_saved_from_settings_is_kept(monkeypatch):
+    tz = [('Jackett', 'http://jackett:9117/api', '0', 'key', '7030', '1', 1)]
+    nz = [('DOGnzb', 'https://api.dognzb.cr', '1', 'key', '', '1', 2)]
+    on = dict(ENABLE_TORRENT_SEARCH=True, ENABLE_TORZNAB=True, EXTRA_TORZNABS=tz, NEWZNAB=True, EXTRA_NEWZNABS=nz,
+              ENABLE_DDL=True, ENABLE_GETCOMICS=True)
+    assert order(monkeypatch, PROVIDER_ORDER='0, Jackett, 1, DDL(GetComics), 2, DOGnzb', **on) == ['Jackett', 'DDL(GetComics)', 'DOGnzb']
+
+
+@pytest.mark.unit
+def test_a_provider_turned_on_later_joins_the_end(monkeypatch):
+    nz = [('DOGnzb', 'https://api.dognzb.cr', '1', 'key', '', '1', 2)]
+    assert order(monkeypatch, PROVIDER_ORDER='0, DOGnzb', NEWZNAB=True, EXTRA_NEWZNABS=nz,
+                 ENABLE_DDL=True, ENABLE_GETCOMICS=True) == ['DOGnzb', 'DDL(GetComics)']

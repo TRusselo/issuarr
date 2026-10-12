@@ -368,7 +368,13 @@
 
     <div id="tabs-4" class="set-panel" data-title="Search providers" data-sub="Where Issuarr looks for issues, and the order it tries them in.">
         <%
-            porder = [v for k, v in sorted(mylar.CONFIG.PROVIDER_ORDER.items(), key=itemgetter(0))]
+            porder = [v for k, v in sorted(mylar.CONFIG.PROVIDER_ORDER.items(), key=lambda kv: int(kv[0]) if str(kv[0]).isdigit() else 0)]
+            def pname(row):
+                return re.sub('"', '', str(row[0] or row[1])).strip()
+            pkinds = dict([(pname(r), 'Usenet indexer') for r in (mylar.CONFIG.EXTRA_NEWZNABS or [])] +
+                          [(pname(r), 'Torrent indexer') for r in (mylar.CONFIG.EXTRA_TORZNABS or [])] +
+                          [('DDL(GetComics)', 'Direct download'), ('DDL(External)', 'Direct download'), ('Experimental', 'Usenet, experimental'),
+                           ('AirDCPP', 'AirDC++'), ('32p', 'Torrent')])
             # a kind of search that's on but has nothing to search, so the order shows why it's missing
             C = mylar.CONFIG
             def ready(rows):
@@ -387,14 +393,20 @@
         <section class="set-group" aria-labelledby="sg-order">
             <div class="set-group-head"><h2 id="sg-order">Search order</h2></div>
             <div class="set-row">
-                <div class="set-label"><b>Tried in this order</b><span>Only providers that are turned on below are searched. This updates when you save.</span></div>
+                <div class="set-label"><b>Tried in this order</b><span>Only providers that are turned on below are searched. Providers you turn on join the end of the list when you save.</span></div>
                 <div class="set-ctl">
                     %if porder:
-                    <ol class="set-order">
-                        %for p in porder:
-                        <li>${p | h}</li>
+                    <ol class="ddl-src-list prov-order" id="prov_order_list">
+                        %for i, p in enumerate(porder):
+                        <li data-name="${p | h}">
+                            <button type="button" class="ddl-up" aria-label="Move ${p | h} up" ${'disabled' if i == 0 else ''}>▲</button>
+                            <button type="button" class="ddl-down" aria-label="Move ${p | h} down" ${'disabled' if i == len(porder) - 1 else ''}>▼</button>
+                            <span class="prov-name">${p | h}</span>
+                            <small class="ddl-via">${pkinds.get(p, 'Provider') | h}</small>
+                        </li>
                         %endfor
                     </ol>
+                    <input type="hidden" name="provider_order" id="provider_order" value="${', '.join('%s, %s' % (i, p) for i, p in enumerate(porder)) | h}">
                     %else:
                     <span class="muted">No providers are on.</span>
                     %endif
@@ -1949,6 +1961,22 @@ $("#enable_airdcpp").click(function(){
                         list.find('li').eq(j).find($(this).hasClass('ddl-up') ? '.ddl-up' : '.ddl-down').focus();
                     });
                     list.on('change', '.ddl-on', function () { src[+$(this).closest('li').data('i')].enabled = this.checked; draw(); });
+                    // the search order: same arrows, saved as "0, name, 1, name"
+                    var plist = $('#prov_order_list');
+                    function pdraw() {
+                        var items = plist.children('li');
+                        items.each(function (i) {
+                            $(this).find('.ddl-up').prop('disabled', i === 0);
+                            $(this).find('.ddl-down').prop('disabled', i === items.length - 1);
+                        });
+                        $('#provider_order').val(items.map(function (i) { return i + ', ' + $(this).data('name'); }).get().join(', ')).trigger('change');
+                    }
+                    plist.on('click', '.ddl-up, .ddl-down', function () {
+                        var up = $(this).hasClass('ddl-up'), li = $(this).closest('li');
+                        if (up) li.prev().before(li); else li.next().after(li);
+                        pdraw();
+                        li.find(up ? '.ddl-up' : '.ddl-down').filter(':enabled').focus();
+                    });
                     draw();
                     function gb(n) { return (n / 1e9).toFixed(2) + ' GB'; }
                     $('#test_pixeldrain').click(function () {

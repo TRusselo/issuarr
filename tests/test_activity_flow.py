@@ -36,7 +36,8 @@ def myDB(monkeypatch, tmp_path):
     monkeypatch.setattr(jd2, 'HOLDING', [None])
     monkeypatch.setattr(activity, 'RECENT', collections.deque(maxlen=60))
     monkeypatch.setattr(archives, 'processing', lambda: False)
-    monkeypatch.setattr(archives, 'ACTIVITY', {'state': 'Idle', 'detail': '', 'since': None, 'last': '', 'last_at': None, 'notes': []})
+    monkeypatch.setattr(archives, 'ACTIVE', {})
+    monkeypatch.setattr(archives, 'LAST', {'last': '', 'last_at': None})
     for flag in ('USE_SABNZBD', 'USE_NZBGET', 'USE_BLACKHOLE', 'USE_QBITTORRENT', 'USE_DELUGE', 'USE_TRANSMISSION',
                  'USE_RTORRENT', 'USE_UTORRENT', 'USE_WATCHDIR'):
         monkeypatch.setattr(mylar, flag, False, raising=False)

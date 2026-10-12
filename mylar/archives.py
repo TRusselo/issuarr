@@ -1,5 +1,6 @@
 import os
 import shutil
+import threading
 import time
 import zipfile
 
@@ -18,21 +19,70 @@ JOBS = []
 # Direct downloads post-processing has taken off its queue, by ddl_info id: 'waiting' until their
 # run gets its turn, 'filing' while it runs. Dropped when the run ends; a restart forgets them.
 DDL_FILING = {}
-ACTIVITY = {'state': 'Idle', 'detail': '', 'since': None, 'last': '', 'last_at': None, 'notes': []}
+# What each running filing job (a post-processing pass, auto-add) is doing, by thread. Auto-add
+# runs alongside folder monitor passes, and one finishing mustn't blank out the other.
+ACTIVE = {}
+LAST = {'last': '', 'last_at': None}
+# When the folder monitor last skipped a pass, and why; cleared when a pass runs.
+MONITOR = {'skipped_at': None, 'why': ''}
+_active_lock = threading.Lock()
+
+
+def _job():
+    # Only the thread's own job: filing from a web request (re-filing from Needs attention) has
+    # none, and its counts mustn't land in another job's summary.
+    return ACTIVE.get(threading.get_ident())
 
 
 def busy(detail):
-    if ACTIVITY['state'] != 'Working':
-        ACTIVITY.update(state='Working', since=time.time(), notes=[])
-    ACTIVITY['detail'] = detail
+    with _active_lock:
+        job = ACTIVE.setdefault(threading.get_ident(), {'since': time.time(), 'notes': [], 'counts': {}})
+        job['detail'] = detail
 
 
 def note(text):
-    ACTIVITY['notes'].append(text)
+    with _active_lock:
+        job = _job()
+        if job is not None:
+            job['notes'].append(text)
+
+
+def tally(what):
+    """Count something the running job did ('filed', 'attention') for its summary."""
+    with _active_lock:
+        job = _job()
+        if job is not None:
+            job['counts'][what] = job['counts'].get(what, 0) + 1
+
+
+def _plural(n, one, many):
+    return '%s %s' % (n, one if n == 1 else many)
+
+
+def _summary(job):
+    parts = list(job['notes'])
+    filed, att = job['counts'].get('filed', 0), job['counts'].get('attention', 0)
+    if filed:
+        parts.append('filed %s' % _plural(filed, 'issue', 'issues'))
+    if att:
+        parts.append('%s left for Downloads > Needs attention' % _plural(att, 'file', 'files'))
+    return '; '.join(parts)
 
 
 def done(fallback='Nothing to do.'):
-    ACTIVITY.update(state='Idle', detail='', last='; '.join(ACTIVITY['notes']) or fallback, last_at=time.time(), notes=[])
+    with _active_lock:
+        job = ACTIVE.pop(threading.get_ident(), None)
+        if job is None:
+            return
+        LAST.update(last=_summary(job) or fallback, last_at=time.time())
+
+
+def skipped(why):
+    MONITOR.update(skipped_at=time.time(), why=why)
+
+
+def monitor_ran():
+    MONITOR.update(skipped_at=None, why='')
 
 
 def processing():
@@ -41,7 +91,7 @@ def processing():
         queued = mylar.PP_QUEUE is not None and mylar.PP_QUEUE.qsize() > 0
     except Exception:
         queued = False
-    return ACTIVITY['state'] == 'Working' or RUNS[0] > 0 or autoadd.running() or queued
+    return bool(ACTIVE) or RUNS[0] > 0 or autoadd.running() or queued
 
 
 def holds(comicid):
@@ -71,7 +121,16 @@ def ddl_filing(download_info, stage):
 
 
 def snapshot():
-    return {k: v for k, v in ACTIVITY.items() if k != 'notes'}
+    with _active_lock:
+        jobs = sorted(ACTIVE.values(), key=lambda j: j['since'])
+        out = {'state': 'Working' if jobs else 'Idle',
+               'detail': '; '.join(j['detail'] for j in jobs if j.get('detail')),
+               'since': jobs[0]['since'] if jobs else None}
+    out.update(LAST)
+    out.update(monitor_skipped_at=MONITOR['skipped_at'], monitor_skipped_why=MONITOR['why'])
+    return out
+
+
 MIN_PAGES = 3
 
 

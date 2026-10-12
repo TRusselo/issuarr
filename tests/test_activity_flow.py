@@ -61,9 +61,10 @@ def item(iid='1', name='Iron Man', number='18'):
     return {'issueid': iid, 'comicid': '100', 'comicname': name, 'issuenumber': number}
 
 
-def ddl_row(d, qid, iid, status, series='Iron Man', updated=None, jd2_job=None):
-    d.action("INSERT INTO ddl_info (ID, series, issueid, comicid, status, updated_date, site, jd2_job_id) "
-             "VALUES (?, ?, ?, '100', ?, ?, 'DDL(GetComics)', ?)", [qid, series, iid, status, updated or ago(minutes=1)[:16], jd2_job])
+def ddl_row(d, qid, iid, status, series='Iron Man', updated=None, jd2_job=None, link_type='GC-Main'):
+    d.action("INSERT INTO ddl_info (ID, series, issueid, comicid, status, updated_date, site, jd2_job_id, link_type) "
+             "VALUES (?, ?, ?, '100', ?, ?, 'DDL(GetComics)', ?, ?)",
+             [qid, series, iid, status, updated or ago(minutes=1)[:16], jd2_job, link_type])
 
 
 @pytest.mark.unit
@@ -131,6 +132,12 @@ def test_download_stage_tells_downloading_from_queued_and_jd2(myDB):
     assert out['issues']['1']['state'] == 'downloading'
     assert out['issues']['2']['state'] == 'queued'
     assert out['issues']['3']['state'] == 'jd2'
+
+
+@pytest.mark.unit
+def test_builtin_cloud_download_is_issuarrs_not_getcomics(myDB):
+    ddl_row(myDB, 'a', '1', 'Downloading', link_type='GC-Mega')
+    assert [n['via'] for n in activity.flow()['download']['now']] == ['Issuarr']
 
 
 @pytest.mark.unit

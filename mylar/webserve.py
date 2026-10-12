@@ -4895,7 +4895,7 @@ class WebInterface(object):
         if cherrypy.request.method != 'POST':
             return json.dumps({'error': 'Use the WebP conversion page.'})
         try:
-            opts = webp.options(root=root, since=since, unknown=helpers.str_to_bool(unknown), limit=limit or 0,
+            opts = webp.options(root=root, since=since, unknown=helpers.str_to_bool(unknown), limit=limit,
                                 quality=quality, min_q=min_q, backup_dir=backup_dir,
                                 no_backup=helpers.str_to_bool(no_backup), threads=threads, files=files)
         except ValueError as e:

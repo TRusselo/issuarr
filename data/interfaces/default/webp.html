@@ -47,8 +47,8 @@
 			</label>
 			<label class="wp-check"><input type="checkbox" name="unknown" value="1"> Also convert files with no date</label>
 			<label class="wp-row"><span>Stop after</span>
-				<span><input type="number" name="limit" value="20" min="0" style="width:6em"> files
-				<small>Start with a small trial run. 0 converts every matching file.</small></span>
+				<span><input type="number" name="limit" value="${defaults['limit']}" min="0" style="width:6em"> files
+				<small>Start with a small trial run. 0 converts every matching file. The largest files go first.</small></span>
 			</label>
 		</fieldset>
 		<fieldset>
@@ -61,21 +61,21 @@
 				<input type="number" name="min_q" value="${defaults['min_q']}" min="0" max="100" style="width:5em">
 			</label>
 			<label class="wp-row"><span>CPU threads to use</span>
-				<span><input type="number" name="threads" value="${defaults['threads']}" min="1" max="${defaults['max_threads']}" style="width:5em"> of ${defaults['max_threads']}
-				<small>Pages are encoded in this many worker processes, shared by every file in progress. Leave a few for everything else on the server.</small></span>
+				<span><input type="number" name="threads" value="${defaults['threads']}" min="1" max="${defaults['max_threads']}" style="width:5em"> of ${defaults['max_threads']} this server can use
+				<small>Pages are encoded in this many worker processes, shared by every file in progress. 2 suits most servers; leave a few for everything else.</small></span>
 			</label>
 			<label class="wp-row"><span>Files at once</span>
 				<span><input type="number" name="files" value="${defaults['files']}" min="1" max="8" style="width:5em">
-				<small>Overlaps reading, checking and writing files so the CPU threads stay busy. It doesn't add CPU use.</small></span>
+				<small>Overlaps reading, checking and writing files so the CPU threads stay busy. It doesn't add CPU use. 1 is fine unless you use more than 4 threads.</small></span>
 			</label>
 			<label class="wp-row"><span>Keep the originals in</span>
 				<span><input type="text" name="backup_dir" value="${defaults['backup_dir']}" size="48" placeholder="/comics-originals">
-				<small>A folder outside the library, on a mapped volume with room for every original. Same folder layout as the library. Remembered after a preview.</small></span>
+				<small>A folder outside the library, on a mapped volume with room for every original. Same folder layout as the library.</small></span>
 			</label>
 			<label class="wp-check wp-danger"><input type="checkbox" name="no_backup" value="1"> Don't keep the originals (the conversion can't be undone)</label>
 		</fieldset>
 		<div class="lg-build">
-			<span id="wp-hint">Preview first: it only reads your files.</span>
+			<span id="wp-hint">Preview first: it only reads your files. Your choices are kept for next time when you start converting.</span>
 			<button type="submit" class="btn btn-primary" id="wp-preview">Preview</button>
 		</div>
 	</form>

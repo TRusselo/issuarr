@@ -236,3 +236,44 @@ def test_recheck_is_post_only(env, monkeypatch):
     assert e.value.status == 405 and select(env)['files'] == []
     out = json.loads(_web(monkeypatch, 'POST').webp_recheck())
     assert out['reopened'] == 1 and select(env)['files'] == [a]
+
+
+# --- saved choices and defaults ---
+
+@pytest.mark.unit
+def test_defaults_are_two_threads_and_one_file_however_many_cores(env, monkeypatch):
+    monkeypatch.setattr(webp, 'MAX_THREADS', 64)
+    del env.cfg.WEBP_THREADS
+    o = webp.options()
+    assert (o['threads'], o['files'], o['limit'], o['max_threads']) == (2, 1, 20, 64)
+    assert webp.options(threads=48, files=6)['threads'] == 48
+
+
+@pytest.mark.unit
+def test_a_run_saves_its_choices_and_the_form_opens_with_them(env, monkeypatch):
+    monkeypatch.setattr(webp, 'MAX_THREADS', 16)
+    monkeypatch.setattr(webp, 'available', lambda: True)
+    monkeypatch.setattr(webp.threading, 'Thread', lambda **kw: types.SimpleNamespace(start=lambda: None))
+    backup = env.root / 'originals'
+    opts = webp.options(root=str(env.lib), since='', limit=500, quality=78, min_q=70, backup_dir=str(backup), threads=6, files=3)
+    webp.BULK.update(state='previewed', token='t', count=1, opts=opts, files=['x'], bytes=1, backup_free=None)
+    assert webp.start_run('t', '1') is None
+    assert env.saved == {'webp_since': 'any', 'webp_limit': 500, 'webp_quality': 78, 'webp_min_source_q': 70,
+                         'webp_threads': 6, 'webp_files': 3, 'webp_backup_dir': str(backup)}
+    o = webp.options()
+    assert (o['since'], o['limit'], o['quality'], o['min_q'], o['threads'], o['files'], o['backup_dir']) == \
+        ('', 500, 78, 70, 6, 3, str(backup))
+    assert webp.on_or_after((1970, 1), o['since'])
+
+
+@pytest.mark.unit
+def test_cpu_limit_reads_the_container_allowance(tmp_path):
+    (tmp_path / 'cpu.max').write_text('250000 100000\n')
+    assert webp._cgroup_cpus(str(tmp_path)) == 3
+    (tmp_path / 'cpu.max').write_text('max 100000\n')
+    assert webp._cgroup_cpus(str(tmp_path)) is None
+    (tmp_path / 'cpu.max').unlink()
+    (tmp_path / 'cpu').mkdir()
+    (tmp_path / 'cpu' / 'cpu.cfs_quota_us').write_text('150000')
+    (tmp_path / 'cpu' / 'cpu.cfs_period_us').write_text('100000')
+    assert webp._cgroup_cpus(str(tmp_path)) == 2

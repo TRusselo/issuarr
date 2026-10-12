@@ -19,11 +19,34 @@ PAGE_EXT = CONVERT_EXT + ('.webp', '.gif', '.bmp', '.avif', '.jxl')
 MAX_SIDE = 16383
 
 
+def _cgroup_cpus(root='/sys/fs/cgroup'):
+    # A container's CPU limit (docker --cpus), which affinity doesn't show: cgroup v2, then v1.
+    try:
+        with open(os.path.join(root, 'cpu.max')) as f:
+            quota, period = f.read().split()[:2]
+        if quota != 'max':
+            return max(1, -(-int(quota) // int(period)))
+    except (OSError, ValueError):
+        pass
+    try:
+        with open(os.path.join(root, 'cpu', 'cpu.cfs_quota_us')) as f:
+            quota = int(f.read().strip())
+        with open(os.path.join(root, 'cpu', 'cpu.cfs_period_us')) as f:
+            period = int(f.read().strip())
+        if quota > 0 and period > 0:
+            return max(1, -(-quota // period))
+    except (OSError, ValueError):
+        pass
+    return None
+
+
 def _cpus():
     try:
-        return len(os.sched_getaffinity(0))
+        n = len(os.sched_getaffinity(0))
     except Exception:
-        return os.cpu_count() or 4
+        n = os.cpu_count() or 4
+    limit = _cgroup_cpus()
+    return min(n, limit) if limit else n
 
 
 MAX_THREADS = max(1, _cpus())
@@ -772,15 +795,30 @@ def _set(**kw):
         BULK.update(kw)
 
 
-def options(root=None, since=None, unknown=False, limit=0, quality=None, min_q=None, backup_dir=None, no_backup=False, threads=None, files=None):
+def options(root=None, since=None, unknown=False, limit=None, quality=None, min_q=None, backup_dir=None, no_backup=False, threads=None, files=None):
+    # Anything not given comes from the last run's choices (saved by save_options), and the
+    # defaults suit an ordinary server: 2 CPU threads and 1 file at once, however many cores.
     root = (root or default_root() or '').strip()
-    return {'root': root, 'since': str(since if since is not None else _cfg('WEBP_SINCE', '2015')).strip(),
-            'unknown': bool(unknown), 'limit': max(0, int(limit or 0)),
+    since = str(since if since is not None else _cfg('WEBP_SINCE', '2015')).strip()
+    return {'root': root, 'since': '' if since.lower() == 'any' else since,
+            'unknown': bool(unknown), 'limit': max(0, int(_cfg('WEBP_LIMIT', 20) if limit in (None, '') else limit)),
             'quality': min(100, max(50, int(quality or _cfg('WEBP_QUALITY', 85)))),
             'min_q': min(100, max(0, int(_cfg('WEBP_MIN_SOURCE_Q', 80) if min_q in (None, '') else min_q))),
             'backup_dir': '' if no_backup else (backup_dir or _cfg('WEBP_BACKUP_DIR', '') or '').strip(),
-            'no_backup': bool(no_backup), 'threads': min(MAX_THREADS, max(1, int(threads or max(2, MAX_THREADS // 2)))),
-            'files': min(MAX_FILES, max(1, int(files or 4))), 'max_threads': MAX_THREADS}
+            'no_backup': bool(no_backup), 'threads': min(MAX_THREADS, max(1, int(threads or _cfg('WEBP_THREADS', 2)))),
+            'files': min(MAX_FILES, max(1, int(files or _cfg('WEBP_FILES', 1)))), 'max_threads': MAX_THREADS}
+
+
+def save_options(opts):
+    """Keep a run's choices, so the form (and the gradual conversion) start from them next time."""
+    values = {'webp_since': opts['since'] or 'any', 'webp_limit': opts['limit'], 'webp_quality': opts['quality'],
+              'webp_min_source_q': opts['min_q'], 'webp_threads': opts['threads'], 'webp_files': opts['files']}
+    if opts['backup_dir']:
+        values['webp_backup_dir'] = opts['backup_dir']
+    try:
+        mylar.CONFIG.writeconfig(values=values)
+    except Exception as e:
+        logger.warn('[WEBP] Unable to save the conversion settings: %s' % e)
 
 
 def check_options(opts):
@@ -909,6 +947,7 @@ def start_run(token, confirm):
         if opts['backup_dir'] and BULK.get('backup_free') is not None and BULK['backup_free'] < BULK['bytes'] * 1.05:
             return 'The holding folder does not have room for the originals.'
         files = BULK['files']
+        save_options(opts)
         BULK.update(state='running', total=len(files), done=0, converted=0, skipped=0, failed=0, damaged=0, saved=0, before=0, after=0,
                     errors=[], started=time.time(), finished=None, stop=False, token=None, current='')
     threading.Thread(target=_run, args=(files, opts), name='WEBP-BULK', daemon=True).start()

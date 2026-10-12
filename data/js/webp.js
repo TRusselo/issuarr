@@ -51,7 +51,7 @@
     if (st.state === 'previewing') {
       $id('wp-hint').textContent = 'Reading ' + num(st.scanned) + ' files… ' + (st.current ? st.current.split('/').slice(-1)[0] : '');
     } else if (!busy) {
-      $id('wp-hint').textContent = 'Preview first: it only reads your files.';
+      $id('wp-hint').textContent = 'Preview first: it only reads your files. Your choices are kept for next time when you start converting.';
     }
 
     renderMemory();

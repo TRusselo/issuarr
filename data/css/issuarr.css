@@ -16,6 +16,8 @@
   --snatched: #FFD447;
   --failed: #C7362A;
   --ignored: #5E616A;
+  /* Not a status: trades and other extras that sit beside your single issues. */
+  --collection: #8FD16A;
   --radius: 10px;
   --font-display: "Archivo", system-ui, -apple-system, "Segoe UI", sans-serif;
   --font-body: "Archivo", system-ui, -apple-system, "Segoe UI", sans-serif;
@@ -46,6 +48,7 @@
   --snatched: #8A6200;
   --failed: #B42318;
   --ignored: #9A9DA5;
+  --collection: #3D7A1F;
   --sidebar: #EFEFEC;
   --failed-text: var(--failed);
   color-scheme: light;
@@ -63,6 +66,7 @@
     --snatched: #8A6200;
     --failed: #B42318;
     --ignored: #9A9DA5;
+    --collection: #3D7A1F;
     --sidebar: #EFEFEC;
     --failed-text: var(--failed);
     color-scheme: light;

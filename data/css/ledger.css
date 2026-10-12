@@ -3,8 +3,12 @@
   /* Where a missing issue sits is a filter, not a status, so it stays neutral. Colour is kept for statuses. */
   --lg-gap: var(--text-2); --lg-unrec: var(--text-2); --lg-after: var(--text-2); --lg-before: var(--text-2); --lg-cut: var(--text-2);
   --lg-done: var(--have);
-  /* What a trade covers */
-  --lg-c-fills: var(--have); --lg-c-dupe: var(--snatched); --lg-c-part: var(--text-2); --lg-c-out: var(--muted); --lg-c-unknown: var(--faint);
+  /* What a trade covers. Status colours (wanted, snatched, on disk, failed, ignored) mean an issue's status, so trades use
+     the collection colour: full where a trade fills gaps, toned down where it only duplicates singles you have. */
+  --lg-c-fills: var(--collection); --lg-c-dupe: color-mix(in srgb, var(--collection) 45%, var(--muted));
+  --lg-c-part: var(--text-2); --lg-c-out: var(--muted); --lg-c-unknown: var(--faint);
+  /* Yellow means Snatched here, so focus rings stay neutral. */
+  --focus: var(--text);
   display: flex; flex-direction: column; gap: 18px; width: 100%; box-sizing: border-box; line-height: 1.45;
 }
 .lg [hidden] { display: none !important; }

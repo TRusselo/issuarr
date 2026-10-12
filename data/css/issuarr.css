@@ -1337,7 +1337,8 @@ a.w-where:hover { color: var(--text); text-decoration-color: currentColor; }
 .att-head { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 4px 16px; }
 .att-name { margin: 0; font-size: 15px; font-weight: 600; overflow-wrap: anywhere; color: var(--text); }
 .att-meta { display: flex; flex-wrap: wrap; gap: 0 14px; margin: 0; font-size: 13px; }
-.att-meta span:first-child { max-width: 36ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.att-path { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 12px; margin: 4px 0 0; font-size: 12.5px; color: var(--muted); }
+.att-path .mono { overflow-wrap: anywhere; user-select: all; }
 .att-why { margin: 6px 0 12px; color: var(--text-2); max-width: 75ch; }
 .att-why b { color: var(--text); font-weight: 600; }
 .att-read { display: grid; grid-template-columns: max-content repeat(4, minmax(0, max-content)); gap: 0 28px;
@@ -1369,7 +1370,6 @@ a.w-where:hover { color: var(--text); text-decoration-color: currentColor; }
   .att-col { grid-template-columns: 7ch 1fr 1fr; grid-template-rows: auto; column-gap: 10px; align-items: baseline; }
   .att-col.att-rowhead { display: none; }
   .att-file, .att-lib { white-space: normal; overflow-wrap: anywhere; }
-  .att-meta span:first-child { max-width: 100%; }
 }
 .att-body { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 0 22px; align-items: start; margin-top: 8px; }
 .att-main { min-width: 0; }

@@ -84,6 +84,7 @@
     if (it.status === 'Waiting to file' || it.status === 'Filing') return '';
     var label = { Queued: 'Start', Downloading: 'Restart', Incomplete: 'Restart', Failed: 'Retry', Completed: 'Download again',
                   'Not filed': 'Download again' }[it.status];
+    if (it.status === 'Not filed' && /Needs attention/.test(it.message || '')) out.push('<a class="btn btn-sm" href="needsAttention">Needs attention</a>');
     if (it.status === 'Incomplete' || it.status === 'Downloading') out.push('<button type="button" class="btn btn-sm" data-act="resume" data-id="' + esc(id) + '">Resume</button>');
     if (label) out.push('<button type="button" class="btn btn-sm" data-act="restart" data-id="' + esc(id) + '">' + label + '</button>');
     if (it.status === 'Downloading') {

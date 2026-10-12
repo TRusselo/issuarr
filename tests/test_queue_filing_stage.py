@@ -1,5 +1,6 @@
 """Downloads > Queue: a direct download says Finished only once post-processing has filed it."""
 import json
+import os
 import queue
 import types
 
@@ -14,7 +15,8 @@ from mylar.queues import postprocess
 @pytest.fixture
 def myDB(monkeypatch, tmp_path):
     monkeypatch.setattr(mylar, 'DATA_DIR', str(tmp_path), raising=False)
-    monkeypatch.setattr(mylar, 'CONFIG', types.SimpleNamespace(POST_PROCESSING=True, EXTRA_TORZNABS=[]), raising=False)
+    monkeypatch.setattr(mylar, 'CONFIG', types.SimpleNamespace(POST_PROCESSING=True, EXTRA_TORZNABS=[],
+                        ARCHIVE_REVIEW_DIR=str(tmp_path / 'review'), JD2_DEST_DIR=str(tmp_path / 'jd')), raising=False)
     monkeypatch.setattr(mylar, 'PP_QUEUE', queue.Queue(), raising=False)
     monkeypatch.setattr(mylar, 'DDL_CANCEL', set(), raising=False)
     monkeypatch.setattr(archives, 'DDL_FILING', {})
@@ -37,12 +39,20 @@ def myDB(monkeypatch, tmp_path):
 
 
 def done(d, id, issueid, issue_status, pack=0, filename=None):
-    """A direct download that has finished downloading (ddl_info says Completed)."""
+    """A direct download that has finished downloading (ddl_info says Completed); filename '' leaves it NULL, as JD2 does."""
     d.action("INSERT INTO ddl_info (ID, series, year, filename, issueid, comicid, status, updated_date, pack, link_type, site) "
              "VALUES (?, 'Alpha', '2020', ?, ?, '100', 'Completed', '2026-10-12 04:00', ?, 'GC-Main', 'DDL(GetComics)')",
-             [id, filename or 'Alpha 001 (2020)[__%s__].cbz' % issueid, issueid, pack])
+             [id, ('Alpha 001 (2020)[__%s__].cbz' % issueid if filename is None else filename) or None, issueid, pack])
     if issue_status:
         d.action("INSERT INTO issues VALUES (?, '100', '1', ?)", [issueid, issue_status])
+
+
+def flag(d, path, state='open'):
+    """A file Needs attention lists; it has to exist, as the page drops rows whose file has gone."""
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, 'wb') as f:
+        f.write(b'x')
+    d.action("INSERT INTO attention (path, status, size) VALUES (?, ?, 1)", [path, state])
 
 
 def status(d, id):
@@ -94,20 +104,55 @@ def test_run_ended_without_filing_the_issue_is_not_filed(myDB):
 
 
 @pytest.mark.unit
-def test_file_left_in_needs_attention_is_not_filed(myDB):
+def test_file_left_in_needs_attention_is_not_filed(myDB, tmp_path):
     done(myDB, '7', '504912', 'Snatched')
-    myDB.action("INSERT INTO attention (path, status) VALUES "
-                "('/downloads/mylar-dl/Birds of Prey v01 (2012) [__504912__]/Birds of Prey v01.cbr', 'open')")
+    flag(myDB, str(tmp_path / 'mylar-dl' / 'Birds of Prey v01 (2012) [__504912__]' / 'Birds of Prey v01.cbr'))
     st, note = status(myDB, '7')
     assert st == 'Not filed' and 'Needs attention' in note
 
 
 @pytest.mark.unit
-def test_pack_is_finished_when_its_run_ends_unless_files_wait_in_needs_attention(myDB):
+def test_needs_attention_match_follows_what_that_page_lists(myDB, tmp_path):
+    # a row whose file has gone isn't on the page; nor is an ignored file, until it changes
+    done(myDB, '7', '11', 'Snatched')
+    done(myDB, '8', '12', 'Snatched')
+    done(myDB, '9', '13', 'Snatched')
+    myDB.action("INSERT INTO attention (path, status) VALUES (?, 'open')", [str(tmp_path / 'gone [__11__].cbz')])
+    flag(myDB, str(tmp_path / 'dl' / 'Alpha 002 [__12__].cbz'), state='ignored')
+    flag(myDB, str(tmp_path / 'dl' / 'Alpha 003 [__13__].cbz'), state='ignored')
+    myDB.action("UPDATE attention SET size = 5 WHERE path LIKE '%[__13__]%'")
+    assert 'still Snatched' in status(myDB, '7')[1]
+    assert 'still Snatched' in status(myDB, '8')[1]
+    assert 'Needs attention' in status(myDB, '9')[1]
+    assert myDB.select("SELECT COUNT(*) AS n FROM attention")[0]['n'] == 3   # reading the queue doesn't tidy the list
+
+
+@pytest.mark.unit
+def test_jd2_files_under_needs_attention_are_found_by_their_folder(myDB, tmp_path):
+    # JD2 rows have no file name, so no [__id__] mark; their folder in JD2_DEST_DIR ends ' - <ddl id>'
+    done(myDB, '4746', '267133', 'Snatched', pack=1, filename='')
+    done(myDB, '110211', '692531', 'Snatched', filename='')
+    done(myDB, '47', '700', 'Snatched', pack=1, filename='')
+    flag(myDB, str(tmp_path / 'jd' / 'Beta (1994) - 4746' / 'Beta 02 (1994).cbr'))
+    flag(myDB, str(tmp_path / 'jd' / 'Gamma (2001) - 110211' / 'Gamma 001.cbz'))
+    flag(myDB, str(tmp_path / 'jd' / 'Delta (2001) - 474' / 'Delta 001.cbz'))
+    assert status(myDB, '4746') == ('Not filed', "Filing couldn't place it. It's waiting under Needs attention.")
+    assert 'Needs attention' in status(myDB, '110211')[1]
+    assert status(myDB, '47')[0] == 'Completed'
+
+
+@pytest.mark.unit
+def test_file_filed_as_another_issue_says_so(myDB):
+    done(myDB, '14364', '120334', 'Snatched', filename='Aliens Omnibus v01 (2007) (digital)[__113935__].cbr')
+    myDB.action("INSERT INTO issues VALUES ('113935', '100', '1', 'Downloaded')")
+    assert status(myDB, '14364') == ('Not filed', 'Filed as a different issue (#1); this issue is still Snatched.')
+
+
+@pytest.mark.unit
+def test_pack_is_finished_when_its_run_ends_unless_files_wait_in_needs_attention(myDB, tmp_path):
     done(myDB, 'p1', '206854', 'Snatched', pack=1, filename='Iron Man Noir (01-04) (2010) [__206854__].zip')
     done(myDB, 'p2', '158600', 'Snatched', pack=1, filename='JP-Raptors Hijack 01-04 (994)[__158600__].zip')
-    myDB.action("INSERT INTO attention (path, status) VALUES "
-                "('/downloads/mylar-dl/JP-Raptors Hijack 01-04 (994)[__158600__]/JP #04 (1994).cbr', 'open')")
+    flag(myDB, str(tmp_path / 'mylar-dl' / 'JP-Raptors Hijack 01-04 (994)[__158600__]' / 'JP #04 (1994).cbr'))
     archives.ddl_filing({'provider': 'DDL', 'id': 'p1'}, 'filing')
     assert status(myDB, 'p1')[0] == 'Filing'
     archives.ddl_filing({'provider': 'DDL', 'id': 'p1'}, None)

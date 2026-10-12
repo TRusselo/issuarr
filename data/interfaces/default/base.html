@@ -37,7 +37,7 @@
 	    ('Operations', [
 	        dict(label='Downloads', href='queueManage', match='queuemanage', count=_attention, children=[
 	            ('Queue', 'queueManage', 'queuemanage'),
-	            ('Needs attention', 'needsAttention', 'needsattention'),
+	            ('Needs attention', 'needsAttention', 'needsattention', _attention),
 	            ('History', 'history', 'history'),
 	            ('Failed', 'manageFailed', 'managefailed'),
 	        ]),
@@ -117,11 +117,11 @@
 				%endif
 				%for _it in _items:
 				<div class="nav-item">
-					<a class="nav-link${' is-disabled' if _it.get('disabled') else ''}" href="${'#' if _it.get('disabled') else _it['href']}" data-label="${_it['label'] | h}"${(' data-match="%s"' % _it['match']) if _it.get('match') else ''}${(' data-action="%s"' % _it['action']) if _it.get('action') else ''}${' aria-disabled="true" title="Unavailable while the pull list is being rebuilt"' if _it.get('disabled') else ''}>${_it['label'] | h}${('<span class="nav-badge is-new">%s</span>' % _it['badge']) if _it.get('badge') else ''}${('<span class="nav-badge is-attention" title="%s waiting in Needs attention">%s</span>' % (_it['count'], _it['count'])) if _it.get('count') else ''}</a>
+					<a class="nav-link${' is-disabled' if _it.get('disabled') else ''}" href="${'#' if _it.get('disabled') else _it['href']}" data-label="${_it['label'] | h}"${(' data-match="%s"' % _it['match']) if _it.get('match') else ''}${(' data-action="%s"' % _it['action']) if _it.get('action') else ''}${' aria-disabled="true" title="Unavailable while the pull list is being rebuilt"' if _it.get('disabled') else ''}>${_it['label'] | h}${('<span class="nav-badge is-new">%s</span>' % _it['badge']) if _it.get('badge') else ''}${('<span class="nav-badge is-attention" title="%s files waiting in Needs attention">%s</span>' % (_it['count'], _it['count'])) if _it.get('count') else ''}</a>
 					%if _it.get('children'):
 					<div class="nav-children">
-						%for _cl, _ch, _cm in _it['children']:
-						<a class="nav-child" href="${_ch}" data-label="${_cl | h}" data-match="${_cm}">${_cl | h}</a>
+						%for _c in _it['children']:
+						<a class="nav-child" href="${_c[1]}" data-label="${_c[0] | h}" data-match="${_c[2]}">${_c[0] | h}${('<span class="nav-badge is-attention" title="%s files waiting for you to file, rename or remove">%s</span>' % (_c[3], _c[3])) if len(_c) > 3 and _c[3] else ''}</a>
 						%endfor
 					</div>
 					%endif

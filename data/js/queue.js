@@ -26,6 +26,22 @@
     }).then(function (t) { try { return JSON.parse(t); } catch (e) { return {}; } });
   }
 
+  function post(url, data) {
+    return fetch(url, { method: 'POST', body: new URLSearchParams(data || {}), credentials: 'same-origin', cache: 'no-store' }).then(function (r) {
+      if (!r.ok) throw new Error(r.status);
+      return r.json();
+    });
+  }
+
+  // Clears finished or failed direct downloads from the list (ddl_clear), not from the library.
+  function clearStatus(status, confirmText) {
+    if (!window.confirm(confirmText)) return;
+    post('ddl_clear', { status: status })
+      .then(function (r) { I().toast(r.message || 'Done', r.status !== false); document.dispatchEvent(new CustomEvent('issuarr:flow-poke')); })
+      .catch(function () { I().toast('That didn\'t work. Check the log.', false); })
+      .then(function () { load(true); });
+  }
+
   function requeue(mode, id, confirmText) {
     if (confirmText && !window.confirm(confirmText)) return;
     call('ddl_requeue?mode=' + encodeURIComponent(mode) + (id != null ? '&id=' + encodeURIComponent(id) : ''))
@@ -136,6 +152,16 @@
     if (stalled) $id('q-stalled-text').textContent = queued + ' queued and nothing downloading.';
   }
 
+  // Only direct downloads can be cleared; a failed grab at the client stays until the client drops it.
+  function ddlCount(status) {
+    return st.items.filter(function (it) { return it.kind === 'ddl' && it.status === status; }).length;
+  }
+
+  function renderClear() {
+    $id('q-clear-finished').hidden = !ddlCount('Completed');
+    $id('q-clear-failed').hidden = !ddlCount('Failed');
+  }
+
   /* ---- loading ---- */
   var loading = false;
   function load(force) {
@@ -150,6 +176,7 @@
         renderTabs();
         renderRows();
         renderStalled();
+        renderClear();
       })
       .catch(function () {
         if (!st.loaded) $id('q-table').tBodies[0].innerHTML = '<tr><td colspan="6" class="empty-state">Couldn\'t load the queue. Check the log.</td></tr>';
@@ -186,6 +213,16 @@
   document.addEventListener('click', function (e) { if (e.target.closest('[data-queue-restart]')) requeue('restart_queue'); });
   $id('q-clear-queue').addEventListener('click', function () {
     requeue('clear_queue', null, 'Remove every queued direct download? Anything downloading now, finished downloads and grabs at your download client stay.');
+  });
+  $id('q-clear-finished').addEventListener('click', function () {
+    var n = ddlCount('Completed');
+    clearStatus('Completed', 'Remove ' + n + ' finished ' + (n === 1 ? 'download' : 'downloads') + ' from this list? ' +
+      'The comics and their status in your library stay; only the list entries go.');
+  });
+  $id('q-clear-failed').addEventListener('click', function () {
+    var n = ddlCount('Failed');
+    clearStatus('Failed', 'Remove ' + n + ' failed ' + (n === 1 ? 'download' : 'downloads') + ' from this list? ' +
+      'The comics and their status in your library stay. The failures also leave the activity history, and you can\'t retry them from here.');
   });
   $id('q-prev').addEventListener('click', function () { st.start = Math.max(0, st.start - st.len); renderRows(); });
   $id('q-next').addEventListener('click', function () { st.start += st.len; renderRows(); });

@@ -6,7 +6,7 @@ Releases come from the `main` branch and are the `latest` Docker image. Changes 
 
 ## Unreleased (on dev)
 
-- Issuarr has a version number, starting at 0.8.1-dev while it's in beta. The bottom of the sidebar and the About page show it with the commit it was built from. ([`8cc1622`](https://github.com/issuarr/issuarr/commit/8cc1622))
+- Issuarr has a version number, starting at 0.8.1-dev while it's in beta. The bottom of the sidebar and the About page show it with the commit it was built from. ([`eec78d3`](https://github.com/issuarr/issuarr/commit/eec78d3), [`a401ba4`](https://github.com/issuarr/issuarr/commit/a401ba4))
 - Development now happens on the `dev` branch, which builds the `ghcr.io/issuarr/issuarr:dev` image. `main` is for releases and keeps building `latest`; version tags like `v1.0.0` also build `1.0.0` and `1.0` images. ([`40f171a`](https://github.com/issuarr/issuarr/commit/40f171a))
 - The Docker image checks for updates against the branch it was built from, so a `dev` container compares itself with `dev` and a `latest` container with `main`. ([`40f171a`](https://github.com/issuarr/issuarr/commit/40f171a))
 - This changelog, also a page on the website. ([`eb1311b`](https://github.com/issuarr/issuarr/commit/eb1311b))

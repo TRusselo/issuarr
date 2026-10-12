@@ -25,6 +25,7 @@ import re
 import threading
 import time
 import datetime
+import unicodedata
 from bs4 import BeautifulSoup
 import requests
 import zipfile
@@ -69,7 +70,9 @@ OFF_SERIES_PAGES = 2
 
 
 def _name_words(name):
-    return [w for w in search_filer._words(re.sub(r"['\u2019]", '', name or '')) if w not in ('the', 'and', 'a')]
+    # fold accents to plain ASCII as filechecker does, so 'Ragnarök' names 'Ragnarok #1'
+    name = unicodedata.normalize('NFKD', name or '').encode('ascii', 'ignore').decode()
+    return [w for w in search_filer._words(re.sub(r"['\u2019]", '', name)) if w not in ('the', 'and', 'a')]
 
 
 def names_series(title, names):

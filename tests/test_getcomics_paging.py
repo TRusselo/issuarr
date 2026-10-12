@@ -126,6 +126,10 @@ def test_search_remembers_the_series_and_searched_names(monkeypatch):
     ('Batman Adventures #1 - 4 (2016)', 'The Batman Adventures', True),
     ('Star Wars - Jedi of the Republic - Mace Windu #1 (2017)', 'Star Wars: Mace Windu', True),
     ('Mighty Morphin Power Rangers - Rita’s Rewind #1 (2025)', 'Rita\'s Rewind', False),
+    ('Ragnarok #1 (2019)', 'Ragnarök', True),
+    ('The 7th Sword #1 (2021)', 'The 7ᵗʰ Sword', True),
+    ('Nightwing - Bludhaven #1 (2025)', 'Nightwing: Blüdhaven', True),
+    ('Arana - Heart of the Spider #1 (2005)', 'Araña: Heart of the Spider', True),
     (None, 'Powers', False),
 ])
 def test_names_series(title, name, expected):

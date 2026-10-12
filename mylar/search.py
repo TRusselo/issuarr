@@ -35,6 +35,7 @@ from mylar import (
 )
 from mylar.downloaders import external_server as exs
 from mylar.downloaders import airdcpp
+from mylar import archiveorg
 
 import feedparser
 import requests
@@ -272,6 +273,11 @@ def search_init(
                        searchprov['DDL(GetComics)'] = ({'id': 200, 'type': 'DDL', 'lastrun': 0, 'active': True, 'hits': 0})
                     else:
                         searchprov['DDL(GetComics)']['active'] = True
+                elif prov_order[prov_count] == archiveorg.SITE and not provider_blocked and archiveorg.SITE not in checked_once:
+                    if archiveorg.SITE not in searchprov.keys():
+                        searchprov[archiveorg.SITE] = ({'id': 202, 'type': 'DDL', 'lastrun': 0, 'active': True, 'hits': 0})
+                    else:
+                        searchprov[archiveorg.SITE]['active'] = True
                 elif prov_order[prov_count] == 'DDL(External)' and not provider_blocked and 'DDL(External)' not in checked_once:
                     if 'DDL(External)' not in searchprov.keys():
                         searchprov['DDL(External)'] = ({'id': 201, 'type': 'DDL(External)', 'lastrun': 0, 'active': True, 'hits': 0})
@@ -446,6 +452,7 @@ def search_init(
                       ) and ''.join(current_prov.keys()) in (
                           '32P',
                           'DDL(GetComics)',
+                          archiveorg.SITE,
                           'DDL(External)',
                           'Public Torrents',
                           'experimental',
@@ -612,6 +619,15 @@ def provider_order(initial_run=False):
            ]
         ):
             ddlprovider.append('DDL(GetComics)')
+            ddls+=1
+
+        if all(
+           [
+                mylar.CONFIG.ENABLE_ARCHIVEORG is True,
+                not helpers.block_provider_check(archiveorg.SITE),
+           ]
+        ):
+            ddlprovider.append(archiveorg.SITE)
             ddls+=1
 
         if all(
@@ -964,11 +980,18 @@ def NZB_SEARCH(
                          'year':      comyear}
                 b = getcomics.GC(query=fline, provider_stat=provider_stat)
                 verified_matches = b.search(is_info=is_info)
+            elif nzbprov == archiveorg.SITE:
+                b = archiveorg.IA(query={'comicname': findcomic, 'issue': isssearch, 'year': comyear},
+                                  provider_stat=provider_stat)
+                verified_matches = b.search(is_info=is_info)
             elif nzbprov == 'DDL(External)':
                 b = exs.MegaNZ(query='%s' % ComicName, provider_stat=provider_stat)
                 verified_matches = b.ddl_search(is_info=is_info)
             #logger.fdebug('bb returned from %s: %s' % (nzbprov, verified_matches))
 
+        elif RSS == "yes" and nzbprov == archiveorg.SITE:
+            # no feed to read: the Internet Archive is only searched
+            verified_matches = 'no results'
         elif RSS == "yes" and 'DDL(External)' not in nzbprov:
             if 'DDL(GetComics)' in nzbprov:
                 #only GC has an available RSS Feed
@@ -1593,6 +1616,7 @@ def searchforissue(issueid=None, new=False, rsschecker=None, manual=False, all_t
        and any(
             [
                 mylar.CONFIG.ENABLE_GETCOMICS is True,
+                mylar.CONFIG.ENABLE_ARCHIVEORG is True,
                 mylar.CONFIG.ENABLE_EXTERNAL_SERVER is True,
             ]
        ))
@@ -2075,6 +2099,7 @@ def searchforissue(issueid=None, new=False, rsschecker=None, manual=False, all_t
                         [
                             mylar.CONFIG.EXPERIMENTAL is True,
                             mylar.CONFIG.ENABLE_GETCOMICS is True,
+                            mylar.CONFIG.ENABLE_ARCHIVEORG is True,
                             mylar.CONFIG.ENABLE_EXTERNAL_SERVER is True,
                         ]
                     )
@@ -2574,6 +2599,7 @@ def searchIssueIDList(issuelist):
        and any(
             [
                 mylar.CONFIG.ENABLE_GETCOMICS is True,
+                mylar.CONFIG.ENABLE_ARCHIVEORG is True,
                 mylar.CONFIG.ENABLE_EXTERNAL_SERVER is True,
             ]
         )
@@ -3234,6 +3260,10 @@ def searcher(
             else:
                 logger.info('[%s] Failed to retrieve %s from the DDL site.' % (tnzbprov, nzbname))
                 return "ddl-fail"
+        elif nzbprov == archiveorg.SITE:
+            ddl_it = archiveorg.queue(nzbid, link, comicinfo)
+            tnzbprov = nzbprov
+            logger.info('[%s] Queued %s to download from the Internet Archive.' % (tnzbprov, nzbname))
         else:
             cinfo = {'id': nzbid,
                      'series': comicinfo[0]['ComicName'],

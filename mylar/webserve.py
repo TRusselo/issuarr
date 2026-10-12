@@ -7347,6 +7347,7 @@ class WebInterface(object):
                     "extra_newznabs": sorted(mylar.CONFIG.EXTRA_NEWZNABS, key=itemgetter(5), reverse=True),
                     "enable_ddl": helpers.checked(mylar.CONFIG.ENABLE_DDL),
                     "enable_getcomics": helpers.checked(mylar.CONFIG.ENABLE_GETCOMICS),
+                    "enable_archiveorg": helpers.checked(mylar.CONFIG.ENABLE_ARCHIVEORG),
                     "enable_airdcpp": helpers.checked(mylar.CONFIG.ENABLE_AIRDCPP),
                     "airdcpp_host": mylar.CONFIG.AIRDCPP_HOST,
                     "airdcpp_username": mylar.CONFIG.AIRDCPP_USERNAME,
@@ -7855,7 +7856,7 @@ class WebInterface(object):
                            'prowl_enabled', 'prowl_onsnatch', 'pushover_enabled', 'pushover_onsnatch', 'pushover_image', 'mattermost_enabled', 'mattermost_onsnatch', 'boxcar_enabled',
                            'boxcar_onsnatch', 'pushbullet_enabled', 'pushbullet_onsnatch', 'telegram_enabled', 'telegram_onsnatch', 'telegram_image', 'discord_enabled', 'discord_onsnatch', 'slack_enabled', 'slack_onsnatch',
                            'email_enabled', 'email_enc', 'email_ongrab', 'email_onpost', 'gotify_enabled', 'gotify_server_url', 'gotify_token', 'gotify_onsnatch', 'opds_enable', 'opds_authentication', 'opds_metainfo', 'opds_pagesize', 'enable_ddl',
-                           'enable_getcomics', 'enable_flaresolverr', 'enable_airdcpp', 'jd2_enable', 'enable_external_server', 'ddl_prefer_upscaled', 'ddl_main_large_last', 'deluge_pause',
+                           'enable_getcomics', 'enable_archiveorg', 'enable_flaresolverr', 'enable_airdcpp', 'jd2_enable', 'enable_external_server', 'ddl_prefer_upscaled', 'ddl_main_large_last', 'deluge_pause',
                            'custom_css_enabled'] #enable_public
 
         for checked_config in checked_configs:

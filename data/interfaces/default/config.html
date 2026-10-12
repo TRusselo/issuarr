@@ -373,7 +373,7 @@
                 return re.sub('"', '', str(row[0] or row[1])).strip()
             pkinds = dict([(pname(r), 'Usenet indexer') for r in (mylar.CONFIG.EXTRA_NEWZNABS or [])] +
                           [(pname(r), 'Torrent indexer') for r in (mylar.CONFIG.EXTRA_TORZNABS or [])] +
-                          [('DDL(GetComics)', 'Direct download'), ('DDL(External)', 'Direct download'), ('Experimental', 'Usenet, experimental'),
+                          [('DDL(GetComics)', 'Direct download'), ('DDL(Internet Archive)', 'Direct download'), ('DDL(External)', 'Direct download'), ('Experimental', 'Usenet, experimental'),
                            ('AirDCPP', 'AirDC++'), ('32p', 'Torrent')])
             # a kind of search that's on but has nothing to search, so the order shows why it's missing
             C = mylar.CONFIG
@@ -387,7 +387,7 @@
                     ogaps.append('Torznab is on, but no indexer is turned on with an address.')
             if C.NEWZNAB and not ready(C.EXTRA_NEWZNABS):
                 ogaps.append('Newznab is on, but no indexer is turned on with an address.')
-            if C.ENABLE_DDL and not (C.ENABLE_GETCOMICS or C.ENABLE_EXTERNAL_SERVER):
+            if C.ENABLE_DDL and not (C.ENABLE_GETCOMICS or C.ENABLE_ARCHIVEORG or C.ENABLE_EXTERNAL_SERVER):
                 ogaps.append('Direct downloads are on, but no site is.')
         %>
         <section class="set-group" aria-labelledby="sg-order">
@@ -512,6 +512,8 @@
                             ${field('flaresolverr_url', 'FlareSolverr address', config['flaresolverr_url'], id='flaresolverr_url', placeholder='http://192.168.1.2:8191/v1', help='Include /v1 at the end.')}
                         </div>
                     </div>
+                    ${toggle('enable_archiveorg', 'Internet Archive', config['enable_archiveorg'], id='enable_archiveorg',
+                             help='Searches the comics uploaded to archive.org for Wanted issues, mostly older ones. Files download straight from archive.org, alongside file-host downloads. Zips of pages are saved as .cbz, so filing, WebP and tagging handle them as usual.')}
                     <div class="set-row">
                         <div class="set-label"><b>Download sources, in the order to try them</b><span>Sources a post doesn't offer are skipped. Cloud shares other than Mega, MediaFire and Pixeldrain need JDownloader 2.</span></div>
                         <div class="set-ctl ddl-sources" id="ddl_sources_box">

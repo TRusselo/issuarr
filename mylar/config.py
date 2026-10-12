@@ -383,6 +383,7 @@ _CONFIG_DEFINITIONS = OrderedDict({
 
     'ENABLE_DDL': (bool, 'DDL', False),
     'ENABLE_GETCOMICS': (bool, 'DDL', False),
+    'ENABLE_ARCHIVEORG': (bool, 'DDL', False),
     'ENABLE_EXTERNAL_SERVER': (bool, 'DDL', False),
     'EXTERNAL_SERVER': (str, 'DDL', None),
     'EXTERNAL_USERNAME': (str, 'DDL', None),
@@ -1963,6 +1964,9 @@ class Config(object):
             if self.ENABLE_GETCOMICS:
                 PR.append('DDL(GetComics)')
                 PR_NUM +=1
+            if self.ENABLE_ARCHIVEORG:
+                PR.append('DDL(Internet Archive)')
+                PR_NUM +=1
             if self.ENABLE_EXTERNAL_SERVER:
                 PR.append('DDL(External)')
                 PR_NUM +=1
@@ -1970,7 +1974,7 @@ class Config(object):
             PR.append('AirDCPP')
             PR_NUM += 1
 
-        PPR = ['Experimental', 'DDL(GetComics)', 'DDL(External)', 'AirDCPP']
+        PPR = ['Experimental', 'DDL(GetComics)', 'DDL(Internet Archive)', 'DDL(External)', 'AirDCPP']
         if self.NEWZNAB:
             for ens in self.EXTRA_NEWZNABS:
                 if str(ens[5]) == '1' and has_host(ens[1]): # if newznabs are enabled

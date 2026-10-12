@@ -298,6 +298,15 @@ def handle_failure(myDB, item, result, jd2_gave_up=False, repick=False):
             ACTIVE.discard(key)
 
 
+def _resolve(item):
+    """Swap a GetComics download button for the file host's own address. False when it can't be."""
+    link = getcomics.GC().resolve_link(item['link'])
+    if not link:
+        return False
+    item['link'] = link
+    return True
+
+
 def ddl_process(myDB, item):
     """Download one item. Returns None when it's finished or dropped, or the failed result for the failover worker."""
     mylar.DDL_QUEUED.add(item['id'])
@@ -326,6 +335,9 @@ def ddl_process(myDB, item):
         if any([item['link_type'] == 'GC-Main', item['link_type'] == 'GC-Mirror']):
             ddz = getcomics.GC()
             ddzstat = ddz.downloadit(item['id'], item['link'], item['mainlink'], item['resume'], item['issueid'], remote_filesize)
+        elif item['link_type'] in ('GC-Mega', 'GC-Media', 'GC-Pixel') and getcomics.is_redirect_link(item['link']) \
+                and not _resolve(item):
+            ddzstat = {'success': False, 'filename': None, 'path': None, 'link_type_failure': item['link_type']}
         elif item['link_type'] == 'GC-Mega':
             meganz = mega.MegaNZ()
             ddzstat = meganz.ddl_download(item['link'], None, item['id'], item['issueid'], item['link_type'])

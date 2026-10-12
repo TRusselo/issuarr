@@ -28,9 +28,6 @@
   --failed-text: color-mix(in srgb, var(--failed) 55%, #FFFFFF);
   --focus: var(--snatched);
   --radius-sm: calc(var(--radius) * .8);
-  /* Activity stages, shared by the flow line and the Running now box. */
-  --flow-wanted: var(--wanted); --flow-search: var(--wanted); --flow-download: var(--snatched);
-  --flow-filing: var(--snatched); --flow-library: var(--have);
   color-scheme: dark;
 }
 
@@ -179,15 +176,9 @@ kbd {
 a.dock-row:hover { text-decoration: none; color: var(--text); }
 .dock-row[hidden] { display: none !important; }
 .dock-row.is-idle { color: var(--muted); }
-.dot { width: 8px; height: 8px; border-radius: 50%; flex: none; background: var(--dot, var(--snatched)); }
+.dot { width: 8px; height: 8px; border-radius: 50%; flex: none; background: var(--snatched); }
 .dot.is-idle { background: transparent; border: 1.5px solid var(--faint); box-sizing: border-box; }
-/* Each row takes the color of its flow-line stage, so a search is the same magenta in both. */
-#dock-search { --dot: var(--flow-search); }
-#dock-dl { --dot: var(--flow-download); }
-#dock-pp { --dot: var(--flow-filing); }
-#dock-webp { --dot: var(--flow-library); }  /* WebP works on files already in the library */
-#import_indicator .ii-spin { margin: 0; border-top-color: var(--snatched); }
-#import_indicator.ii-wait .ii-spin { border-top-color: var(--wanted); }
+#import_indicator .ii-spin { margin: 0; }
 
 .sb-foot { margin-top: auto; display: flex; flex-direction: column; gap: 8px; padding: 12px 6px 0; border-top: 1px solid var(--line); font-size: 12.5px; color: var(--muted); }
 .sb-foot a { color: var(--muted); }
@@ -395,7 +386,6 @@ table.dt td.actions .btn { min-width: 92px; }
 .status.is-ignored { --status-color: var(--ignored); color: var(--muted); }
 .status.is-idle::before { background: transparent; border: 1.5px solid var(--faint); border-radius: 50%; }
 .status.is-running::before { border-radius: 50%; }
-.status.is-wanted.is-running { color: var(--text-2); }
 
 .progress { height: 6px; border-radius: 3px; background: var(--line); overflow: hidden; }
 .progress > span { display: block; height: 100%; width: 0; background: var(--snatched); transition: width .4s ease; }
@@ -1210,10 +1200,11 @@ body.set-searching .set-notify:not(:has(.set-hit)) { display: none; }
 
 /* ---------- Flow line: Wanted, Searching, Downloading, Filing, Added today ----------
    On Wanted and Downloads > Queue. Each stop takes the color of the issue status it holds
-   (Wanted, then Snatched, then Have); custom CSS can recolor one with --flow-<stop>, set on
-   :root (the stage tokens live there so the Running now box matches). */
+   (Wanted, then Snatched, then Have); custom CSS can recolor one with --flow-<stop>. */
 
 .flow {
+  --flow-wanted: var(--wanted); --flow-search: var(--wanted); --flow-download: var(--snatched);
+  --flow-filing: var(--snatched); --flow-library: var(--have);
   display: flex; flex-direction: column; gap: 14px; margin: 0 0 28px;
 }
 .flow:empty { min-height: 128px; }

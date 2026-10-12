@@ -504,6 +504,11 @@ def start():
             MONITOR_SCHEDULER = SCHED.add_job(func=fm.run, id='monitor', name='Folder Monitor', max_instances=1, trigger=IntervalTrigger(hours=0, minutes=int(CONFIG.DOWNLOAD_SCAN_INTERVAL), timezone='UTC'))
             MONITOR_SCHEDULER.pause()
 
+            # WebP gradual conversion: looks in every few minutes and only works inside its window
+            from mylar import webp
+            SCHED.add_job(func=webp.gradual_tick, id='webp', name='WebP Gradual', max_instances=1, coalesce=True,
+                          trigger=IntervalTrigger(hours=0, minutes=webp.GRADUAL_TICK, timezone='UTC'))
+
             #load up the previous runs from the job sql table so we know stuff...
             monitors = helpers.job_management(startup=True)
 

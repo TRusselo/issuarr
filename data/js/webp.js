@@ -51,9 +51,11 @@
     if (st.state === 'previewing') {
       $id('wp-hint').textContent = 'Reading ' + num(st.scanned) + ' files… ' + (st.current ? st.current.split('/').slice(-1)[0] : '');
     } else if (!busy) {
-      $id('wp-hint').textContent = 'Preview first: it only reads your files.';
+      $id('wp-hint').textContent = 'Preview first: it only reads your files. Your choices are kept for next time when you start converting.';
     }
 
+    renderMemory();
+    renderGradual();
     var res = $id('wp-result');
     res.hidden = st.state !== 'previewed';
     if (st.state === 'previewed') renderPreview();
@@ -62,6 +64,44 @@
     run.hidden = ['running', 'finished', 'stopped'].indexOf(st.state) < 0;
     if (!run.hidden) renderRun();
     form.hidden = !run.hidden;
+  }
+
+  function renderMemory() {
+    var m = st.memory || {}, parts = [];
+    if (m.converted) parts.push(num(m.converted) + ' converted (' + gb(m.saved) + ' saved)');
+    if (m['nothing to gain']) parts.push(num(m['nothing to gain']) + ' with nothing to gain');
+    if (m['already webp']) parts.push(num(m['already webp']) + ' already WebP');
+    if (m.failed) parts.push(num(m.failed) + ' that failed a check');
+    if (m.damaged) parts.push(num(m.damaged) + ' damaged (listed in <a href="needsAttention">Needs attention</a>)');
+    $id('wp-memory-text').innerHTML = (parts.length ? 'Files looked at so far: ' + parts.join(', ') + '. ' : '') +
+      'Each file is remembered and isn\'t opened again until it changes. The largest files go first.';
+    var re = $id('wp-recheck');
+    re.hidden = !m['nothing to gain'];
+    re.disabled = st.state === 'previewing' || st.state === 'running';
+  }
+
+  var STOPPED = {
+    'done for tonight': 'Did the whole night\'s share.',
+    'the window closed': 'Stopped at the end of the window.',
+    'nothing left to convert': 'Nothing left to convert.',
+    'turned off': 'Stopped when it was turned off.'
+  };
+  function nightLine(n) {
+    return num(n.done) + ' of ' + num(n.quota) + ' issues looked at: ' + num(n.converted) + ' converted (' + gb(n.saved) + ' saved), ' +
+      num(n.skipped) + ' skipped' + (n.failed ? ', ' + num(n.failed) + ' failed a check' : '') +
+      (n.damaged ? ', <a href="needsAttention">' + num(n.damaged) + ' damaged</a>' : ', none damaged') + '.';
+  }
+  function renderGradual() {
+    var g = st.gradual || {}, lines = [];
+    if (g.state === 'running') lines.push('<b>Converting now</b>' + (g.current ? ': ' + esc(g.current) : '') + '.');
+    else if (g.state === 'waiting' && g.why) lines.push('<b>Waiting while ' + esc(g.why) + '.</b> It carries on once they finish.');
+    if (g.tonight) lines.push('Tonight so far, ' + nightLine(g.tonight));
+    if (g.last) {
+      var day = new Date(g.last.night + 'T12:00:00').toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'short' });
+      lines.push('Night of ' + esc(day) + ': ' + nightLine(g.last) + (g.last.note ? ' ' + esc(STOPPED[g.last.note] || 'Stopped: ' + g.last.note + '.') : ''));
+    }
+    if (!lines.length && g.settings && g.settings.enabled) lines.push('Nothing converted yet. It starts at ' + esc(g.settings.start) + '.');
+    $id('wp-g-night').innerHTML = lines.map(function (l) { return '<span>' + l + '</span>'; }).join('<br>');
   }
 
   function renderPreview() {
@@ -73,10 +113,11 @@
       tile(num(st.too_old), 'dated before ' + esc(o.since || '-'), 'left alone', 'var(--lg-before)') +
       tile(num(st.no_date), 'with no date', o.unknown ? 'included' : 'left alone', 'var(--lg-before)') +
       tile(num(st.already), 'already WebP', 'skipped', 'var(--lg-before)') +
+      tile(num(st.remembered), 'looked at before', 'not opened again', 'var(--lg-before)') +
       tile(num(st.other), '.cbr / .cb7 / .pdf', 'not converted', 'var(--lg-before)');
     var lines = [];
     lines.push('<p>Folder <code>' + esc(o.root) + '</code> &middot; WebP quality ' + o.quality + ' &middot; JPEG pages below quality ' + o.min_q + ' left as they are &middot; ' + o.threads + ' CPU threads, ' + o.files + ' files at once' + (o.limit ? ' &middot; <b>stops after ' + num(o.limit) + ' files</b>' : '') + '</p>');
-    if (o.limit && st.count >= o.limit) lines.push('<p>Looked at ' + num(st.scanned) + ' files to find the first ' + num(st.count) + ' that match, then stopped. The counts above only cover the files looked at; set "Stop after" to 0 to see the whole library.</p>');
+    if (o.limit && st.count >= o.limit) lines.push('<p>Found the ' + num(st.count) + ' largest of ' + num(st.scanned) + ' files that match, then stopped. The counts above only cover the files looked at; set "Stop after" to 0 to see the whole library.</p>');
     if (o.no_backup) lines.push('<p class="wp-danger"><b>Originals will not be kept.</b> The conversion can\'t be undone.</p>');
     else lines.push('<p>Originals go to <code>' + esc(o.backup_dir) + '</code>' + (room ? ' (' + room + ', needs about ' + gb(st.bytes) + ')' : '') + '.</p>');
     if (st.examples && st.examples.length) lines.push('<details><summary>First files</summary><ul>' + st.examples.map(function (e) { return '<li><code>' + esc(e) + '</code></li>'; }).join('') + '</ul></details>');
@@ -96,7 +137,8 @@
       tile(num(st.converted), 'converted', '', 'var(--lg-done)') +
       tile(gb(st.saved), 'saved', st.before ? Math.round(100 * st.saved / st.before) + '% of the converted files' : '', 'var(--lg-done)') +
       tile(num(st.skipped), 'skipped', 'nothing to gain', 'var(--lg-before)') +
-      tile(num(st.failed), 'left unchanged', 'a check failed', st.failed ? 'var(--lg-gap)' : 'var(--lg-before)');
+      tile(num((st.failed || 0) + (st.damaged || 0)), 'left unchanged', st.damaged ? num(st.damaged) + ' damaged, listed in Needs attention' : 'a check failed',
+           st.failed || st.damaged ? 'var(--lg-gap)' : 'var(--lg-before)');
     $id('wp-current').textContent = st.state === 'running' && st.current ? 'Converting ' + st.current : '';
     $id('wp-errors').innerHTML = (st.errors || []).map(function (e) { return '<li>' + esc(e) + '</li>'; }).join('');
     var running = st.state === 'running';
@@ -115,6 +157,7 @@
       st = s;
       render();
       if (s.state === 'previewing' || s.state === 'running') timer = setTimeout(poll, 2000);
+      else if (s.gradual && (s.gradual.state === 'running' || s.gradual.state === 'waiting')) timer = setTimeout(poll, 10000);
     }).catch(function () { timer = setTimeout(poll, 5000); });
   }
   document.addEventListener('visibilitychange', function () { if (!document.hidden) poll(); });
@@ -138,9 +181,38 @@
     post('webp_reset').then(function (r) { st = r.status; dirty = false; showError(''); render(); });
   }
   $id('wp-reset').addEventListener('click', reset);
+  $id('wp-recheck').addEventListener('click', function () {
+    var n = (st.memory || {})['nothing to gain'] || 0;
+    if (!confirm('Look again at the ' + num(n) + ' files that had nothing to gain? Nothing is changed until you run a conversion.')) return;
+    post('webp_recheck').then(function (r) {
+      st = r.status; render();
+      window.Issuarr.toast(num(r.reopened) + ' files will be looked at again.', true);
+    });
+  });
   $id('wp-done').addEventListener('click', reset);
   $id('wp-stop').addEventListener('click', function () {
     post('webp_stop').then(function (r) { st = r.status; st.stopping = true; render(); });
+  });
+
+  $id('wp-g-save').addEventListener('click', function () {
+    var d = formData(), btn = this;
+    d.enabled = $id('wp-g-on').checked ? '1' : '';
+    d.per_night = $id('wp-g-per').value;
+    d.start = $id('wp-g-start').value;
+    d.end = $id('wp-g-end').value;
+    var hint = $id('wp-g-hint');
+    function say(msg, bad) { hint.textContent = msg; hint.classList.toggle('wp-danger', !!bad); }
+    if (d.enabled && !d.no_backup && !(d.backup_dir || '').trim()) {
+      say('Choose a holding folder for the originals above, or tick the box to not keep them.', true);
+      return;
+    }
+    btn.disabled = true;
+    post('webp_gradual', d).then(function (r) {
+      btn.disabled = false;
+      if (r.error) { say(r.error, true); return; }
+      st = r.status; render(); poll();
+      say(d.enabled ? 'Saved. It runs each night between ' + d.start + ' and ' + d.end + '.' : 'Saved. It\'s turned off.');
+    }).catch(function () { btn.disabled = false; say('That didn\'t save. Check the log.', true); });
   });
 
   var c1 = $id('wp-confirm1'), c2 = $id('wp-confirm2'), input = $id('wp-c2-input');

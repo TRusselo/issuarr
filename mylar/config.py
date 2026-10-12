@@ -288,6 +288,12 @@ _CONFIG_DEFINITIONS = OrderedDict({
     'WEBP_QUALITY': (int, 'WebP', 85),
     'WEBP_MIN_SOURCE_Q': (int, 'WebP', 80),
     'WEBP_THREADS': (int, 'WebP', 2),
+    'WEBP_FILES': (int, 'WebP', 1),        # files converted at once
+    'WEBP_LIMIT': (int, 'WebP', 20),       # the conversion page's "Stop after"; 0 is no limit
+    'WEBP_GRADUAL': (bool, 'WebP', False),           # convert the library a little each night
+    'WEBP_PER_NIGHT': (int, 'WebP', 1000),
+    'WEBP_WINDOW_START': (str, 'WebP', '01:00'),
+    'WEBP_WINDOW_END': (str, 'WebP', '07:00'),
     'WEBP_BACKUP_DIR': (str, 'WebP', None),
     'CHECK_FOLDER': (str, 'PostProcess', None),
     'MANUAL_PP_FOLDER': (str, 'PostProcess', None),

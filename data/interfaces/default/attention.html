@@ -81,6 +81,11 @@
         function actions(i) {
             var m = i.matches[0], out = '';
             if (i.job && i.job.state === 'filing') return '<p class="att-job">' + esc(i.job.note) + '…</p>';
+            if (i.in_library) {
+                // already filed: filing it again would put it over itself
+                return '<div class="att-acts"><button type="button" class="btn btn-sm btn-ghost" data-trash>Move to trash</button>' +
+                       '<button type="button" class="btn btn-sm btn-ghost" data-ignore>Ignore</button></div>';
+            }
             if (m && m.issueid) {
                 out += '<button type="button" class="btn btn-sm btn-primary" data-file="' + esc(m.comicid) + '|' + esc(m.issueid) + '">File as ' + esc(m.name) + ' #' + esc(m.number) + '</button>';
             }
@@ -113,6 +118,7 @@
 
         function row(i) {
             var r = REASON[i.reason] || REASON.series;
+            if (i.in_library && i.reason === 'damaged') r = [r[0], 'This file in your library is damaged or incomplete.'];
             var job = i.job && i.job.state === 'failed' ? '<p class="att-job is-failed">' + esc(i.job.note) + '</p>' : '';
             return '<article class="att-item is-' + r[0] + '" data-path="' + esc(i.path) + '">' +
                 '<div class="att-head">' +
@@ -125,7 +131,7 @@
                     '<button type="button" class="link-btn" data-copy>Copy path</button></p>' +
                 '<div class="att-body">' + covers(i) + '<div class="att-main">' +
                 '<p class="att-why"><b>' + r[1] + '</b>' + (i.detail ? ' ' + esc(i.detail) : '') + '</p>' +
-                reading(i) + others(i) + job + actions(i) +
+                (i.in_library ? '<p class="att-unread">Replace it with a good copy, or move it to the trash.</p>' : reading(i) + others(i)) + job + actions(i) +
                 (open === i.path ? picker(i) : '') +
                 '</div></div>' +
                 '</article>';

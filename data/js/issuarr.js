@@ -56,7 +56,7 @@
     if (n >= 1e9) return (n / 1e9).toFixed(1) + ' GB';
     return Math.round(n / 1e6) + ' MB';
   }
-  // One line for a WebP preview, run or on-import queue (the "webp" field of pp_activity).
+  // One line for a WebP preview, run, on-import queue or night's gradual conversion (the "webp" field of pp_activity).
   function webpText(w) {
     if (!w) return '';
     var num = function (n) { return (n || 0).toLocaleString(); };
@@ -67,6 +67,7 @@
     }
     if (w.state === 'previewing') return w.stopping ? 'Stopping WebP preview' : 'WebP preview: ' + num(w.scanned) + ' files checked';
     if (w.state === 'import') return 'WebP on import: ' + num(w.waiting) + (w.waiting === 1 ? ' issue' : ' issues') + ' to convert';
+    if (w.state === 'gradual') return 'WebP tonight: ' + num(w.done) + ' of ' + num(w.quota) + (w.why ? ' (waiting while ' + w.why + ')' : '');
     return '';
   }
   window.Issuarr = { esc: esc, toast: toast, relTime: relTime, clock: clock, webpText: webpText };

@@ -4881,7 +4881,7 @@ class WebInterface(object):
 
     def webpConvert(self):
         return serve_template(templatename="webp.html", title="WebP conversion",
-                              defaults=webp.options(), library=webp.default_root())
+                              defaults=webp.options(), library=webp.default_root(), gradual=webp.gradual_settings())
     webpConvert.exposed = True
 
     def webp_status(self, **kwargs):
@@ -4895,7 +4895,7 @@ class WebInterface(object):
         if cherrypy.request.method != 'POST':
             return json.dumps({'error': 'Use the WebP conversion page.'})
         try:
-            opts = webp.options(root=root, since=since, unknown=helpers.str_to_bool(unknown), limit=limit or 0,
+            opts = webp.options(root=root, since=since, unknown=helpers.str_to_bool(unknown), limit=limit,
                                 quality=quality, min_q=min_q, backup_dir=backup_dir,
                                 no_backup=helpers.str_to_bool(no_backup), threads=threads, files=files)
         except ValueError as e:
@@ -4923,6 +4923,42 @@ class WebInterface(object):
         cherrypy.response.headers['Content-Type'] = 'application/json'
         return json.dumps({'stopping': webp.stop(), 'status': webp.status()})
     webp_stop.exposed = True
+
+    def webp_gradual(self, enabled=None, per_night=None, start=None, end=None, since=None, quality=None, min_q=None,
+                     backup_dir=None, no_backup=None, threads=None, files=None, limit=None, **kwargs):
+        # The gradual conversion's switch, quota and window, saved with the "How" choices it uses.
+        self._attention_post()
+        cherrypy.response.headers['Content-Type'] = 'application/json'
+        on = helpers.str_to_bool(enabled)
+        try:
+            opts = webp.options(since=since, limit=limit, quality=quality, min_q=min_q, backup_dir=backup_dir,
+                                no_backup=helpers.str_to_bool(no_backup), threads=threads, files=files)
+        except ValueError as e:
+            return json.dumps({'error': 'Check the numbers: %s' % e})
+        if on:
+            problem = webp.check_options(opts)
+            if problem:
+                return json.dumps({'error': problem})
+        problem = webp.save_gradual(on, per_night, start, end)
+        if problem:
+            return json.dumps({'error': problem})
+        webp.save_options(opts)
+        if opts['no_backup']:
+            mylar.CONFIG.writeconfig(values={'webp_backup_dir': ''})
+        if on:
+            webp.gradual_tick()   # inside the window: start now rather than at the next look-in
+        return json.dumps({'saved': True, 'status': webp.status()})
+    webp_gradual.exposed = True
+
+    def webp_recheck(self, **kwargs):
+        # Forget the files that had nothing to gain (say, after lowering the quality), so the
+        # next run looks at them again.
+        self._attention_post()
+        cherrypy.response.headers['Content-Type'] = 'application/json'
+        n = webp.recheck()
+        logger.info('[WEBP] %s files that had nothing to gain will be looked at again.' % n)
+        return json.dumps({'reopened': n, 'status': webp.status()})
+    webp_recheck.exposed = True
 
     def webp_reset(self, **kwargs):
         cherrypy.response.headers['Content-Type'] = 'application/json'

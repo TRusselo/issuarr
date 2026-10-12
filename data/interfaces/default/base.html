@@ -6,7 +6,8 @@
 	_nocss = ui.nocss_requested()
 	_css_url = None if _nocss else ui.safe_stylesheet_url(mylar.CONFIG.CUSTOM_CSS_URL)
 	_css_on = bool(mylar.CONFIG.CUSTOM_CSS_ENABLED) and not _nocss
-	_version = mylar.CURRENT_VERSION_NAME or (mylar.CURRENT_VERSION or 'unknown')[:7]
+	_version = mylar.appversion.VERSION
+	_commit = (mylar.CURRENT_VERSION or '')[:7]
 	_instance = (' - %s' % mylar.CONFIG.INSTANCE_NAME) if mylar.CONFIG.INSTANCE_NAME else ''
 	# Every page lives here: (group label, [items]). An item's children show
 	# under it while one of them is the current page. "match" lists the page
@@ -171,7 +172,7 @@
 			</div>
 
 			<div class="sb-foot">
-				<div class="sb-version">Version <em>${_version | h}</em> (${mylar.CONFIG.GIT_BRANCH | h})</div>
+				<div class="sb-version">Version <em>${_version | h}</em> (${(_commit + ', ' if _commit else '') + str(mylar.CONFIG.GIT_BRANCH) | h})</div>
 				<div id="testing"><a href="#" onclick="check_the_hub();return false;"><span class="ui-icon ui-icon-refresh"></span><span id="version_line">Check for new version</span></a></div>
 				<details class="sb-status">
 					<summary>Service status</summary>

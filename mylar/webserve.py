@@ -4581,6 +4581,10 @@ class WebInterface(object):
     attention_items.exposed = True
 
     def _attention_image(self, path):
+        if path == attention.BUSY:
+            # other covers are being made: the page asks again shortly
+            cherrypy.response.headers['Retry-After'] = '5'
+            raise cherrypy.HTTPError(503)
         if not path:
             raise cherrypy.HTTPError(404)
         cherrypy.response.headers['Content-Type'] = 'image/jpeg'
@@ -4588,11 +4592,11 @@ class WebInterface(object):
         with open(path, 'rb') as f:
             return f.read()
 
-    def attention_cover(self, path, v=None):   # v: the file's time, so a changed file isn't served from cache
+    def attention_cover(self, path, v=None, r=None):   # v: the file's time, so a changed file isn't served from cache; r: a retry
         return self._attention_image(attention.file_cover(path))
     attention_cover.exposed = True
 
-    def attention_issue_cover(self, issueid):
+    def attention_issue_cover(self, issueid, r=None):   # r: a retry after the server was busy
         return self._attention_image(attention.issue_cover(issueid))
     attention_issue_cover.exposed = True
 

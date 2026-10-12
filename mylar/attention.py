@@ -365,6 +365,34 @@ def _cover_dir():
     return d
 
 
+# Covers are cut out of whole comics or fetched from ComicVine, which is slow, and the web server
+# has few threads. Only COVER_SLOTS covers are made at once; a request that can't get a slot within
+# COVER_WAIT seconds is told the server is busy, and the page asks again a little later.
+COVER_SLOTS = threading.BoundedSemaphore(2)
+COVER_WAIT = 8
+BUSY = 'busy'
+NO_COVER_DAYS = 1      # how long a missing ComicVine cover is remembered before trying again
+
+
+def _none_marker(out):
+    return out[:-len('.jpg')] + '.none'
+
+
+def _remembered_none(out, days=None):
+    marker = _none_marker(out)
+    try:
+        return days is None or time.time() - os.path.getmtime(marker) < days * 86400
+    except OSError:
+        return False
+
+
+def _remember_none(out):
+    try:
+        open(_none_marker(out), 'w').close()
+    except OSError:
+        pass
+
+
 def file_cover(path):
     """The front cover inside a file, as a cached JPEG path, or None. Picked the way the
     library picks covers; the cache is keyed on the file's size and time, so a changed file
@@ -379,18 +407,28 @@ def file_cover(path):
     out = os.path.join(_cover_dir(), 'file-%s.jpg' % key)
     if os.path.isfile(out):
         return out
-    try:
-        from mylar import getimage
-        res = getimage.extract_image(path, single=True)
-        data = (res or {}).get('rawImage')
-    except Exception as e:
-        logger.fdebug('[ATTENTION] No cover from %s: %s' % (os.path.basename(path), e))
-        data = None
-    if not data:
+    if os.path.isfile(_none_marker(out)):
         return None
-    with open(out, 'wb') as f:
-        f.write(data)
-    return out
+    if not COVER_SLOTS.acquire(timeout=COVER_WAIT):
+        return BUSY
+    try:
+        if os.path.isfile(out):    # made while this request waited
+            return out
+        try:
+            from mylar import getimage
+            res = getimage.extract_image(path, single=True)
+            data = (res or {}).get('rawImage')
+        except Exception as e:
+            logger.fdebug('[ATTENTION] No cover from %s: %s' % (os.path.basename(path), e))
+            data = None
+        if not data:
+            _remember_none(out)
+            return None
+        with open(out, 'wb') as f:
+            f.write(data)
+        return out
+    finally:
+        COVER_SLOTS.release()
 
 
 def issue_cover(issueid):
@@ -402,19 +440,30 @@ def issue_cover(issueid):
     out = os.path.join(_cover_dir(), 'issue-%s.jpg' % re.sub(r'[^0-9A-Za-z_-]', '', str(issueid)))
     if os.path.isfile(out):
         return out
-    import requests
+    if _remembered_none(out, NO_COVER_DAYS):
+        return None
+    if not COVER_SLOTS.acquire(timeout=COVER_WAIT):
+        return BUSY
     try:
-        r = requests.get(url, headers=getattr(mylar, 'CV_HEADERS', None), timeout=(15, 30),
-                         verify=getattr(mylar.CONFIG, 'CV_VERIFY', True))
-        r.raise_for_status()
-    except Exception as e:
-        logger.fdebug('[ATTENTION] Could not fetch the cover for issue %s: %s' % (issueid, e))
-        return None
-    if not r.headers.get('Content-Type', '').startswith('image/'):
-        return None
-    with open(out, 'wb') as f:
-        f.write(r.content)
-    return out
+        if os.path.isfile(out):
+            return out
+        import requests
+        try:
+            r = requests.get(url, headers=getattr(mylar, 'CV_HEADERS', None), timeout=(10, 20),
+                             verify=getattr(mylar.CONFIG, 'CV_VERIFY', True))
+            r.raise_for_status()
+        except Exception as e:
+            logger.fdebug('[ATTENTION] Could not fetch the cover for issue %s: %s' % (issueid, e))
+            _remember_none(out)
+            return None
+        if not r.headers.get('Content-Type', '').startswith('image/'):
+            _remember_none(out)
+            return None
+        with open(out, 'wb') as f:
+            f.write(r.content)
+        return out
+    finally:
+        COVER_SLOTS.release()
 
 
 def _known(path):

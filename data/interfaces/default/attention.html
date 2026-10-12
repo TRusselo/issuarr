@@ -10,6 +10,7 @@
             <div class="head-text">
                 <h1><span class="page-crumb">Downloads › </span>Needs attention</h1>
                 <p class="page-sub">Files Issuarr couldn't file on its own. File each one as the right issue, or clear it out.</p>
+                <p class="page-sub faint">Searching and covers here can be slow while downloads are running or being filed.</p>
             </div>
         </div>
 
@@ -221,10 +222,21 @@
             act('attention_file', i, { comicid: parts[0], issueid: parts[1] });
         }
 
+        // A cover can fail because the server was busy making others: ask again after 3, 6 and 12
+        // seconds. A file with no cover is remembered by the server, so its retries answer at once.
         list.addEventListener('error', function (e) {
-            if (!e.target.matches || !e.target.matches('[data-cover-img]')) return;
-            var b = e.target.parentNode;
-            b.innerHTML = '<span class="att-nocover">No cover</span>';
+            var img = e.target;
+            if (!img.matches || !img.matches('[data-cover-img]')) return;
+            var tries = +(img.getAttribute('data-tries') || 0);
+            if (tries < 3) {
+                if (!img.getAttribute('data-src')) img.setAttribute('data-src', img.getAttribute('src'));
+                img.setAttribute('data-tries', tries + 1);
+                setTimeout(function () {
+                    if (img.isConnected) img.src = img.getAttribute('data-src') + '&r=' + (tries + 1);
+                }, 3000 * Math.pow(2, tries));
+                return;
+            }
+            img.parentNode.innerHTML = '<span class="att-nocover">No cover</span>';
         }, true);
 
         list.addEventListener('change', function (e) {

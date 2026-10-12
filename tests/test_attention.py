@@ -275,3 +275,58 @@ def test_quick_bounds_never_drop_a_close_name(monkeypatch):
     for want in ['x factor', 'xfactor', 'x men', 'spiderman', 'spider man', 'power', 'supergirl', 'batman beyon', 'ragnarok']:
         brute = sorted(r['ComicID'] for r in rows if difflib.SequenceMatcher(None, want, r['norm']).ratio() >= 0.75)
         assert sorted(c['ComicID'] for s, c in attention._named(want)) == brute, want
+
+
+@pytest.mark.unit
+def test_a_cover_request_gives_up_with_busy_when_every_slot_is_taken(env, monkeypatch):
+    # cover requests must not pile up on the web server's few threads
+    monkeypatch.setattr(mylar.CONFIG, 'CACHE_DIR', str(env.root / 'cache'), raising=False)
+    monkeypatch.setattr(attention, 'COVER_WAIT', 0.05)
+    p = cbz_with_cover(env.review / 'Great Lakes Avengers 002 (2017).cbz')
+    taken = [attention.COVER_SLOTS.acquire(timeout=0) for _ in range(5)]
+    try:
+        assert attention.file_cover(p) == attention.BUSY
+    finally:
+        for got in taken:
+            if got:
+                attention.COVER_SLOTS.release()
+    assert attention.file_cover(p) not in (None, attention.BUSY)
+
+
+@pytest.mark.unit
+def test_a_file_without_a_cover_is_only_opened_once(env, monkeypatch):
+    monkeypatch.setattr(mylar.CONFIG, 'CACHE_DIR', str(env.root / 'cache'), raising=False)
+    p = env.review / 'Broken 001 (2020).cbz'
+    p.write_bytes(b'not a zip')
+    from mylar import getimage
+    calls = []
+    monkeypatch.setattr(getimage, 'extract_image', lambda *a, **k: calls.append(a) or None)
+    assert attention.file_cover(str(p)) is None
+    assert attention.file_cover(str(p)) is None and len(calls) == 1
+
+
+@pytest.mark.unit
+def test_a_failed_comicvine_cover_is_not_fetched_again_straight_away(env, monkeypatch):
+    monkeypatch.setattr(mylar.CONFIG, 'CACHE_DIR', str(env.root / 'cache'), raising=False)
+    env.db.action("ALTER TABLE issues ADD COLUMN ImageURL TEXT")
+    env.db.action("ALTER TABLE issues ADD COLUMN ImageURL_ALT TEXT")
+    env.db.action("UPDATE issues SET ImageURL='https://comicvine.gamespot.com/x.jpg' WHERE IssueID='562595'")
+    import requests
+    calls = []
+
+    def get(url, **kw):
+        calls.append(url)
+        raise requests.exceptions.ConnectTimeout('slow')
+    monkeypatch.setattr(requests, 'get', get)
+    assert attention.issue_cover('562595') is None
+    assert attention.issue_cover('562595') is None and len(calls) == 1
+
+
+@pytest.mark.unit
+def test_the_cover_endpoint_says_busy_with_a_503(monkeypatch):
+    import cherrypy
+    from mylar.webserve import WebInterface
+    monkeypatch.setattr(attention, 'file_cover', lambda path: attention.BUSY)
+    with pytest.raises(cherrypy.HTTPError) as e:
+        WebInterface().attention_cover('/x.cbz', v='1', r='2')
+    assert e.value.status == 503

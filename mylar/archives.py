@@ -12,8 +12,9 @@ IMAGE_EXT = ('.jpg', '.jpeg', '.png', '.webp', '.gif', '.bmp', '.avif', '.jxl')
 ARCHIVE_EXT = ('.zip', '.rar')
 SETTLE_SECONDS = 120
 RUNS = [0]
-# The series each running post-processing job is filing; None for a job that could be filing
-# anything (the monitored folder, a manual run).
+# (series, issue) each running post-processing job is filing. The issue is set only for a
+# single-issue download (see own_issue); series None is a job that could be filing anything
+# (the monitored folder, a manual run).
 JOBS = []
 ACTIVITY = {'state': 'Idle', 'detail': '', 'since': None, 'last': '', 'last_at': None, 'notes': []}
 
@@ -41,19 +42,34 @@ def processing():
     return ACTIVITY['state'] == 'Working' or RUNS[0] > 0 or autoadd.running() or queued
 
 
-def holds(comicid):
+def own_issue(issueid, ddl=False, pack=None):
+    """The issue a download can only be, or None when it could hold other issues of its series:
+    packs, JD2 items whose pack status isn't known, and anything that isn't a DDL download."""
+    if ddl is True and pack is False and issueid not in (None, '', 'None'):
+        return str(issueid)
+    return None
+
+
+def holds(comicid, issueid=None):
     """True while filing could still be handling a file of this series, so searching it now
-    might grab an issue that's already downloaded. Filing other series doesn't hold it up."""
+    might grab an issue that's already downloaded. Filing other series doesn't hold it up, and
+    a single-issue download only holds its own issue."""
     from mylar import autoadd
     if autoadd.running():
         return True
-    series = list(JOBS)
+    jobs = list(JOBS)
     try:
         with mylar.PP_QUEUE.mutex:
-            series += [i.get('comicid') for i in mylar.PP_QUEUE.queue if isinstance(i, dict)]
+            jobs += [(i.get('comicid'), own_issue(i.get('issueid'), i.get('ddl'), i.get('pack')))
+                     for i in mylar.PP_QUEUE.queue if isinstance(i, dict)]
     except Exception:
         pass
-    return any(c is None or str(c) == str(comicid) for c in series)
+    for c, i in jobs:
+        if c is None:
+            return True
+        if str(c) == str(comicid) and (i is None or str(i) == str(issueid)):
+            return True
+    return False
 
 
 def snapshot():

@@ -48,7 +48,7 @@ class PostProcessor(object):
     FOLDER_NAME = 2
     FILE_NAME = 3
 
-    def __init__(self, nzb_name, nzb_folder, issueid=None, module=None, queue=None, comicid=None, apicall=False, ddl=False):
+    def __init__(self, nzb_name, nzb_folder, issueid=None, module=None, queue=None, comicid=None, apicall=False, ddl=False, pack=None):
         """
         Creates a new post processor with the given file path and optionally an NZB name.
 
@@ -79,6 +79,7 @@ class PostProcessor(object):
             self.ddl = True
         else:
             self.ddl = False
+        self.pack = pack
 
         if mylar.CONFIG.FILE_OPTS == 'copy':
             self.fileop = shutil.copy
@@ -374,7 +375,10 @@ class PostProcessor(object):
 
     def Process(self):
         archives.RUNS[0] += 1
-        job = None if self.nzb_name in ('Manual Run', 'Manual+Run') else self.comicid
+        if self.nzb_name in ('Manual Run', 'Manual+Run'):
+            job = (None, None)
+        else:
+            job = (self.comicid, archives.own_issue(self.issueid, self.ddl, self.pack))
         archives.JOBS.append(job)
         try:
             if not PP_LOCK.acquire(blocking=False):

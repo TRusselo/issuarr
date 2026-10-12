@@ -31,6 +31,7 @@ def postprocess_main(queue):
                         item['apicall'],
                         item['ddl'],
                         item['download_info'],
+                        pack=item.get('pack'),
                     )
                 except Exception:
                     pprocess = process.Process(

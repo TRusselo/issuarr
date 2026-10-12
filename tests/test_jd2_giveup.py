@@ -11,9 +11,17 @@ from mylar.queues import ddl, jd2
 class FakeDB:
     def __init__(self):
         self.upserts = []
+        self.actions = []
 
     def upsert(self, table, vals, ctrl):
         self.upserts.append((table, vals, ctrl))
+
+    def selectone(self, query, args=None):
+        return types.SimpleNamespace(fetchone=lambda: {'jd2_job_id': '1791741854472'})
+
+    def action(self, query, args=None):
+        self.actions.append((query, args))
+        return types.SimpleNamespace(rowcount=1)
 
 
 @pytest.fixture
@@ -41,9 +49,9 @@ def test_jd2_give_up_hands_the_item_to_failover(sent):
     assert jd2_gave_up is True
     assert 'jd2_job_id' not in item and 'jd2_priority_links' not in item and 'main_link' not in item
     assert item['id'] == '54429' and item['link_type'] == 'GC-Mega'
-    table, vals, ctrl = fake_db.upserts[0]
-    assert (table, ctrl) == ('ddl_info', {'id': '54429'})
-    assert vals['status'] == 'Queued' and vals['jd2_job_id'] is None
+    query, args = fake_db.actions[0]
+    assert query == 'UPDATE ddl_info SET status=?, jd2_job_id=?, updated_date=? WHERE id=?'
+    assert args[:2] == ['Queued', None] and args[-1] == '54429'
 
 
 @pytest.mark.unit

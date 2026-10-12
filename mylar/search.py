@@ -35,7 +35,7 @@ from mylar import (
 )
 from mylar.downloaders import external_server as exs
 from mylar.downloaders import airdcpp
-from mylar import archiveorg
+from mylar import archiveorg, ddlsources
 
 import feedparser
 import requests
@@ -275,7 +275,7 @@ def search_init(
                         searchprov['DDL(GetComics)']['active'] = True
                 elif prov_order[prov_count] == archiveorg.SITE and not provider_blocked and archiveorg.SITE not in checked_once:
                     if archiveorg.SITE not in searchprov.keys():
-                        searchprov[archiveorg.SITE] = ({'id': 202, 'type': 'DDL', 'lastrun': 0, 'active': True, 'hits': 0})
+                        searchprov[archiveorg.SITE] = ({'id': 203, 'type': 'DDL', 'lastrun': 0, 'active': True, 'hits': 0})
                     else:
                         searchprov[archiveorg.SITE]['active'] = True
                 elif prov_order[prov_count] == 'DDL(External)' and not provider_blocked and 'DDL(External)' not in checked_once:
@@ -1355,7 +1355,8 @@ def verification(verified_matches, is_info):
                     continue
                 # generate the send-to and actually send the nzb / torrent.
                 try:
-                    links = {'id': verified['entry']['id'], 'link': verified['entry']['link']}
+                    links = {'id': verified['entry']['id'], 'link': verified['entry']['link'],
+                             'torrent': verified['entry'].get('torrent')}
                 except Exception:
                     links = verified['entry']['link']
                 searchresult = searcher(
@@ -2779,6 +2780,8 @@ def provider_sequence(
                             prov_order.append(pr_order[1])
                             break
 
+    # the Internet Archive goes next to GetComics, before or after it as the download sources list says
+    prov_order = ddlsources.place_ia(prov_order, 'DDL(GetComics)', archiveorg.SITE)
     return prov_order, torznab_info, newznab_info
 
 
@@ -2893,7 +2896,9 @@ def searcher(
     comyear = comicinfo[0]['comyear']
     oneoff = comicinfo[0]['oneoff']
     nzbid = comicinfo[0]['nzbid']
+    torrent = None
     if type(link) != str:
+        torrent = link.get('torrent')  # an Internet Archive item's torrent
         link = link['link']
     try:
         SARC = comicinfo[0]['SARC']
@@ -3261,9 +3266,12 @@ def searcher(
                 logger.info('[%s] Failed to retrieve %s from the DDL site.' % (tnzbprov, nzbname))
                 return "ddl-fail"
         elif nzbprov == archiveorg.SITE:
-            ddl_it = archiveorg.queue(nzbid, link, comicinfo)
+            ddl_it = archiveorg.queue(nzbid, link, comicinfo, torrent)
             tnzbprov = nzbprov
-            logger.info('[%s] Queued %s to download from the Internet Archive.' % (tnzbprov, nzbname))
+            if ddl_it['site'] == 'IA-Torrent':
+                logger.info('[%s] Sent the archive.org torrent for %s to your torrent client.' % (tnzbprov, nzbname))
+            else:
+                logger.info('[%s] Queued %s to download from the Internet Archive.' % (tnzbprov, nzbname))
         else:
             cinfo = {'id': nzbid,
                      'series': comicinfo[0]['ComicName'],

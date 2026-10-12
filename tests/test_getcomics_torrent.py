@@ -58,11 +58,11 @@ def test_hosts_are_not_torrents():
 
 
 @pytest.mark.unit
-def test_torrent_is_last_by_default_and_listed_in_settings():
-    assert ddlsources.DEFAULT_GROUPS[-1] == 'torrent'
+def test_torrent_is_last_of_getcomics_by_default_and_listed_in_settings():
+    assert ddlsources.DEFAULT_GROUPS == ['direct', 'cloud', 'torrent', 'ia']
     mylar.CONFIG.DDL_PRIORITY_ORDER = '["main","mega"]'
-    assert ddlsources.configured_groups() == ['direct', 'cloud', 'torrent']
-    assert [s['name'] for s in ddlsources.all_sources()] == ['direct', 'cloud', 'torrent']
+    assert ddlsources.configured_groups() == ['direct', 'cloud', 'torrent', 'ia']
+    assert [s['name'] for s in ddlsources.all_sources()] == ['direct', 'cloud', 'torrent', 'ia']
 
 
 @pytest.mark.unit

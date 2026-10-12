@@ -369,12 +369,18 @@
     <div id="tabs-4" class="set-panel" data-title="Search providers" data-sub="Where Issuarr looks for issues, and the order it tries them in.">
         <%
             porder = [v for k, v in sorted(mylar.CONFIG.PROVIDER_ORDER.items(), key=lambda kv: int(kv[0]) if str(kv[0]).isdigit() else 0)]
+            # the Internet Archive sits next to GetComics, where the download sources list puts it
+            ia_follows_gc = 'DDL(GetComics)' in porder and 'DDL(Internet Archive)' in porder
+            if ia_follows_gc:
+                porder = [p for p in porder if p != 'DDL(Internet Archive)']
             def pname(row):
                 return re.sub('"', '', str(row[0] or row[1])).strip()
             pkinds = dict([(pname(r), 'Usenet indexer') for r in (mylar.CONFIG.EXTRA_NEWZNABS or [])] +
                           [(pname(r), 'Torrent indexer') for r in (mylar.CONFIG.EXTRA_TORZNABS or [])] +
                           [('DDL(GetComics)', 'Direct download'), ('DDL(Internet Archive)', 'Direct download'), ('DDL(External)', 'Direct download'), ('Experimental', 'Usenet, experimental'),
                            ('AirDCPP', 'AirDC++'), ('32p', 'Torrent')])
+            if ia_follows_gc:
+                pkinds['DDL(GetComics)'] = 'Direct download, with the Internet Archive just before or after it as Download sources orders them'
             # a kind of search that's on but has nothing to search, so the order shows why it's missing
             C = mylar.CONFIG
             def ready(rows):
@@ -512,10 +518,10 @@
                             ${field('flaresolverr_url', 'FlareSolverr address', config['flaresolverr_url'], id='flaresolverr_url', placeholder='http://192.168.1.2:8191/v1', help='Include /v1 at the end.')}
                         </div>
                     </div>
-                    ${toggle('enable_archiveorg', 'Internet Archive', config['enable_archiveorg'], id='enable_archiveorg',
-                             help='Searches the comics uploaded to archive.org for Wanted issues, mostly older ones. Files download straight from archive.org, alongside file-host downloads. Zips of pages are saved as .cbz, so filing, WebP and tagging handle them as usual.')}
                     <div class="set-row">
-                        <div class="set-label"><b>Download sources, in the order to try them</b><span>Sources a post doesn't offer are skipped. Cloud shares other than Mega, MediaFire and Pixeldrain need JDownloader 2.</span></div>
+                        <div class="set-label"><b>Download sources, in the order to try them</b><span>Sources a post doesn't offer are skipped. Cloud shares other than Mega, MediaFire and Pixeldrain need JDownloader 2.
+                            The Internet Archive is searched before GetComics when it's above all three GetComics sources, and right after GetComics otherwise.
+                            Its zips of pages are saved as .cbz, so filing, WebP and tagging handle them as usual.</span></div>
                         <div class="set-ctl ddl-sources" id="ddl_sources_box">
                             <ol id="ddl_sources_list" class="ddl-src-list"></ol>
                             <input type="hidden" name="ddl_priority_order" id="ddl_priority_order" value="">

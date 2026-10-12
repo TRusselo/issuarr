@@ -275,6 +275,12 @@ def handle_failure(myDB, item, result, jd2_gave_up=False, repick=False):
                 state['failed'].append(link_type)
             logger.info('[DDL-FAILOVER] %s failed from %s - looking for another source.' % (item.get('series'), link_type))
 
+        if item.get('site') == archiveorg.SITE and archiveorg.torrent_fallback(item):
+            # the item's archive.org torrent went to the torrent client instead
+            myDB.action('DELETE FROM ddl_info where id=?', [item['id']])
+            forget(item['id'])
+            return
+
         if item.get('site', 'DDL(GetComics)') != 'DDL(GetComics)':
             myDB.action('DELETE FROM ddl_info where id=?', [item['id']])
             mylar.search.FailedMark(item['issueid'], item['comicid'], item['id'], result.get('filename'), item['site'], retry=True)

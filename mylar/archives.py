@@ -26,11 +26,9 @@ _active_lock = threading.Lock()
 
 
 def _job():
-    job = ACTIVE.get(threading.get_ident())
-    if job is None and ACTIVE:
-        # A thread without a job of its own (rare) reports into the newest one.
-        job = max(ACTIVE.values(), key=lambda j: j['since'])
-    return job
+    # Only the thread's own job: filing from a web request (re-filing from Needs attention) has
+    # none, and its counts mustn't land in another job's summary.
+    return ACTIVE.get(threading.get_ident())
 
 
 def busy(detail):
@@ -78,6 +76,10 @@ def done(fallback='Nothing to do.'):
 
 def skipped(why):
     MONITOR.update(skipped_at=time.time(), why=why)
+
+
+def monitor_ran():
+    MONITOR.update(skipped_at=None, why='')
 
 
 def processing():

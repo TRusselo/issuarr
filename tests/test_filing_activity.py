@@ -75,14 +75,57 @@ def test_last_pass_says_what_was_filed_and_what_needs_attention(fresh):
 @pytest.mark.unit
 def test_a_crashed_auto_add_doesnt_leave_filing_working(fresh, monkeypatch):
     from mylar import autoadd
-    monkeypatch.setattr(autoadd.db, 'DBConnection', lambda: (_ for _ in ()).throw(RuntimeError('db gone')))
+    myDB = types.SimpleNamespace(select=lambda *a, **k: [])
+    monkeypatch.setattr(autoadd.db, 'DBConnection', lambda: myDB)
+    monkeypatch.setattr(autoadd, '_load', lambda: {})
+
+    def save(reg):
+        # Fails after _run has said it's busy.
+        assert archives.snapshot()['state'] == 'Working'
+        raise RuntimeError('disk full')
+    monkeypatch.setattr(autoadd, '_save', save)
 
     def run():
-        archives.busy('Finding series')
         with pytest.raises(RuntimeError):
             autoadd._run([])
     in_thread(run)
-    assert archives.snapshot()['state'] == 'Idle' and not autoadd.running()
+    snap = archives.snapshot()
+    assert snap['state'] == 'Idle' and not autoadd.running()
+    assert snap['last'] == 'Auto-add stopped early - check the log.'
+
+
+@pytest.mark.unit
+def test_filing_from_a_web_request_doesnt_count_in_another_job(fresh):
+    gate = threading.Event()
+
+    def auto_add():
+        archives.busy('Finding series')
+        archives.note('added 84 series')
+        gate.wait(5)
+        archives.done()
+
+    t = threading.Thread(target=auto_add)
+    t.start()
+    try:
+        # Re-filing from Needs attention runs in a web thread that never called busy().
+        in_thread(lambda: archives.tally('filed'))
+    finally:
+        gate.set()
+        t.join()
+    assert archives.snapshot()['last'] == 'added 84 series'
+
+
+@pytest.mark.unit
+def test_a_manual_run_of_the_monitored_folder_clears_the_skip(fresh, monkeypatch):
+    from mylar import PostProcessor
+    archives.skipped('other post-processing was running')
+    monkeypatch.setattr(mylar, 'CONFIG', types.SimpleNamespace(CHECK_FOLDER='/downloads/complete/mylar'), raising=False)
+    monkeypatch.setattr(archives, 'sweep', lambda *a, **k: None)
+    pp = PostProcessor.PostProcessor.__new__(PostProcessor.PostProcessor)
+    pp.nzb_folder, pp.nzb_name = '/downloads/complete/mylar', 'Manual Run'
+    pp._process_main = lambda: None
+    in_thread(pp._locked_process)
+    assert archives.snapshot()['monitor_skipped_at'] is None
 
 
 @pytest.mark.unit

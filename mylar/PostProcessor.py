@@ -404,6 +404,7 @@ class PostProcessor(object):
             if source_name == 'Manual Run' and mylar.CONFIG.CHECK_FOLDER and source and \
                     os.path.normpath(source) == os.path.normpath(mylar.CONFIG.CHECK_FOLDER):
                 archives.sweep(source, started)
+                archives.monitor_ran()
             pending = archives.take_pending()
             archives.done()
             if pending:
@@ -2123,6 +2124,7 @@ class PostProcessor(object):
                             logger.fdebug('%s [%s] Post-Processing completed for: %s' % (module, ml['StoryArc'], grab_dst))
                         else:
                             logger.fdebug('%s [%s] Post-Processing completed for: %s' % (module, ml['StoryArc'], ml['ComicLocation']))
+                        archives.tally('filed')
 
                         if any([all([mylar.CONFIG.PUSHOVER_IMAGE, mylar.CONFIG.PUSHOVER_ENABLED]), all([mylar.CONFIG.TELEGRAM_IMAGE, mylar.CONFIG.TELEGRAM_ENABLED]), mylar.CONFIG.DISCORD_ENABLED, mylar.CONFIG.GOTIFY_ENABLED, mylar.CONFIG.MATTERMOST_ENABLED ]):
                             try:
@@ -2731,6 +2733,7 @@ class PostProcessor(object):
 
                         logger.info('%s Post-Processing completed for: [%s] %s' % (module, sarc, grab_dst))
                         self._log("Post Processing SUCCESSFUL! ")
+                        archives.tally('filed')
                     elif oneoff is True:
                         logger.info('%s IssueID is : %s' % (module, issueid))
                         ctrlVal = {"IssueID":  issueid}
@@ -2742,6 +2745,7 @@ class PostProcessor(object):
                         logger.info('%s Updated history for one-off\'s for tracking purposes' % module)
                         logger.info('%s Post-Processing completed for: [ %s #%s ] %s' % (module, comicname, issuenumber, grab_dst))
                         self._log("Post Processing SUCCESSFUL! ")
+                        archives.tally('filed')
 
                     if any([all([mylar.CONFIG.PUSHOVER_IMAGE, mylar.CONFIG.PUSHOVER_ENABLED]), all([mylar.CONFIG.TELEGRAM_IMAGE, mylar.CONFIG.TELEGRAM_ENABLED]), mylar.CONFIG.DISCORD_ENABLED, mylar.CONFIG.GOTIFY_ENABLED, mylar.CONFIG.MATTERMOST_ENABLED ]):
                         try:
@@ -3585,7 +3589,7 @@ class FolderCheck():
                 logger.info('%s Unable to initiate folder monitor as another process is currently using it or using post-processing.' % self.module)
                 archives.skipped('other post-processing was running')
                 return {'status': 'IN PROGRESS'}
-            archives.MONITOR.update(skipped_at=None, why='')
+            archives.monitor_ran()
             helpers.job_management(write=True, job='Folder Monitor', current_run=helpers.utctimestamp(), status='Running')
             mylar.MONITOR_STATUS = 'Running'
             logger.info('%s Checking folder %s for newly snatched downloads' % (self.module, mylar.CONFIG.CHECK_FOLDER))

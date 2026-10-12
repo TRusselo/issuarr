@@ -6,7 +6,7 @@
 	_nocss = ui.nocss_requested()
 	_css_url = None if _nocss else ui.safe_stylesheet_url(mylar.CONFIG.CUSTOM_CSS_URL)
 	_css_on = bool(mylar.CONFIG.CUSTOM_CSS_ENABLED) and not _nocss
-	_version = mylar.version.VERSION
+	_version = mylar.appversion.VERSION
 	_commit = (mylar.CURRENT_VERSION or '')[:7]
 	_instance = (' - %s' % mylar.CONFIG.INSTANCE_NAME) if mylar.CONFIG.INSTANCE_NAME else ''
 	# Every page lives here: (group label, [items]). An item's children show

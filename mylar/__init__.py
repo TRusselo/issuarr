@@ -40,7 +40,7 @@ from apscheduler.triggers.interval import IntervalTrigger
 
 import cherrypy
 
-from mylar import version, logger, versioncheckit, rsscheckit, searchit, weeklypullit, PostProcessor, updater, helpers, sabnzbd, imprints
+from mylar import appversion, logger, versioncheckit, rsscheckit, searchit, weeklypullit, PostProcessor, updater, helpers, sabnzbd, imprints
 from mylar.queues import (
     ddl_downloader,
     jd2_queue_monitor,

@@ -7259,7 +7259,7 @@ class WebInterface(object):
             "branch": mylar.CONFIG.GIT_BRANCH,
             "git_user": mylar.CONFIG.GIT_USER,
             "br_type": mylar.INSTALL_TYPE,
-            "app_version": mylar.version.VERSION,
+            "app_version": mylar.appversion.VERSION,
             "br_version": mylar.CURRENT_VERSION,
             "br_version_name": mylar.CURRENT_VERSION_NAME,
             "br_release_name": mylar.CURRENT_RELEASE_NAME,

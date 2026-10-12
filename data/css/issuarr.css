@@ -185,6 +185,7 @@ a.dock-row:hover { text-decoration: none; color: var(--text); }
 #dock-search { --dot: var(--flow-search); }
 #dock-dl { --dot: var(--flow-download); }
 #dock-pp { --dot: var(--flow-filing); }
+#dock-webp { --dot: var(--flow-library); }  /* WebP works on files already in the library */
 #import_indicator .ii-spin { margin: 0; border-top-color: var(--snatched); }
 #import_indicator.ii-wait .ii-spin { border-top-color: var(--wanted); }
 

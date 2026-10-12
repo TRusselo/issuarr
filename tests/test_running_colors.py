@@ -42,7 +42,7 @@ def test_dot_reads_its_color_from_a_custom_property():
 @pytest.mark.unit
 def test_every_active_dock_row_has_a_color():
     rows = re.findall(r'id="(dock-[\w-]+)"[^>]*><span class="dot"></span>', BASE)
-    assert set(rows) == {'dock-pp', 'dock-search', 'dock-dl'}
+    assert set(rows) == {'dock-pp', 'dock-search', 'dock-dl', 'dock-webp'}
     for row in rows:
         assert _decl('#' + row, '--dot'), row
 
@@ -52,6 +52,7 @@ def test_every_active_dock_row_has_a_color():
     ('dock-search', '--flow-search', '--wanted'),
     ('dock-dl', '--flow-download', '--snatched'),
     ('dock-pp', '--flow-filing', '--snatched'),
+    ('dock-webp', '--flow-library', '--have'),
 ])
 def test_dock_rows_match_the_flow_line(row, stage, token):
     assert _decl('#' + row, '--dot') == 'var(%s)' % stage

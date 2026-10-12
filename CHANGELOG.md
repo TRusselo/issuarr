@@ -6,10 +6,52 @@ Releases come from the `main` branch and are the `latest` Docker image. Changes 
 
 ## Unreleased (on dev)
 
-- The wait between GetComics search pages is a setting under Search providers > GetComics (3 to 60 seconds, 15 by default). Shorter makes searching faster. ([`d149695`](https://github.com/issuarr/issuarr/commit/d149695))
-- Issuarr has a version number, starting at 0.8.1-dev while it's in beta. The bottom of the sidebar and the About page show it with the commit it was built from. ([`eec78d3`](https://github.com/issuarr/issuarr/commit/eec78d3), [`a401ba4`](https://github.com/issuarr/issuarr/commit/a401ba4))
-- Development now happens on the `dev` branch, which builds the `ghcr.io/issuarr/issuarr:dev` image. `main` is for releases and keeps building `latest`; version tags like `v1.0.0` also build `1.0.0` and `1.0` images. ([`40f171a`](https://github.com/issuarr/issuarr/commit/40f171a))
-- The Docker image checks for updates against the branch it was built from, so a `dev` container compares itself with `dev` and a `latest` container with `main`. ([`40f171a`](https://github.com/issuarr/issuarr/commit/40f171a))
+Nothing yet.
+
+## 0.8.1 (12 October 2026)
+
+The first release: Issuarr is in Unraid Community Applications. It's still beta, below 1.0.
+
+### Searching
+
+- Searching is much faster: GetComics no longer sends the same search twice, stops reading result pages once they stop naming the series (at most 10 pages), and skips "None" searches for issues with no number. ([`906331f`](https://github.com/issuarr/issuarr/commit/906331f), [`12000ae`](https://github.com/issuarr/issuarr/commit/12000ae), [`a13311e`](https://github.com/issuarr/issuarr/commit/a13311e))
+- The wait between GetComics search pages is a setting under Search providers > GetComics (3 to 60 seconds, 15 by default). ([`d149695`](https://github.com/issuarr/issuarr/commit/d149695))
+- A search waits only while the same issue is being filed, not the whole series; packs still hold their series so nothing downloads twice. ([`e973a28`](https://github.com/issuarr/issuarr/commit/e973a28), [`aba8857`](https://github.com/issuarr/issuarr/commit/aba8857), [`c758d34`](https://github.com/issuarr/issuarr/commit/c758d34))
+- Searches show what's being searched, Tier 1 searches are no longer dropped, and new releases wait for release day. ([`83fc80e`](https://github.com/issuarr/issuarr/commit/83fc80e), [`3dc3bcf`](https://github.com/issuarr/issuarr/commit/3dc3bcf))
+- GetComics posts that add words inside the series name are matched. ([`dfb61c9`](https://github.com/issuarr/issuarr/commit/dfb61c9))
+- The Internet Archive (archive.org) is a direct-download source, set in the download sources list as its own group; its torrents rank with the torrent group. ([`1fe01fd`](https://github.com/issuarr/issuarr/commit/1fe01fd), [`f4cb176`](https://github.com/issuarr/issuarr/commit/f4cb176))
+
+### Downloads
+
+- Download sources are four groups you can order and switch off: GetComics direct, cloud shares, torrent or magnet links (including GetComics posts' torrents), and the Internet Archive. ([`cc77073`](https://github.com/issuarr/issuarr/commit/cc77073), [`1585739`](https://github.com/issuarr/issuarr/commit/1585739), [`d6bebdf`](https://github.com/issuarr/issuarr/commit/d6bebdf))
+- Downloaders and JDownloader 2 get the file host's address instead of the GetComics button, so JD2 no longer saves a web page instead of the comic. ([`5159a61`](https://github.com/issuarr/issuarr/commit/5159a61))
+- The queue says who is downloading ("Issuarr · Mega", "JDownloader 2 · Mega or another mirror"). ([`203f965`](https://github.com/issuarr/issuarr/commit/203f965))
+- "Finished" means filed: the queue shows Waiting to file, Filing, Finished, or Not filed with a pointer to Needs attention. ([`472a98b`](https://github.com/issuarr/issuarr/commit/472a98b), [`bbdd17a`](https://github.com/issuarr/issuarr/commit/bbdd17a))
+- Clear finished and Clear failed buttons tidy the queue in one go; downloads still stopping are kept. ([`ff679ba`](https://github.com/issuarr/issuarr/commit/ff679ba), [`1a4928d`](https://github.com/issuarr/issuarr/commit/1a4928d))
+- JDownloader 2 jobs that can never finish (expired file-host links, removed items, no progress for 6 hours) are let go and fail over instead of being watched forever; removing a JD2 download sticks. ([`eef9e27`](https://github.com/issuarr/issuarr/commit/eef9e27), [`5caed2e`](https://github.com/issuarr/issuarr/commit/5caed2e))
+- The "downloads look stalled" notice ignores downloads JD2 is handling, and Restart queue clears what it counts. ([`9950f49`](https://github.com/issuarr/issuarr/commit/9950f49), [`5aef6bb`](https://github.com/issuarr/issuarr/commit/5aef6bb))
+- Clicking Restart twice downloads an item once. ([`e6d1d84`](https://github.com/issuarr/issuarr/commit/e6d1d84))
+- After a restart, finished downloads that were never filed are filed again, including partly filed packs. ([`f1b2600`](https://github.com/issuarr/issuarr/commit/f1b2600), [`316bf91`](https://github.com/issuarr/issuarr/commit/316bf91))
+- Removing, stopping or clearing a download that never finished puts its issues back to Wanted, and Wanted > Reset stuck snatched issues fixes ones already stuck. ([`e35cb6a`](https://github.com/issuarr/issuarr/commit/e35cb6a), [`6852979`](https://github.com/issuarr/issuarr/commit/6852979))
+
+### Filing and the library
+
+- Downloads > Needs attention lists files Issuarr couldn't file on its own, with the file's cover next to the suggested issue's, to file, rename, ignore or trash them; it opens about 9 times faster on large libraries. ([`b3891e2`](https://github.com/issuarr/issuarr/commit/b3891e2), [`413fb22`](https://github.com/issuarr/issuarr/commit/413fb22))
+- The sidebar shows the Needs attention count on Needs attention itself. ([`4111968`](https://github.com/issuarr/issuarr/commit/4111968))
+- The folder monitor reports what each pass filed and sent to Needs attention, says when a check was skipped, and Running now no longer shows Idle while auto-add is still working. ([`45c3205`](https://github.com/issuarr/issuarr/commit/45c3205), [`b6672d3`](https://github.com/issuarr/issuarr/commit/b6672d3))
+- A series keeps its issue list after Recheck files. ([`3d76fad`](https://github.com/issuarr/issuarr/commit/3d76fad))
+
+### Screens
+
+- Wanted and Queue show the way from Wanted to the library as a flow line. ([`fde40e0`](https://github.com/issuarr/issuarr/commit/fde40e0))
+- Running now uses the flow line's colours and shows a WebP library conversion while it runs. ([`bc668d1`](https://github.com/issuarr/issuarr/commit/bc668d1), [`9ba96f1`](https://github.com/issuarr/issuarr/commit/9ba96f1), [`741f55c`](https://github.com/issuarr/issuarr/commit/741f55c))
+- Ledger: yellow means only Snatched; trades and Duplicates singles have their own colours, and hovering a bar explains it. ([`617c13e`](https://github.com/issuarr/issuarr/commit/617c13e), [`7f670e9`](https://github.com/issuarr/issuarr/commit/7f670e9))
+- Search providers explain missing providers, the search order can be reordered, and wide screens use two columns. ([`d04531e`](https://github.com/issuarr/issuarr/commit/d04531e), [`202bab6`](https://github.com/issuarr/issuarr/commit/202bab6))
+- Issuarr has a version number, shown at the bottom of the sidebar and on the About page with the commit it was built from. ([`eec78d3`](https://github.com/issuarr/issuarr/commit/eec78d3), [`a401ba4`](https://github.com/issuarr/issuarr/commit/a401ba4))
+
+### Project
+
+- Development happens on the `dev` branch (`:dev` image); `main` is for releases (`:latest`). Version tags like `v0.8.1` also build `0.8.1` and `0.8` images, and each image checks for updates against the branch it was built from. ([`40f171a`](https://github.com/issuarr/issuarr/commit/40f171a), [`bda8495`](https://github.com/issuarr/issuarr/commit/bda8495))
 - This changelog, also a page on the website. ([`eb1311b`](https://github.com/issuarr/issuarr/commit/eb1311b))
 
 ## Before releases (2 to 11 October 2026)

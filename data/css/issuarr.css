@@ -300,12 +300,15 @@ input:invalid, textarea:invalid { box-shadow: none !important; }
 
 .ddl-sources { margin: 8px 0 12px; }
 .ddl-src-list { list-style: none; margin: 6px 0; padding: 0; border: 1px solid var(--line); border-radius: 6px; max-width: 560px; }
-.ddl-src-list li { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 6px 8px; border-bottom: 1px solid var(--line); background: var(--surface); }
+/* arrows | name, with where it downloads from on the line under it: every row lines up however long its text */
+.ddl-src-list li { display: grid; grid-template-columns: auto auto minmax(0, 1fr); align-items: center; column-gap: 8px; row-gap: 2px; padding: 6px 8px; border-bottom: 1px solid var(--line); background: var(--surface); }
+.ddl-src-list li > button { grid-row: 1 / span 2; }
 .ddl-src-list li:last-child { border-bottom: 0; }
 .ddl-src-list button.ddl-up, .ddl-src-list button.ddl-down { padding: 0 6px !important; line-height: 20px; font-size: 11px !important; }
 .ddl-src-list button[disabled] { opacity: .35; }
-.ddl-src { margin: 0 !important; float: none !important; width: auto !important; font-weight: 600; color: var(--text) !important; }
-.ddl-via { color: var(--muted); margin-left: auto; }
+.ddl-src { display: flex !important; align-items: center; gap: 6px; grid-column: 3; min-width: 0; margin: 0 !important; float: none !important; width: auto !important; font-weight: 600; color: var(--text) !important; }
+.ddl-src input { margin: 0 !important; flex: none; width: 16px; }
+.ddl-via { grid-column: 3; color: var(--muted); font-size: 12.5px; line-height: 1.35; padding-left: 22px; overflow-wrap: anywhere; }
 
 /* ---------- Page building blocks (rebuilt pages) ---------- */
 

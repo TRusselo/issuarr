@@ -130,7 +130,8 @@
         }
         var mon = $id('pp-monitor');
         if (d.monitor_enabled) {
-          mon.textContent = (d.monitor_status || 'On') + ' - checks ' + (d.monitor_folder || 'the folder') + ' every ' + d.interval + ' min';
+          mon.textContent = (d.monitor_status || 'On') + ' - checks ' + (d.monitor_folder || 'the folder') + ' every ' + d.interval + ' min' +
+            (d.monitor_skipped_at ? '. Skipped its last check at ' + I().clock(d.monitor_skipped_at) + ' because ' + (d.monitor_skipped_why || 'something else was running') : '');
         } else {
           mon.innerHTML = 'Off. Turn it on in <a href="config#tabs-5">Settings › Files &amp; post-processing</a>.';
         }

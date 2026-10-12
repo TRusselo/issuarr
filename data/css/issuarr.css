@@ -987,6 +987,17 @@ textarea.css-editor.is-bad { border-color: var(--failed); }
 .set-search { max-width: 320px; }
 .set-noresults { margin: 8px 0 0; color: var(--muted); }
 .settings .set-panel:not(#tabs-7) { max-width: 980px; }
+/* Wide screens: groups side by side, each column kept narrow enough that a switch sits near its label.
+   A grid rather than CSS columns, so turning a setting on doesn't push groups into the other column. */
+.settings #tabs { container-type: inline-size; }
+@container (min-width: 1480px) {
+  .settings .set-panel:not(#tabs-7) { max-width: none; display: grid; grid-template-columns: repeat(2, minmax(0, 820px)); column-gap: 72px; align-items: start; }
+  .settings .set-panel:not(#tabs-7) > :not(.set-group), .settings .set-panel:not(#tabs-7)::before { grid-column: 1 / -1; }
+}
+@container (min-width: 2400px) {
+  .settings .set-panel:not(#tabs-7) { grid-template-columns: repeat(3, minmax(0, 760px)); }
+}
+.set-order-gap { flex: 1 1 100%; color: var(--text-2); font-size: 13px; }
 .settings label, .settings .set-label { float: none !important; width: auto !important; margin: 0 !important; font-size: 14px !important; line-height: 1.45; }
 .set-group { margin: 0 0 36px; }
 .set-group-head { margin: 0 0 4px; }

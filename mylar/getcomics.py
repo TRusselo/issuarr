@@ -59,6 +59,14 @@ def query_key(queryline):
     return re.sub(r'\s+', ' ', re.sub(r'["#]', '', queryline.lower())).strip()
 
 
+def clear_cancel(post_id):
+    """Forget an earlier remove or abort of this post, including the parts of a split pack. Queue
+    ids are post ids, so a new grab of the same post reuses them and would otherwise be dropped."""
+    post_id = str(post_id)
+    for cancelled in [c for c in mylar.DDL_CANCEL if c == post_id or c.startswith(post_id + '-')]:
+        mylar.DDL_CANCEL.discard(cancelled)
+
+
 # GetComics lists search results newest first, not by relevance, so a series' older posts can sit
 # several pages in (on 11-12 Oct the trade searches for Birds of Prey and Ghostbusters matched on
 # pages 7-9). Deep pages of a short name are mostly other series ("Powers #1" ran to 14 pages of

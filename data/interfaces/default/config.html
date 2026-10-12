@@ -517,6 +517,10 @@
                         <div class="set-sub" id="flaresolverr_options" style="display:none">
                             ${field('flaresolverr_url', 'FlareSolverr address', config['flaresolverr_url'], id='flaresolverr_url', placeholder='http://192.168.1.2:8191/v1', help='Include /v1 at the end.')}
                         </div>
+                        <div class="set-row">
+                            <label class="set-label" for="ddl_query_delay"><b>Wait between GetComics search pages</b><span>Searching reads GetComics one page at a time and waits this long between pages. Shorter makes searches faster, but GetComics may start blocking you if it's too short. Between 3 and 60 seconds.</span></label>
+                            <div class="set-ctl"><input type="number" name="ddl_query_delay" id="ddl_query_delay" value="${config['ddl_query_delay'] | h}" min="3" max="60" step="1" class="set-num" /><span class="set-unit">seconds</span></div>
+                        </div>
                     </div>
                     <div class="set-row">
                         <div class="set-label"><b>Download sources, in the order to try them</b><span>Sources a post doesn't offer are skipped. Cloud shares other than Mega, MediaFire and Pixeldrain need JDownloader 2.

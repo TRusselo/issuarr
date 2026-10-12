@@ -231,6 +231,8 @@ def client_snatches(myDB):
 
 HOSTS = {'GC-Main': 'GetComics', 'GC-Mirror': 'GetComics mirror', 'GC-Pixel': 'Pixeldrain', 'GC-Mega': 'Mega',
          'GC-Media': 'Mediafire', 'DDL-Ext': 'External link'}
+# GetComics links that point at a cloud host rather than GetComics' own server
+CLOUD_LINKS = ('GC-Mega', 'GC-Media', 'GC-Pixel')
 
 CLIENT_NAMES = {'sabnzbd': 'SABnzbd', 'nzbget': 'NZBGet', 'qbittorrent': 'qBittorrent', 'deluge': 'Deluge',
                 'transmission': 'Transmission', 'rtorrent': 'rTorrent', 'utorrent': 'uTorrent',
@@ -551,6 +553,25 @@ def client_status(hashes=(), wait=3.0):
 
 # ---- the combined list ----------------------------------------------------
 
+def builtin_source(d):
+    """Who fetches a direct download that Issuarr runs itself: GetComics' server, or Issuarr from a cloud host."""
+    if 'GetComics' not in str(d['site'] or 'GetComics'):
+        return 'Direct download'
+    return 'Issuarr' if d['linktype'] in CLOUD_LINKS else 'GetComics'
+
+
+def ddl_source(d, at_jd2=()):
+    """(source, via) for a direct download's Source cell.
+
+    JD2 gets every mirror on the post and picks one itself, so its rows name the first choice
+    without promising it. A row counts as JD2's once it's in the JD2 queue, before JD2 gives it a job id.
+    """
+    if d['jd2'] or str(d['queueid']) in at_jd2:
+        host = HOSTS[d['linktype']] if d['linktype'] in CLOUD_LINKS else None
+        return 'JDownloader 2', ('%s or another mirror' % host if host else 'Any mirror')
+    return builtin_source(d), HOSTS.get(d['linktype'], d['linktype'])
+
+
 def build(myDB, active=None, rate=None):
     """One list of every download: direct ones and the ones at a download client.
 
@@ -558,12 +579,14 @@ def build(myDB, active=None, rate=None):
     direct download that's running gets its progress from its file, and `rate(id, done, total)`,
     when given, adds speed and time left.
     """
+    from mylar.queues import jd2
+    at_jd2 = jd2.at_jd2()
     rows = []
     for d in ddl_queue_rows(myDB):
         status = d['status'] or 'Queued'
+        source, via = ddl_source(d, at_jd2)
         row = {'key': 'ddl-%s' % d['queueid'], 'kind': 'ddl', 'queueid': d['queueid'], 'title': d['series'],
-               'comicid': d['comicid'], 'issueid': d['issueid'], 'via': HOSTS.get(d['linktype'], d['linktype']),
-               'source': 'JDownloader 2' if d['jd2'] else ('GetComics' if 'GetComics' in str(d['site'] or 'GetComics') else 'Direct download'),
+               'comicid': d['comicid'], 'issueid': d['issueid'], 'via': via, 'source': source,
                'status': status, 'percent': 100 if status == 'Completed' else None, 'size': d['size'] or None,
                'speed': None, 'eta': None, 'progress': None, 'message': None, 'detail': None,
                'updated': d['updated_date']}

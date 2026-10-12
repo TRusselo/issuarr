@@ -138,7 +138,8 @@ def _downloads(myDB, issues):
         if status == 'Downloading':
             p = downloadqueue.ddl_progress(d)
             pct = p['percent'] if p else None
-            now.append({'title': d['series'], 'percent': pct, 'issueid': iid, 'comicid': d['comicid'], 'via': 'GetComics'})
+            now.append({'title': d['series'], 'percent': pct, 'issueid': iid, 'comicid': d['comicid'],
+                        'via': downloadqueue.builtin_source(d)})
             if iid:
                 issues[iid] = {'stage': 'download', 'state': 'downloading', 'percent': pct}
         elif status == 'Queued':

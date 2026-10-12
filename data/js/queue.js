@@ -217,12 +217,12 @@
   $id('q-clear-finished').addEventListener('click', function () {
     var n = ddlCount('Completed');
     clearStatus('Completed', 'Remove ' + n + ' finished ' + (n === 1 ? 'download' : 'downloads') + ' from this list? ' +
-      'The comics and their status in your library stay; only the list entries go.');
+      'The comics and their status in your library stay; only the list entries go, so you won\'t be able to download them again from this page or from the issue\'s history.');
   });
   $id('q-clear-failed').addEventListener('click', function () {
     var n = ddlCount('Failed');
     clearStatus('Failed', 'Remove ' + n + ' failed ' + (n === 1 ? 'download' : 'downloads') + ' from this list? ' +
-      'The comics and their status in your library stay. The failures also leave the activity history, and you can\'t retry them from here.');
+      'The comics and their status in your library stay. The failures also leave the activity history, and you can\'t retry them from here or from the issue\'s history.');
   });
   $id('q-prev').addEventListener('click', function () { st.start = Math.max(0, st.start - st.len); renderRows(); });
   $id('q-next').addEventListener('click', function () { st.start += st.len; renderRows(); });

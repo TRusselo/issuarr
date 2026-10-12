@@ -7,16 +7,16 @@ import mylar
 from .. import logger, helpers, archives, activity
 
 
-# Items put back because their series is being filed: issueid -> when it was first held.
+# Items put back because filing could include them: issueid -> when it was first held.
 HELD = {}
 HOLD_LIMIT = 1800
 
 
 def held(item):
-    """Put an item back while filing could still be handling its series, so an issue that's
-    already downloaded isn't grabbed again. Other series' items search in the meantime."""
+    """Put an item back while filing could still be handling this issue, so an issue that's
+    already downloaded isn't grabbed again. Other items search in the meantime."""
     key = item.get('issueid')
-    if not archives.holds(item.get('comicid')):
+    if not archives.holds(item.get('comicid'), key):
         HELD.pop(key, None)
         return False
     first = key not in HELD

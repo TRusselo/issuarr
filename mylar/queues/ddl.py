@@ -219,6 +219,27 @@ def forget(record_id):
     FAILOVER.pop(str(record_id), None)
 
 
+def is_pack(item, myDB=None):
+    """True for a pack, False for a single issue, None when it can't be told. ddl_info has the
+    result that was actually picked; the search's packinfo/comicinfo are the fallback."""
+    known = []
+    if myDB is not None and item.get('id'):
+        try:
+            row = myDB.selectone('SELECT pack FROM ddl_info WHERE id=?', [item['id']]).fetchone()
+        except Exception:
+            row = None
+        if row is not None and row['pack'] is not None:
+            known.append(bool(row['pack']))
+    for read in (lambda: item['packinfo']['pack'], lambda: item['comicinfo'][0]['pack']):
+        try:
+            value = read()
+        except Exception:
+            continue
+        if value is not None:
+            known.append(bool(value))
+    return any(known) if known else None
+
+
 def failover_worker(failover_queue, stop):
     while True:
         entry = _next(failover_queue, stop)
@@ -393,6 +414,7 @@ def ddl_process(myDB, item):
                                     'comicid':      item['comicid'],
                                     'apicall':      True,
                                     'ddl':          True,
+                                    'pack':         True,
                                     'download_info': {'provider': 'DDL', 'id': item['id']}})
             else:
                 logger.info('%s successfully downloaded - now initiating post-processing for %s' % (ddzstat['filename'], ddzstat['path']))
@@ -403,6 +425,7 @@ def ddl_process(myDB, item):
                                     'comicid':      item['comicid'],
                                     'apicall':      True,
                                     'ddl':          True,
+                                    'pack':         is_pack(item, myDB),
                                     'download_info': {'provider': 'DDL', 'id': item['id']}})
         except Exception as e:
             logger.error('process error: %s [%s]' %(e, ddzstat))

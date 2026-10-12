@@ -174,7 +174,7 @@ def test_post_processing_worker_marks_a_direct_download_waiting_then_the_run_cle
     seen = []
 
     class FakeProcess:
-        def __init__(self, *a):
+        def __init__(self, *a, **kw):
             self.info = a[-1]
 
         def post_process(self):
@@ -210,6 +210,7 @@ def test_post_processor_run_marks_its_download_filing_and_clears_it_after(monkey
     monkeypatch.setattr(archives, 'DDL_FILING', {'7': 'waiting'})
     pp = PostProcessor.PostProcessor.__new__(PostProcessor.PostProcessor)
     pp.nzb_name, pp.comicid, pp.apicall = 'Alpha 001.cbz', '100', False
+    pp.issueid, pp.ddl, pp.pack = '1', True, False
     pp.download_info = {'provider': 'DDL', 'id': '7'}
     seen = []
     monkeypatch.setattr(pp, '_locked_process', lambda: seen.append(dict(archives.DDL_FILING)), raising=False)

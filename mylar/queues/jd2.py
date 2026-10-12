@@ -214,6 +214,7 @@ def jd2_queue_monitor(queue):
                                         'comicid': item.get('comicid'),
                                         'apicall': True,
                                         'ddl': True,
+                                        'pack': ddl.is_pack(dict(item, id=record_id), myDB),
                                         'download_info': {'provider': 'JD2', 'id': record_id, 'job_id': job_id},
                                     })
                                     logger.info('[JD2-QUEUE] Submitted %s for post-processing (folder: %s).', job_filename, nzb_folder)

@@ -48,7 +48,7 @@ class PostProcessor(object):
     FOLDER_NAME = 2
     FILE_NAME = 3
 
-    def __init__(self, nzb_name, nzb_folder, issueid=None, module=None, queue=None, comicid=None, apicall=False, ddl=False, download_info=None):
+    def __init__(self, nzb_name, nzb_folder, issueid=None, module=None, queue=None, comicid=None, apicall=False, ddl=False, pack=None, download_info=None):
         """
         Creates a new post processor with the given file path and optionally an NZB name.
 
@@ -81,6 +81,7 @@ class PostProcessor(object):
             self.ddl = True
         else:
             self.ddl = False
+        self.pack = pack
 
         if mylar.CONFIG.FILE_OPTS == 'copy':
             self.fileop = shutil.copy
@@ -376,8 +377,11 @@ class PostProcessor(object):
 
     def Process(self):
         archives.RUNS[0] += 1
-        job = None if self.nzb_name in ('Manual Run', 'Manual+Run') else self.comicid
-        archives.JOBS.append(job)
+        if self.nzb_name in ('Manual Run', 'Manual+Run'):
+            self.job = (None, None)
+        else:
+            self.job = (self.comicid, archives.own_issue(self.issueid, self.ddl, self.pack))
+        archives.JOBS.append(self.job)
         try:
             if not PP_LOCK.acquire(blocking=False):
                 logger.info('[POST-PROCESSING] Another post-processing run is working - %s will start when it finishes.' % self.nzb_name)
@@ -389,12 +393,18 @@ class PostProcessor(object):
                 PP_LOCK.release()
         finally:
             archives.RUNS[0] -= 1
-            archives.JOBS.remove(job)
+            archives.JOBS.remove(self.job)
             archives.ddl_filing(getattr(self, 'download_info', None), None)
             # Early returns and exceptions skip the unlocks inside the run; a lock left on would
             # stop the post-processing queue and folder monitor for good.
             if self.apicall:
                 mylar.APILOCK = False
+
+    def _widen_job(self):
+        job = getattr(self, 'job', None)
+        if job in archives.JOBS:
+            self.job = (None, None)
+            archives.JOBS[archives.JOBS.index(job)] = self.job
 
     def _locked_process(self):
         self.extracted = []
@@ -505,6 +515,8 @@ class PostProcessor(object):
                     self.nzb_name = 'Manual Run'
                     self.issueid = None
                     self.comicid = None
+                    # it can now file anything, so stop letting searches past it
+                    self._widen_job()
 
             myDB = db.DBConnection()
 

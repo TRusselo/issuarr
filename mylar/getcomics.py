@@ -75,6 +75,43 @@ def clear_cancel(post_id):
 # MAX_SEARCH_PAGES.
 MAX_SEARCH_PAGES = 10
 OFF_SERIES_PAGES = 2
+# A query for one issue (or a pack) finds it near the top: across 440 issue searches on 11-12 Oct,
+# 185 of 188 matches were on pages 1-3, and the three later ones were all trades searched by the
+# bare series name. So only those name searches read on to MAX_SEARCH_PAGES.
+ISSUE_SEARCH_PAGES = 3
+
+# Search pages fetched in the last PAGE_CACHE_SECS, by page address and query_key. Every Wanted
+# issue of a series sends the same pack query ("Name 2019"), and the scheduled search repeats
+# queries hours apart: on 12 Oct 197 of 1,184 page fetches (15 s each) were repeats within 6 hours.
+# New posts still show up, because the RSS check runs before these searches.
+PAGE_CACHE_SECS = 3 * 3600
+PAGE_CACHE_MAX = 2000
+_page_cache = {}
+_page_cache_lock = threading.Lock()
+# When this process last fetched a search page. Each issue's search starts from a stale provider
+# lastrun, so this is what keeps DDL_QUERY_DELAY between pages across issues.
+_last_fetch = [0.0]
+
+
+def cached_page(url, queryline):
+    key = (url, query_key(queryline))
+    with _page_cache_lock:
+        hit = _page_cache.get(key)
+        if hit and time.time() - hit[0] < PAGE_CACHE_SECS:
+            return hit[1]
+        _page_cache.pop(key, None)
+    return None
+
+
+def cache_page(url, queryline, html):
+    now = time.time()
+    with _page_cache_lock:
+        if len(_page_cache) >= PAGE_CACHE_MAX:
+            for k in [k for k, v in _page_cache.items() if now - v[0] >= PAGE_CACHE_SECS]:
+                del _page_cache[k]
+            while len(_page_cache) >= PAGE_CACHE_MAX:
+                del _page_cache[min(_page_cache, key=lambda k: _page_cache[k][0])]
+        _page_cache[(url, query_key(queryline))] = (now, html)
 
 
 def _name_words(name):
@@ -409,7 +446,10 @@ class GC(object):
 
                 logger.fdebug('[DDL-QUERY] Query set to: %s' % queryline)
 
-                result_generator = self.perform_search_queries(queryline)
+                # a trade, or an issue with no number, is searched by name and may sit deep
+                by_name = sf_issue is None or (is_info or {}).get('chktpb') == 1 and sf != pack_query and '#' not in sf
+                result_generator = self.perform_search_queries(
+                    queryline, max_pages=MAX_SEARCH_PAGES if by_name else ISSUE_SEARCH_PAGES)
                 sfs = search_filer.search_check()
                 match = sfs.check_for_first_result(
                     result_generator, is_info, prefer_pack=mylar.CONFIG.PACK_PRIORITY
@@ -418,8 +458,8 @@ class GC(object):
                     verified_matches = [match]
                     logger.fdebug('verified_matches: %s' % (verified_matches,))
                     break
-                logger.fdebug('sleep...%s%s' % (mylar.CONFIG.DDL_QUERY_DELAY, 's'))
-                time.sleep(mylar.CONFIG.DDL_QUERY_DELAY)
+                # no wait here: the next page fetch waits out DDL_QUERY_DELAY itself, and a query
+                # answered from the cache, or the end of this issue's search, needs none
 
         except requests.exceptions.Timeout as e:
             logger.warn(
@@ -510,39 +550,22 @@ class GC(object):
                     f.write(chunk)
                     f.flush()
 
-    def perform_search_queries(self, queryline):
+    def perform_search_queries(self, queryline, max_pages=MAX_SEARCH_PAGES):
         next_url = self.url
         seen_urls = set()
         names = getattr(self, 'series_names', None) or [self.query['comicname']]
         pages = off_series = 0
         while next_url is not None:
-            pause_the_search = mylar.CONFIG.DDL_QUERY_DELAY
-            diff = mylar.search.check_time(self.provider_stat['lastrun']) # only limit the search queries - the other calls should be direct and not as intensive
-            if diff < pause_the_search:
-                logger.warn('[PROVIDER-SEARCH-DELAY][DDL] Waiting %s seconds before we fetch a search page again...' % (pause_the_search - int(diff)))
-                time.sleep(pause_the_search - int(diff))
+            page_html = cached_page(next_url, queryline)
+            if page_html is not None:
+                logger.fdebug('[DDL-QUERY] %s page %s: searched in the last %s hours, using that result'
+                              % (queryline, pages + 1, PAGE_CACHE_SECS // 3600))
+                status_code = 200
             else:
-                logger.fdebug('[PROVIDER-SEARCH-DELAY][DDL] Last search page fetch took place %s seconds ago. We\'re clear...' % (int(diff)))
-
-            gc_page = self.session.get(
-                next_url + '/',
-                params={'s': queryline},
-                verify=True,
-                headers=self.headers,
-                timeout=(30,30)
-            )
-
-            # Either comms problems with the page, dead link, or a cloudflare issue
-            if gc_page.status_code != 200:
-                logger.warn(f"Search request not returned by GetComics (Code:{gc_page.status_code}).  This may be a CloudFlare block.")
-                break
-            
-            page_html = gc_page.text
-
-            write_time = time.time()
-            mylar.search.last_run_check(write={'DDL(GetComics)': {'id': 200, 'active': True, 'lastrun': write_time, 'type': 'DDL', 'hits': self.provider_stat['hits']+1}})
-            self.provider_stat['lastrun'] = write_time
-            page_results, next_url = self.parse_search_result(page_html, gc_page.status_code)
+                page_html, status_code = self._fetch_search_page(next_url, queryline)
+                if page_html is None:
+                    break
+            page_results, next_url = self.parse_search_result(page_html, status_code)
             pages += 1
             if any(names_series(r.get('title') or r.get('series'), names) for r in page_results):
                 off_series = 0
@@ -572,10 +595,40 @@ class GC(object):
                 logger.fdebug('[DDL-QUERY] Not reading past page %s of %s - the last %s pages had nothing named like %s'
                               % (pages, queryline, off_series, ' / '.join(names)))
                 break
-            if pages >= MAX_SEARCH_PAGES:
+            if pages >= max_pages:
                 logger.info('[DDL-QUERY] Stopped reading %s at the %s-page limit - GetComics has more pages'
-                            % (queryline, MAX_SEARCH_PAGES))
+                            % (queryline, max_pages))
                 break
+
+    def _fetch_search_page(self, url, queryline):
+        """One GetComics search page, at most one every DDL_QUERY_DELAY seconds. Returns
+        (html, status), or (None, status) when GetComics didn't answer with the page."""
+        pause_the_search = mylar.CONFIG.DDL_QUERY_DELAY
+        diff = mylar.search.check_time(max(self.provider_stat['lastrun'] or 0, _last_fetch[0])) # only limit the search queries - the other calls should be direct and not as intensive
+        if diff < pause_the_search:
+            logger.warn('[PROVIDER-SEARCH-DELAY][DDL] Waiting %s seconds before we fetch a search page again...' % (pause_the_search - int(diff)))
+            time.sleep(pause_the_search - int(diff))
+        else:
+            logger.fdebug('[PROVIDER-SEARCH-DELAY][DDL] Last search page fetch took place %s seconds ago. We\'re clear...' % (int(diff)))
+
+        gc_page = self.session.get(
+            url + '/',
+            params={'s': queryline},
+            verify=True,
+            headers=self.headers,
+            timeout=(30,30)
+        )
+
+        # Either comms problems with the page, dead link, or a cloudflare issue
+        if gc_page.status_code != 200:
+            logger.warn(f"Search request not returned by GetComics (Code:{gc_page.status_code}).  This may be a CloudFlare block.")
+            return None, gc_page.status_code
+
+        write_time = _last_fetch[0] = time.time()
+        mylar.search.last_run_check(write={'DDL(GetComics)': {'id': 200, 'active': True, 'lastrun': write_time, 'type': 'DDL', 'hits': self.provider_stat['hits']+1}})
+        self.provider_stat['lastrun'] = write_time
+        cache_page(url, queryline, gc_page.text)
+        return gc_page.text, gc_page.status_code
 
     def parse_search_result(self, page_html, status_code):
         resultlist = []

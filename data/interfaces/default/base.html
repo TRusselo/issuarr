@@ -1,6 +1,7 @@
 <%
 	import mylar
-	from mylar import ui
+	from mylar import ui, attention
+	_attention = attention.count()
 	_theme = ui.theme()
 	_nocss = ui.nocss_requested()
 	_css_url = None if _nocss else ui.safe_stylesheet_url(mylar.CONFIG.CUSTOM_CSS_URL)
@@ -33,8 +34,9 @@
 	        ]),
 	    ]),
 	    ('Operations', [
-	        dict(label='Downloads', href='queueManage', match='queuemanage', children=[
+	        dict(label='Downloads', href='queueManage', match='queuemanage', count=_attention, children=[
 	            ('Queue', 'queueManage', 'queuemanage'),
+	            ('Needs attention', 'needsAttention', 'needsattention'),
 	            ('History', 'history', 'history'),
 	            ('Failed', 'manageFailed', 'managefailed'),
 	        ]),
@@ -114,7 +116,7 @@
 				%endif
 				%for _it in _items:
 				<div class="nav-item">
-					<a class="nav-link${' is-disabled' if _it.get('disabled') else ''}" href="${'#' if _it.get('disabled') else _it['href']}" data-label="${_it['label'] | h}"${(' data-match="%s"' % _it['match']) if _it.get('match') else ''}${(' data-action="%s"' % _it['action']) if _it.get('action') else ''}${' aria-disabled="true" title="Unavailable while the pull list is being rebuilt"' if _it.get('disabled') else ''}>${_it['label'] | h}${('<span class="nav-badge is-new">%s</span>' % _it['badge']) if _it.get('badge') else ''}</a>
+					<a class="nav-link${' is-disabled' if _it.get('disabled') else ''}" href="${'#' if _it.get('disabled') else _it['href']}" data-label="${_it['label'] | h}"${(' data-match="%s"' % _it['match']) if _it.get('match') else ''}${(' data-action="%s"' % _it['action']) if _it.get('action') else ''}${' aria-disabled="true" title="Unavailable while the pull list is being rebuilt"' if _it.get('disabled') else ''}>${_it['label'] | h}${('<span class="nav-badge is-new">%s</span>' % _it['badge']) if _it.get('badge') else ''}${('<span class="nav-badge is-attention" title="%s waiting in Needs attention">%s</span>' % (_it['count'], _it['count'])) if _it.get('count') else ''}</a>
 					%if _it.get('children'):
 					<div class="nav-children">
 						%for _cl, _ch, _cm in _it['children']:

@@ -29,7 +29,7 @@ import pathlib
 from xml.dom.minidom import parseString
 import mylar
 
-from mylar import logger, db, helpers, updater, notifiers, filechecker, weeklypull, getimage, archives, autoadd, webp
+from mylar import logger, db, helpers, updater, notifiers, filechecker, weeklypull, getimage, archives, autoadd, webp, attention
 
 PP_LOCK = threading.RLock()
 
@@ -409,6 +409,33 @@ class PostProcessor(object):
             if pending:
                 autoadd.queue(pending)
 
+    # Files filing looks at but can't place go to Downloads > Needs attention, with why.
+    def _att_start(self, fl, counts):
+        self._att_settle(counts)
+        try:
+            if os.path.isfile(fl['comiclocation']):
+                path = fl['comiclocation']
+            else:
+                path = os.path.join(fl['comiclocation'], fl['sub'] or '', fl['comicfilename'])
+        except Exception:
+            path = None
+        self._att = {'path': path, 'reasons': set(), 'detail': '', 'comicid': self.comicid, 'counts': counts}
+
+    def _att_why(self, reason, detail=None, comicid=None):
+        cur = getattr(self, '_att', None)
+        if not cur:
+            return
+        if detail and attention.pick(cur['reasons'] | {reason}) == reason:
+            cur['detail'] = detail
+        cur['reasons'].add(reason)
+        if comicid and reason in ('volume', 'year', 'issue'):
+            cur['comicid'] = comicid
+
+    def _att_settle(self, counts):
+        cur, self._att = getattr(self, '_att', None), None
+        if cur and cur['path'] and counts == cur['counts'] and os.path.isfile(cur['path']):
+            attention.record(cur['path'], attention.pick(cur['reasons']), cur['detail'], cur['comicid'])
+
     def _process_main(self):
             module = self.module
             self._log('nzb name: %s' % self.nzb_name)
@@ -538,10 +565,12 @@ class PostProcessor(object):
                 oneoff_issuelist = []
                 manual_list = []
                 for fl in filelist['comiclist']:
+                    self._att_start(fl, (len(manual_list), len(manual_arclist), len(oneoff_issuelist)))
                     if all([fl['series_name'] is not None, fl['series_name'] != '']) and mylar.CONFIG.IGNORE_COVERS is True:
                         cvchk = re.sub(r'[\s\s+\_\.]', '', fl['series_name']).lower()
                         if any(['coveronly' in cvchk, 'coversonly' in cvchk]):
                             logger.fdebug('Cover only detected. Ignoring result.')
+                            self._att_why('cover')
                             continue
 
                     if os.path.isfile(fl['comiclocation']):
@@ -557,6 +586,7 @@ class PostProcessor(object):
                         condition_check = helpers.check_file_condition(full_filename)
                         if condition_check['status'] is False:
                             logger.warn(f"CRC Check: File {full_filename} failed condition check ({condition_check['quality']}).  Ignoring file.")
+                            self._att_why('damaged')
                             continue
                     else:
                         logger.warn(f"Could not find file {full_filename}.  Skipping condition check.")
@@ -1295,6 +1325,7 @@ class PostProcessor(object):
 
                                     if all([second_check is False, cs['WatchValues']['Type'] != 'TPB', cs['WatchValues']['Type'] != 'GN', cs['WatchValues']['Type'] != 'HC', cs['WatchValues']['Type'] != 'One-Shot']):
                                         logger.fdebug('%s %s in filename don\'t match up to what\'s in the dB for %s [%s]. This is a wrong match. Continuing...' % (watchmatch['series_name'], watchmatch['justthedigits'], cs['ComicName'], cs['ComicID']))
+                                        self._att_why('issue', comicid=cs['ComicID'])
                                         continue
 
                                     if any([watch_values['ComicVersion'] is None, watch_values['ComicVersion'] == 'None']):
@@ -1311,6 +1342,7 @@ class PostProcessor(object):
                                                     lonevol = True
                                             else:
                                                 logger.fdebug('%s[ISSUE-VERIFY][SeriesYear-Volume FAILURE] Series Year of %s DID NOT match to volume/year label of %s' % (module, watch_values['SeriesYear'], tmp_watchmatch_vol))
+                                                self._att_why('volume', 'The file says %s; %s is from %s.' % (watchmatch['series_volume'], cs['ComicName'], watch_values['SeriesYear']), cs['ComicID'])
                                                 datematch = "False"
                                         elif (len(watchvals) > 1 and int(tmp_watchmatch_vol) >= 1):
                                             if int(tmp_watchmatch_vol) == int(tmp_watchlist_vol):
@@ -1318,6 +1350,7 @@ class PostProcessor(object):
                                                 lonevol = True
                                             else:
                                                 logger.fdebug('%s[ISSUE-VERIFY][SeriesYear-Volume FAILURE] Volume label of Series Year of %s DID NOT match to volume label of %s' % (module, watch_values['ComicVersion'], watchmatch['series_volume']))
+                                                self._att_why('volume', 'The file says %s; %s is %s.' % (watchmatch['series_volume'], cs['ComicName'], watch_values['ComicVersion']), cs['ComicID'])
                                                 datematch = "False"
                                         elif (len(watchvals) == 1 and int(tmp_watchmatch_vol) == int(tmp_watchlist_vol)):
                                             logger.fdebug('%s[ISSUE-VERIFY][SeriesYear-Volume MATCH] Volume label of series Year of %s matched to volume label of %s' % (module, watch_values['ComicVersion'], watchmatch['series_volume']))
@@ -1331,6 +1364,7 @@ class PostProcessor(object):
                                             lonevol = True
                                         elif int(tmp_watchlist_vol) > 1:
                                             logger.fdebug('%s[ISSUE-VERIFY][Lone Volume FAILURE] Volume label of %s indicates that there is more than one volume for this series, but the one on your watchlist has no volume label set.' % (module, watch_values['ComicVersion']))
+                                            self._att_why('volume', 'The file says %s; %s has no volume set.' % (watchmatch['series_volume'], cs['ComicName']), cs['ComicID'])
                                             datematch = "False"
 
                                     if datematch == "False" and all([watchmatch['issue_year'] is not None, watchmatch['issue_year'] != 'None', watch_issueyear is not None]):
@@ -1340,10 +1374,12 @@ class PostProcessor(object):
                                             datematch = 'True'
                                         else:
                                             logger.fdebug('%s[ISSUE-VERIFY][Issue Year FAILURE] Issue Year of %s does NOT match the year found in the filename of : %s' % (module, watch_issueyear, watchmatch['issue_year']))
+                                            self._att_why('year', 'The file says %s; %s #%s came out in %s.' % (watchmatch['issue_year'], cs['ComicName'], watchmatch['justthedigits'], watch_issueyear), cs['ComicID'])
                                             logger.fdebug('%s[ISSUE-VERIFY] Checking against complete date to see if month published could allow for different publication year.' % module)
                                             if issyr is not None:
                                                 if int(issyr) != int(watchmatch['issue_year']):
                                                     logger.fdebug('%s[ISSUE-VERIFY][Issue Year FAILURE] Modified Issue year of %s is before the modified issue year of %s' % (module, issyr, watchmatch['issue_year']))
+                                                    self._att_why('year', comicid=cs['ComicID'])
                                                 else:
                                                     logger.fdebug('%s[ISSUE-VERIFY][Issue Year MATCH] Modified Issue Year of %s is a match to the year found in the filename of : %s' % (module, issyr, watchmatch['issue_year']))
                                                     datematch = 'True'
@@ -1925,6 +1961,7 @@ class PostProcessor(object):
                                     self.matched = True
                                     break
 
+                self._att_settle((len(manual_list), len(manual_arclist), len(oneoff_issuelist)))
                 if filelist['comiccount'] > 0:
                     logger.fdebug('%s There are %s files found that match on your watchlist, %s files are considered one-off\'s, and %s files do not match anything' % (module, len(manual_list), len(oneoff_issuelist), int(filelist['comiccount']) - len(manual_list)))
 
@@ -2757,6 +2794,7 @@ class PostProcessor(object):
 
         else:
             manual_list = manual
+            manual_arclist = []
 
         if self.nzb_name == 'Manual Run':
             #loop through the hits here.

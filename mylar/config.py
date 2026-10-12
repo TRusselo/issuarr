@@ -281,6 +281,7 @@ _CONFIG_DEFINITIONS = OrderedDict({
     'ARCHIVE_DELETE':  (bool, 'PostProcess', True),
     'ARCHIVE_LEFTOVERS':  (str, 'PostProcess', 'review'),
     'ARCHIVE_REVIEW_DIR':  (str, 'PostProcess', None),
+    'ATTENTION_TRASH_DAYS':  (int, 'PostProcess', 14),   # Needs attention: days a trashed file is kept
     'ARCHIVE_AUTO_ADD':  (bool, 'PostProcess', False),
     'WEBP_ON_IMPORT': (bool, 'WebP', False),
     'WEBP_SINCE': (str, 'WebP', '2015'),

@@ -4,7 +4,7 @@ import time
 from pathlib import Path
 
 import mylar
-from .. import logger, helpers, archives
+from .. import logger, helpers, archives, activity
 
 
 def search_queue(queue):
@@ -46,6 +46,7 @@ def search_queue(queue):
                             local_check['status'] = False
 
                     if local_check['status'] is True:
+                        activity.searched(item, time.time(), on_disk=True)
                         mylar.PP_QUEUE.put({
                             'nzb_name':     local_check['filename'],
                             'nzb_folder':   local_check['filepath'],
@@ -62,10 +63,12 @@ def search_queue(queue):
                         except Exception:
                             manual = False
                         mylar.SEARCH_CURRENT = item
+                        started = time.time()
                         try:
                             mylar.search.searchforissue(item['issueid'], manual=manual)
                         finally:
                             mylar.SEARCH_CURRENT = None
+                            activity.searched(item, started)
                     time.sleep(5)
 
             if mylar.SEARCHLOCK is True:

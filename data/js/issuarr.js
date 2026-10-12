@@ -217,6 +217,12 @@
     poll();
     timer = setInterval(poll, 20000);
     doc.addEventListener('visibilitychange', function () { if (!doc.hidden && timer) poll(); });
+    // Pages with the flow line poll more often: keep the search row in step with it.
+    doc.addEventListener('issuarr:flow', function (e) {
+      var s = e.detail.now.search;
+      show(rows.search, searchText({ current: s.current, busy: s.busy, waiting: new Array(s.waiting) }));
+      refreshIdle();
+    });
     if (importRow && window.MutationObserver) {
       new MutationObserver(refreshIdle).observe(importRow, { attributes: true, attributeFilter: ['style'] });
     }

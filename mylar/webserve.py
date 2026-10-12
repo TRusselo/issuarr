@@ -209,6 +209,15 @@ def wanted_tier(dateadded, storedate, digitaldate, tier_date):
     return '1st [%s]' % since if tier == 1 else '2nd'
 
 
+def query_delay(value, low=3, high=60):
+    """The wait between GetComics search pages, from the settings form: a whole number of
+    seconds kept between low and high. Anything unreadable keeps the current setting."""
+    try:
+        return max(low, min(high, int(str(value).strip())))
+    except (TypeError, ValueError):
+        return mylar.CONFIG.DDL_QUERY_DELAY
+
+
 class WebInterface(object):
 
     auth = AuthController()
@@ -7422,6 +7431,7 @@ class WebInterface(object):
                     "ddl_prefer_upscaled": helpers.checked(mylar.CONFIG.DDL_PREFER_UPSCALED),
                     "ddl_main_large_last": helpers.checked(mylar.CONFIG.DDL_MAIN_LARGE_LAST),
                     "ddl_main_large_mb": mylar.CONFIG.DDL_MAIN_LARGE_MB,
+                    "ddl_query_delay": mylar.CONFIG.DDL_QUERY_DELAY,
                     "ddl_max_parallel": mylar.CONFIG.DDL_MAX_PARALLEL,
                     "ddl_location": '' if not mylar.CONFIG.DDL_LOCATION or mylar.CONFIG.DDL_LOCATION == mylar.CONFIG.CACHE_DIR else mylar.CONFIG.DDL_LOCATION,
                     "ddl_location_default": mylar.CONFIG.CACHE_DIR,
@@ -7933,6 +7943,9 @@ class WebInterface(object):
             except ValueError:
                 off = []
             kwargs['enable_archiveorg'] = 'ia' not in off
+
+        if 'ddl_query_delay' in kwargs:
+            kwargs['ddl_query_delay'] = query_delay(kwargs['ddl_query_delay'])
 
         custom_css = kwargs.pop('custom_css', None)
         if custom_css is not None:

@@ -127,9 +127,9 @@ def _search(issues):
             'busy': st['busy'], 'blocked': blocked, 'next_run': nxt}
 
 
-def _downloads(myDB, issues):
-    from mylar.queues import ddl, jd2
-    rows = downloadqueue.ddl_queue_rows(myDB)
+def _ddl(rows, issues):
+    """What the direct-download rows are doing: (running now, queued and not at JD2, incomplete)."""
+    from mylar.queues import jd2
     at_jd2 = jd2.at_jd2()
     now, queued, held = [], 0, 0
     for d in rows:
@@ -142,6 +142,7 @@ def _downloads(myDB, issues):
             if iid:
                 issues[iid] = {'stage': 'download', 'state': 'downloading', 'percent': pct}
         elif status == 'Queued':
+            # JD2's rows stay Queued while it works on them, so only rows it doesn't hold are waiting
             if str(d['queueid']) in at_jd2:
                 now.append({'title': d['series'], 'percent': None, 'issueid': iid, 'comicid': d['comicid'], 'via': 'JDownloader 2'})
                 if iid:
@@ -152,15 +153,36 @@ def _downloads(myDB, issues):
                     issues[iid] = {'stage': 'download', 'state': 'queued'}
         elif status == 'Incomplete':
             held += 1
-    sent = downloadqueue.client_snatches(myDB)
-    for w in sent:
-        issues.setdefault(str(w['issueid']), {'stage': 'download', 'state': 'client'})
+    return now, queued, held
+
+
+def _stalled(now, queued):
+    """Queued direct downloads that nothing is working on or about to pick up.
+
+    Work at JD2 doesn't count as moving: it never picks up these rows, and a job it can't finish
+    can sit there for hours.
+    """
+    from mylar.queues import ddl
     try:
         moving = ddl.waiting_count()
     except Exception:
         moving = 0
-    stalled = bool(queued) and not now and not moving
-    return {'now': now, 'queued': queued, 'client': len(sent), 'incomplete': held, 'stalled': stalled}
+    busy = any(n['via'] != 'JDownloader 2' for n in now)
+    return bool(queued) and not busy and not moving
+
+
+def stalled_downloads(myDB):
+    """How many direct downloads look stalled, or 0 when they aren't. Same rule as the flow line."""
+    now, queued, _ = _ddl(downloadqueue.ddl_queue_rows(myDB), {})
+    return queued if _stalled(now, queued) else 0
+
+
+def _downloads(myDB, issues):
+    now, queued, held = _ddl(downloadqueue.ddl_queue_rows(myDB), issues)
+    sent = downloadqueue.client_snatches(myDB)
+    for w in sent:
+        issues.setdefault(str(w['issueid']), {'stage': 'download', 'state': 'client'})
+    return {'now': now, 'queued': queued, 'client': len(sent), 'incomplete': held, 'stalled': _stalled(now, queued)}
 
 
 def _filing():

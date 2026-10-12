@@ -13,7 +13,7 @@
   var LABEL = { Completed: 'Finished', Sent: 'Waiting on client', Processing: 'Processing' };
   var HELP = { Sent: 'Sent to the download client. Its progress shows here when the client can be reached.',
                Processing: 'Downloaded. Waiting for the client to unpack it or for Issuarr to file it.' };
-  var st = { tab: 'active', q: '', start: 0, len: 50, items: [], waiting: 0, loaded: false };
+  var st = { tab: 'active', q: '', start: 0, len: 50, items: [], stalled: 0, loaded: false };
 
   function $id(id) { return document.getElementById(id); }
   function I() { return window.Issuarr; }
@@ -128,12 +128,10 @@
     $id('q-next').disabled = st.start + st.len >= st.total;
   }
 
+  // The server decides what's stalled (rows JD2 is holding stay Queued but aren't stuck).
   function renderStalled() {
-    var queued = st.items.filter(function (it) { return it.kind === 'ddl' && it.status === 'Queued'; }).length;
-    var busy = st.items.some(function (it) { return it.kind === 'ddl' && it.status === 'Downloading'; });
-    var stalled = queued && !st.waiting && !busy;
-    $id('q-stalled').hidden = !stalled;
-    if (stalled) $id('q-stalled-text').textContent = queued + ' queued and nothing downloading.';
+    $id('q-stalled').hidden = !st.stalled;
+    if (st.stalled) $id('q-stalled-text').textContent = st.stalled + ' queued and nothing downloading.';
   }
 
   /* ---- loading ---- */
@@ -145,7 +143,7 @@
       .then(function (r) { if (!r.ok) throw new Error(r.status); return r.json(); })
       .then(function (d) {
         st.items = d.items || [];
-        st.waiting = d.waiting || 0;
+        st.stalled = d.stalled || 0;
         st.loaded = true;
         renderTabs();
         renderRows();

@@ -1,6 +1,7 @@
 """The flow line: search, download and filing side by side, and what happened to each issue lately."""
 import collections
 import datetime
+import json
 import queue
 import time
 import types
@@ -136,6 +137,58 @@ def test_download_stage_tells_downloading_from_queued_and_jd2(myDB):
 def test_queued_downloads_with_nothing_moving_are_stalled(myDB):
     ddl_row(myDB, 'b', '2', 'Queued')
     assert activity.flow()['download']['stalled'] is True
+
+
+@pytest.mark.unit
+def test_rows_jd2_is_holding_are_not_stalled(myDB):
+    # JD2's rows stay Queued while it works on them; the Queue page notice must not count them
+    ddl_row(myDB, 'c', '3', 'Queued', jd2_job='17917')
+    ddl_row(myDB, 'd', '4', 'Queued', jd2_job='17918')
+    mylar.JD2_QUEUE.put({'id': 'c'})
+    jd2.HOLDING[0] = 'd'
+    assert activity.stalled_downloads(myDB) == 0
+    assert activity.flow()['download']['stalled'] is False
+
+
+@pytest.mark.unit
+def test_a_stuck_row_next_to_jd2_work_is_still_stalled(myDB):
+    ddl_row(myDB, 'b', '2', 'Queued')
+    ddl_row(myDB, 'c', '3', 'Queued', jd2_job='17917')
+    mylar.JD2_QUEUE.put({'id': 'c'})
+    jd2.HOLDING[0] = 'c'
+    # JD2 never picks up row b, so its job (stuck or not) doesn't hide b
+    assert activity.stalled_downloads(myDB) == 1
+    assert activity.flow()['download']['stalled'] is True
+    ddl_row(myDB, 'a', '1', 'Downloading')
+    assert activity.stalled_downloads(myDB) == 0
+
+
+@pytest.mark.unit
+def test_a_leftover_jd2_job_id_nothing_holds_counts_as_stalled(myDB):
+    ddl_row(myDB, 'b', '2', 'Queued')
+    ddl_row(myDB, 'c', '3', 'Queued', jd2_job='17917')     # JD2 no longer watching it
+    assert activity.stalled_downloads(myDB) == 2
+
+
+@pytest.mark.unit
+def test_queued_rows_waiting_their_turn_are_not_stalled(myDB):
+    ddl_row(myDB, 'b', '2', 'Queued')
+    mylar.DDL_QUEUE.put({'id': 'b'})
+    assert activity.stalled_downloads(myDB) == 0
+
+
+@pytest.mark.unit
+def test_download_queue_json_carries_the_stalled_count(myDB, monkeypatch):
+    from mylar import webserve
+    ddl_row(myDB, 'b', '2', 'Queued')
+    ddl_row(myDB, 'c', '3', 'Queued', jd2_job='17917')
+    mylar.JD2_QUEUE.put({'id': 'c'})
+    monkeypatch.setattr(webserve.downloadqueue, 'client_snatches', lambda d: [])
+    out = json.loads(webserve.WebInterface().downloadQueue())
+    assert {i['queueid'] for i in out['items'] if i['kind'] == 'ddl'} == {'b', 'c'}
+    assert out['stalled'] == 1                                  # b only: JD2 is holding c
+    mylar.JD2_QUEUE.get()
+    assert json.loads(webserve.WebInterface().downloadQueue())['stalled'] == 2
 
 
 @pytest.mark.unit

@@ -4041,8 +4041,9 @@ class WebInterface(object):
     def downloadQueue(self):
         # Everything on its way: direct downloads plus grabs at SABnzbd, NZBGet or a torrent client.
         myDB = db.DBConnection()
+        # stalled follows the flow line's rule, so rows JD2 is holding never count as stuck
         return json.dumps({'items': downloadqueue.build(myDB, rate=downloadqueue.download_rate),
-                           'waiting': ddl_queue.waiting_count()})
+                           'stalled': activity.stalled_downloads(myDB)})
     downloadQueue.exposed = True
 
     def previewRename(self, **args): #comicid=None, comicidlist=None):

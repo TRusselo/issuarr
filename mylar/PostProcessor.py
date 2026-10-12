@@ -435,6 +435,7 @@ class PostProcessor(object):
         cur, self._att = getattr(self, '_att', None), None
         if cur and cur['path'] and counts == cur['counts'] and os.path.isfile(cur['path']):
             attention.record(cur['path'], attention.pick(cur['reasons']), cur['detail'], cur['comicid'])
+            archives.tally('attention')
 
     def _process_main(self):
             module = self.module
@@ -3481,6 +3482,7 @@ class PostProcessor(object):
 
             logger.info('%s Post-Processing completed for: %s %s' % (module, series, dispiss))
             self._log("Post Processing SUCCESSFUL! ")
+            archives.tally('filed')
 
             self.valreturn.append({"self.log": self.log,
                                    "mode": 'stop',
@@ -3569,6 +3571,7 @@ class FolderCheck():
     def run(self):
         if mylar.IMPORTLOCK:
             logger.info('There is an import currently running. In order to ensure successful import - deferring this until the import is finished.')
+            archives.skipped('a library import was running')
             return
         #monitor a selected folder for 'snatched' files that haven't been processed
         #junk the queue as it's not needed for folder monitoring, but needed for post-processing to run without error.
@@ -3580,7 +3583,9 @@ class FolderCheck():
         else:
             if mylar.APILOCK is True:
                 logger.info('%s Unable to initiate folder monitor as another process is currently using it or using post-processing.' % self.module)
+                archives.skipped('other post-processing was running')
                 return {'status': 'IN PROGRESS'}
+            archives.MONITOR.update(skipped_at=None, why='')
             helpers.job_management(write=True, job='Folder Monitor', current_run=helpers.utctimestamp(), status='Running')
             mylar.MONITOR_STATUS = 'Running'
             logger.info('%s Checking folder %s for newly snatched downloads' % (self.module, mylar.CONFIG.CHECK_FOLDER))

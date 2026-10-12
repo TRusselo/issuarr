@@ -194,7 +194,7 @@
     var keys = Object.keys(g).map(Number).sort();
     if (!keys.length) return '<span class="lg-trade lg-trade-out" title="Collected in trades you don\'t own">' + BOOK + '<span>' + list.length + ' not owned</span></span>';
     return keys.map(function (k) {
-      return '<span class="lg-trade" style="--c:var(' + CC[k] + ')" title="' + esc(CL[k] + ': ' + g[k].join(', ')) + '">' + BOOK + '<span>' + CL[k] + (g[k].length > 1 ? ' ×' + g[k].length : '') + '</span></span>';
+      return '<span class="lg-trade' + (CC[k] === '--lg-c-dupe' ? ' lg-trade-dupe' : '') + '" style="--c:var(' + CC[k] + ')" title="' + esc(CL[k] + ': ' + g[k].join(', ')) + '">' + BOOK + '<span>' + CL[k] + (g[k].length > 1 ? ' ×' + g[k].length : '') + '</span></span>';
     }).join('');
   }
 

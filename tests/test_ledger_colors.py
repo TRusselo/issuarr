@@ -17,8 +17,8 @@ LEDGER_CSS = _read('data', 'css', 'ledger.css')
 JS = _read('data', 'js', 'ledger.js')
 
 
-def _lg(prop):
-    body = re.search(r'(?:^|\})\s*\.lg\s*\{([^}]*)\}', LEDGER_CSS, flags=re.M).group(1)
+def _lg(prop, sel='.lg'):
+    body = re.search(r'(?:^|\})\s*' + re.escape(sel) + r'\s*\{([^}]*)\}', LEDGER_CSS, flags=re.M).group(1)
     m = re.search(r'(?:^|;)\s*' + re.escape(prop) + r'\s*:\s*([^;]+)', body)
     return m.group(1).strip() if m else None
 
@@ -32,7 +32,15 @@ def test_ledger_stylesheet_never_uses_the_snatched_yellow():
 @pytest.mark.unit
 def test_focus_rings_on_the_ledger_are_not_yellow():
     # The global focus ring is var(--snatched); on the Ledger yellow means Snatched only.
-    assert _lg('--focus') == 'var(--text)'
+    assert _lg('--focus', '.lg-ledger') == 'var(--text)'
+    assert '<div class="lg lg-ledger">' in _read('data', 'interfaces', 'default', 'ledger.html')
+
+
+@pytest.mark.unit
+def test_the_ledger_focus_change_stays_off_the_webp_page():
+    # WebP conversion reuses .lg and ledger.css; its focus rings are not the Ledger's to change.
+    assert _lg('--focus') is None
+    assert 'lg-ledger' not in _read('data', 'interfaces', 'default', 'webp.html')
 
 
 @pytest.mark.unit
@@ -41,11 +49,23 @@ def test_trade_chips_use_the_collection_colour_not_a_status_colour():
     fills, dupe = _lg('--lg-c-fills'), _lg('--lg-c-dupe')
     assert fills == 'var(--collection)'
     assert '--collection' in dupe and dupe != fills
+    # Fills gaps, Duplicates singles and Not in library are three different colours, and Duplicates singles
+    # isn't toned toward the grey of Not in library.
+    out = _lg('--lg-c-out')
+    assert len({fills, dupe, out}) == 3
+    assert '--muted' not in dupe
     for v in (fills, dupe):
         assert not any(s + ')' in v or s + ',' in v for s in status), v
     # A trade you own that collects a missing issue is the same colour as Fills gaps, not On disk.
     assert "style=\"--c:var(--lg-done)\" href=\"comicDetails" not in JS
     assert "'<a class=\"lg-trade\" style=\"--c:var(--lg-c-fills)\"" in JS
+
+
+@pytest.mark.unit
+def test_duplicates_singles_chip_is_outlined_not_filled():
+    rule = re.search(r'\.lg \.lg-trade-dupe\s*\{([^}]*)\}', LEDGER_CSS)
+    assert rule and 'background: none' in rule.group(1) and 'box-shadow' in rule.group(1)
+    assert re.search(r"CC\[k\] === '--lg-c-dupe' \? ' lg-trade-dupe'", JS)
 
 
 @pytest.mark.unit
@@ -68,9 +88,10 @@ def test_only_the_snatched_status_maps_to_yellow_in_ledger_js():
 
 @pytest.mark.unit
 def test_snatched_segments_say_what_yellow_means():
-    assert "['s', 'seg-snatched', 'Snatched', 'Grabbed, not filed yet']" in JS
-    assert "s: ['seg-snatched', 'snatched', 'grabbed, not filed yet']" in JS
-    # Each summary segment and legend entry carries the meaning on hover.
-    assert "x[3].toLowerCase()" in JS
-    assert '\'<span title="\' + esc(x[3]) + \'"><i class="\'' in JS
-    assert "k[1] + (k[2] ? ' - ' + k[2] : '')" in JS
+    assert re.search(r"\['s',\s*'seg-snatched',\s*'Snatched',\s*'Grabbed, not filed yet'\]", JS)
+    assert re.search(r"s:\s*\['seg-snatched',\s*'snatched',\s*'grabbed, not filed yet'\]", JS)
+    # Each summary segment, legend entry and runs segment carries the meaning on hover.
+    for fn in ('bar', 'runsBar'):
+        body = re.search(r'function ' + fn + r'\(.*?\n  \}', JS, flags=re.S).group(0)
+        assert re.search(r"class=\"' \+ \w+\[\d\][^;]*title=", body), fn
+    assert re.search(r"'<div class=\"legend\">'[^;]*<span title=", JS)

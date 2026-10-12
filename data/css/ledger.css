@@ -4,14 +4,15 @@
   --lg-gap: var(--text-2); --lg-unrec: var(--text-2); --lg-after: var(--text-2); --lg-before: var(--text-2); --lg-cut: var(--text-2);
   --lg-done: var(--have);
   /* What a trade covers. Status colours (wanted, snatched, on disk, failed, ignored) mean an issue's status, so trades use
-     the collection colour: full where a trade fills gaps, toned down where it only duplicates singles you have. */
-  --lg-c-fills: var(--collection); --lg-c-dupe: color-mix(in srgb, var(--collection) 45%, var(--muted));
+     the collection colour: full where a trade fills gaps, paler and outlined where it only duplicates singles you have,
+     so it reads apart from both Fills gaps and the grey of Not in library. */
+  --lg-c-fills: var(--collection); --lg-c-dupe: color-mix(in srgb, var(--collection) 55%, var(--text));
   --lg-c-part: var(--text-2); --lg-c-out: var(--muted); --lg-c-unknown: var(--faint);
-  /* Yellow means Snatched here, so focus rings stay neutral. */
-  --focus: var(--text);
   display: flex; flex-direction: column; gap: 18px; width: 100%; box-sizing: border-box; line-height: 1.45;
 }
 .lg [hidden] { display: none !important; }
+/* Yellow means Snatched on the Ledger, so focus rings stay neutral. WebP conversion shares .lg but not this. */
+.lg-ledger { --focus: var(--text); }
 .lg .page-head { margin: 0; }
 .lg-tabs { display: none; }
 
@@ -108,6 +109,7 @@
   background: color-mix(in srgb, var(--c) 12%, transparent); text-decoration: none; max-width: 220px; line-height: 1.3; }
 .lg .lg-trade span { overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
 .lg-ico { width: 15px; height: 15px; flex: none; fill: color-mix(in srgb, currentColor 25%, transparent); stroke: currentColor; stroke-width: 1.3; stroke-linejoin: round; }
+.lg .lg-trade-dupe { background: none; box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--c) 65%, transparent); }
 .lg .lg-trade-out { --c: var(--muted); background: none; border: 1px dashed var(--line); font-weight: 500; }
 .lg-trade-out .lg-ico { fill: none; }
 .lg-table tr.lg-complete td:first-child { box-shadow: inset 3px 0 0 var(--have); }

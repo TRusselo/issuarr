@@ -636,7 +636,9 @@ class GC(object):
                     if x not in keep:
                         mylar.PACK_ISSUEIDS_DONT_QUEUE.pop(x.get('issueid'), None)
                 pack_issuelist['issues'][:] = keep
-            others = [dict(e) for e in entries if e is not chosen and e['source'] not in ddlsources.BUILTIN]
+            if chosen['source'] == 'torrent':
+                return self._send_torrent(chosen, id, mainlink, comicinfo, packinfo, link_type_failure)
+            others = [dict(e) for e in entries if e is not chosen and e['source'] not in ddlsources.BUILTIN and e['source'] != 'torrent']
             return self._queue_links([chosen], entries, others, id, mainlink, comicinfo, None, link_type_failure, myDB)
 
         i = 0
@@ -770,10 +772,16 @@ class GC(object):
         #logger.fdebug('final valid_links: %s' % (valid_links))
         ddlsources.record([a.get('site') for y in valid_links.values() for a in (y.get('links') or [])])
         other_links = []
+        torrents = []
         for k, y in valid_links.items():
             for a in (y.get('links') or []):
-                src = ddlsources.canonical(a.get('site'))
-                if src and src not in ddlsources.BUILTIN and ddlsources.is_enabled(src) and a.get('links'):
+                src = ddlsources.canonical(a.get('site'), a.get('links'))
+                if not src or not ddlsources.is_enabled(src) or not a.get('links'):
+                    continue
+                if src == 'torrent':
+                    if ddlsources.torrent_ready() and 'GC-Torrent' not in (link_type_failure or []):
+                        torrents.append(dict(a, source=src))
+                elif src not in ddlsources.BUILTIN:
                     other_links.append(dict(a, source=src))
         tmp_links = []
         tmp_sites = []
@@ -836,6 +844,13 @@ class GC(object):
                        logger.fdebug('%s -- %s' % (d_site, a['series']))
                        cntr +=1
 
+
+        if torrents:
+            available = {ddlsources.canonical(a.get('site')) for a in tmp_links}
+            if self.jd2 is not None:
+                available |= {o['source'] for o in other_links}
+            if ddlsources.torrent_first(available, ddlsources.size_bytes(torrents[0].get('size'))):
+                return self._send_torrent(torrents[0], id, mainlink, comicinfo, packinfo, link_type_failure)
 
         #logger.fdebug('tmp_links: %s' % (tmp_links))
         logger.fdebug('tmp_sites: %s' % (tmp_sites))
@@ -1275,6 +1290,39 @@ class GC(object):
 
         return {'success': True, 'site': link_type}
 
+    def _send_torrent(self, entry, id, mainlink, comicinfo, packinfo, link_type_failure):
+        """Send a post's torrent or magnet link to the torrent client. If the client won't take it,
+        the post's other sources are tried instead."""
+        from mylar import downloadqueue, rsscheck
+        try:
+            info = comicinfo[0]
+        except Exception:
+            info = {}
+        if self.issueid is None:
+            self.issueid = info.get('IssueID')
+        if self.comicid is None:
+            self.comicid = info.get('ComicID')
+        name = info.get('ComicName') or entry.get('series') or 'getcomics'
+        logger.info('[DDL] Sending the torrent for %s from GetComics to your torrent client.' % (entry.get('series') or name))
+        try:
+            sent = rsscheck.torsend2client(name, info.get('IssueNumber') or entry.get('issues') or '', info.get('comyear') or entry.get('year') or '',
+                                           entry['links'], 'DDL(GetComics)')
+        except Exception as e:
+            logger.warn('[DDL] Sending the torrent failed: %s' % e)
+            sent = 'fail'
+        if not isinstance(sent, dict) or not sent.get('hash'):
+            logger.info('[DDL] The torrent client didn\'t take the torrent for %s - trying the post\'s other sources.' % name)
+            return self.parse_downloadresults(id, mainlink, comicinfo, packinfo, list(link_type_failure or []) + ['GC-Torrent'])
+        downloadqueue.record_job(self.issueid, None, self.comicid, sent.get('clientmode'), sent['hash'], entry.get('series') or name)
+        if (mylar.USE_RTORRENT or mylar.USE_DELUGE) and (mylar.CONFIG.AUTO_SNATCH or mylar.CONFIG.LOCAL_TORRENT_PP):
+            mylar.SNATCHED_QUEUE.put({'issueid': self.issueid, 'comicid': self.comicid, 'hash': sent['hash']})
+        try:
+            # after a failed download the item is no longer a direct download - the client has it now
+            db.DBConnection().action('DELETE FROM ddl_info WHERE id=?', [id])
+        except Exception:
+            pass
+        return {'success': True, 'site': 'GC-Torrent', 'torrent': sent}
+
     def _single_item(self, soup, comicinfo, link_type_failure=None):
         try:
             name = comicinfo[0]['ComicName']
@@ -1305,10 +1353,12 @@ class GC(object):
                 href = a.get('href')
                 if not site or not href or 'sh.st' in href or site.lower() == 'read online':
                     continue
-                src = ddlsources.canonical(site)
+                src = ddlsources.canonical(site, href)
                 if not src or not ddlsources.is_enabled(src):
                     continue
-                if getattr(self, 'jd2', None) is None and src not in ddlsources.BUILTIN:
+                if src == 'torrent' and not ddlsources.torrent_ready():
+                    continue
+                if getattr(self, 'jd2', None) is None and src not in ddlsources.BUILTIN and src != 'torrent':
                     continue  # only JD2 can download from this host
                 if link_type_failure and any(src[:4] in str(t).lower() or (src == 'main' and 'main' in str(t).lower()) for t in link_type_failure):
                     continue

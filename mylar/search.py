@@ -3223,7 +3223,10 @@ def searcher(
             ggc.loadsite(nzbid, link)
             ddl_it = ggc.parse_downloadresults(nzbid, link, comicinfo, pack_info)
             tnzbprov = nzbprov
-            if ddl_it['success'] is True:
+            if ddl_it['success'] is True and ddl_it.get('site') == 'GC-Torrent':
+                t_hash = ddl_it['torrent'].get('hash')
+                logger.info('[%s] Sent the torrent for %s to your torrent client.' % (tnzbprov, nzbname))
+            elif ddl_it['success'] is True:
                 logger.info(
                     '[%s] Successfully snatched %s from DDL site. It is currently being queued'
                     ' to download in position %s' % (tnzbprov, nzbname, mylar.DDL_QUEUE.qsize())
@@ -3257,7 +3260,10 @@ def searcher(
                 logger.info('[%s] Failed to retrieve %s from the External-DDL site.' % (tnzbprov, nzbname))
                 return "ddl-fail"
 
-        sent_to = "is downloading it directly via %s" % tnzbprov
+        if t_hash is not None:
+            sent_to = "has sent the GetComics torrent to your torrent client"
+        else:
+            sent_to = "is downloading it directly via %s" % tnzbprov
 
     elif mylar.CONFIG.ENABLE_AIRDCPP and nzbprov.lower() == 'airdcpp':
         if all([IssueID is None, IssueArcID is not None]):

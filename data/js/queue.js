@@ -4,15 +4,21 @@
 (function () {
   'use strict';
 
-  // Tab order. "Active" is everything not finished; Completed only applies to direct downloads.
+  // Tab order. "Active" is everything not finished; Completed only applies to direct downloads, and only
+  // once they're filed: until then they're Waiting to file, Filing, or Not filed.
   var TABS = [['active', 'Active'], ['Downloading', 'Downloading'], ['Queued', 'Queued'], ['Processing', 'Processing'],
-              ['Sent', 'Sent'], ['Paused', 'Paused'], ['Incomplete', 'Incomplete'], ['Failed', 'Failed'], ['Completed', 'Finished'], ['', 'All']];
+              ['Filing', 'Filing'], ['Sent', 'Sent'], ['Paused', 'Paused'], ['Incomplete', 'Incomplete'], ['Failed', 'Failed'],
+              ['Not filed', 'Not filed'], ['Completed', 'Finished'], ['', 'All']];
   var CLASS = { Completed: 'is-have', Downloading: 'is-snatched is-running', Processing: 'is-snatched is-running',
                 Checking: 'is-snatched', Queued: 'is-idle', Sent: 'is-idle', Paused: 'is-idle',
-                Incomplete: 'is-snatched', Failed: 'is-failed' };
+                Incomplete: 'is-snatched', Failed: 'is-failed', 'Waiting to file': 'is-snatched', Filing: 'is-snatched is-running',
+                'Not filed': 'is-failed' };
   var LABEL = { Completed: 'Finished', Sent: 'Waiting on client', Processing: 'Processing' };
   var HELP = { Sent: 'Sent to the download client. Its progress shows here when the client can be reached.',
-               Processing: 'Downloaded. Waiting for the client to unpack it or for Issuarr to file it.' };
+               Processing: 'Downloaded. Waiting for the client to unpack it or for Issuarr to file it.',
+               'Waiting to file': 'Downloaded. Waiting for post-processing to file it into your library.',
+               Filing: 'Downloaded. Post-processing is filing it into your library now.',
+               'Not filed': 'Downloaded, but post-processing didn\'t file it.' };
   var st = { tab: 'active', q: '', start: 0, len: 50, items: [], stalled: 0, loaded: false };
 
   function $id(id) { return document.getElementById(id); }
@@ -54,6 +60,7 @@
     if (tab === '') return true;
     if (tab === 'active') return it.status !== 'Completed';
     if (tab === 'Downloading') return it.status === 'Downloading' || it.status === 'Checking';
+    if (tab === 'Filing') return it.status === 'Filing' || it.status === 'Waiting to file';
     return it.status === tab;
   }
 
@@ -73,7 +80,10 @@
   function actionsFor(it) {
     if (it.kind !== 'ddl') return '';
     var id = it.queueid, out = [];
-    var label = { Queued: 'Start', Downloading: 'Restart', Incomplete: 'Restart', Failed: 'Retry', Completed: 'Download again' }[it.status];
+    // Nothing to do while filing has it; starting it again would download a second copy.
+    if (it.status === 'Waiting to file' || it.status === 'Filing') return '';
+    var label = { Queued: 'Start', Downloading: 'Restart', Incomplete: 'Restart', Failed: 'Retry', Completed: 'Download again',
+                  'Not filed': 'Download again' }[it.status];
     if (it.status === 'Incomplete' || it.status === 'Downloading') out.push('<button type="button" class="btn btn-sm" data-act="resume" data-id="' + esc(id) + '">Resume</button>');
     if (label) out.push('<button type="button" class="btn btn-sm" data-act="restart" data-id="' + esc(id) + '">' + label + '</button>');
     if (it.status === 'Downloading') {

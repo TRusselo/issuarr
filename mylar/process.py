@@ -41,7 +41,7 @@ class Process(object):
         retry_outside = False
 
         if self.failed is False:
-            PostProcess = mylar.PostProcessor.PostProcessor(self.nzb_name, self.nzb_folder, self.issueid, queue=ppqueue, comicid=self.comicid, apicall=self.apicall, ddl=self.ddl)
+            PostProcess = mylar.PostProcessor.PostProcessor(self.nzb_name, self.nzb_folder, self.issueid, queue=ppqueue, comicid=self.comicid, apicall=self.apicall, ddl=self.ddl, download_info=self.download_info)
             if any([self.nzb_name == 'Manual Run', self.nzb_name == 'Manual+Run', self.apicall is True, self.issueid is not None]):
                 threading.Thread(target=PostProcess.Process).start()
             else:

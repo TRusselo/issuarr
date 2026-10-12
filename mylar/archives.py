@@ -15,6 +15,9 @@ RUNS = [0]
 # The series each running post-processing job is filing; None for a job that could be filing
 # anything (the monitored folder, a manual run).
 JOBS = []
+# Direct downloads post-processing has taken off its queue, by ddl_info id: 'waiting' until their
+# run gets its turn, 'filing' while it runs. Dropped when the run ends; a restart forgets them.
+DDL_FILING = {}
 ACTIVITY = {'state': 'Idle', 'detail': '', 'since': None, 'last': '', 'last_at': None, 'notes': []}
 
 
@@ -54,6 +57,17 @@ def holds(comicid):
     except Exception:
         pass
     return any(c is None or str(c) == str(comicid) for c in series)
+
+
+def ddl_filing(download_info, stage):
+    """Note how far post-processing has got with a direct download; None once its run has ended."""
+    if not isinstance(download_info, dict) or download_info.get('provider') not in ('DDL', 'JD2') \
+            or download_info.get('id') is None:
+        return
+    if stage is None:
+        DDL_FILING.pop(str(download_info['id']), None)
+    else:
+        DDL_FILING[str(download_info['id'])] = stage
 
 
 def snapshot():

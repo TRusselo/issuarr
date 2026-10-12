@@ -770,7 +770,6 @@ class GC(object):
             count_bees +=1
 
         #logger.fdebug('final valid_links: %s' % (valid_links))
-        ddlsources.record([a.get('site') for y in valid_links.values() for a in (y.get('links') or [])])
         other_links = []
         torrents = []
         for k, y in valid_links.items():

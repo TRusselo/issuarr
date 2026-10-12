@@ -1,5 +1,4 @@
 import base64
-import datetime
 import json
 import os
 import re
@@ -9,15 +8,19 @@ import time
 import requests
 
 import mylar
-from mylar import db, logger
+from mylar import logger
 
+# What the download sources list orders: GetComics' own server, the cloud shares a post links
+# to (any host other than those two), and its torrent or magnet link.
+GROUPS = ['direct', 'cloud', 'torrent']
+GROUP_LABELS = {'direct': 'GetComics direct', 'cloud': 'Cloud shares', 'torrent': 'Torrent or magnet link'}
+GROUP_VIA = {'direct': 'Download Now, Main Server and Mirror, through FlareSolverr',
+             'cloud': 'Mega, MediaFire and Pixeldrain by Issuarr; other hosts such as TeraBox through JD2',
+             'torrent': 'Sent to your torrent client, when torrent search is on'}
+DEFAULT_GROUPS = list(GROUPS)
 BUILTIN = ['main', 'mega', 'mediafire', 'pixeldrain']
-KNOWN = ['main', 'pixeldrain', 'mega', 'mediafire', 'vikingfile', 'datanodes', 'ufile', 'terabox', 'torrent']
-LABELS = {'main': 'GetComics direct (Download Now / Main Server / Mirror)', 'mega': 'Mega', 'mediafire': 'Mediafire',
-          'pixeldrain': 'Pixeldrain', 'vikingfile': 'VikingFile', 'datanodes': 'DataNodes', 'ufile': 'Ufile', 'terabox': 'TeraBox',
-          'torrent': 'Torrent or magnet link'}
-JD2_ONLY = {'vikingfile': 'JD2', 'datanodes': 'JD2', 'ufile': 'JD2', 'terabox': 'JD2 (may need a TeraBox account in JD2)'}
-DEFAULT_ORDER = list(KNOWN)
+# cloud shares in the order they're tried; the order inside the group doesn't matter much
+CLOUD = ['pixeldrain', 'mega', 'mediafire', 'vikingfile', 'datanodes', 'ufile', 'terabox']
 
 _pd_lock = threading.Lock()
 _pd_cache = {'at': 0, 'data': None}
@@ -33,6 +36,13 @@ def canonical(label, href=None):
         if k[:5] in s:
             return k
     return re.sub(r'[^a-z0-9]+', '', s) or None
+
+
+def group(name):
+    """'direct', 'cloud' or 'torrent' for a source a post links to."""
+    if name in GROUPS:
+        return name
+    return 'direct' if name == 'main' else 'torrent' if name == 'torrent' else 'cloud'
 
 
 def is_torrent(label, href=None):
@@ -53,37 +63,11 @@ def torrent_ready():
 
 def torrent_first(available, size_bytes=None):
     """Whether a post's torrent comes before every other source it has that Issuarr can use."""
-    o = order(size_bytes)
-    if 'torrent' not in o or not torrent_ready():
+    groups = [g for g in configured_groups() if g not in disabled()]
+    if 'torrent' not in groups or not torrent_ready():
         return False
-    ranks = [o.index(s) for s in available if s in o and s != 'torrent']
-    return not ranks or o.index('torrent') < min(ranks)
-
-
-def _ensure(myDB):
-    myDB.action('CREATE TABLE IF NOT EXISTS ddl_sources (Name TEXT UNIQUE, Label TEXT, FirstSeen TEXT, LastSeen TEXT, Seen INTEGER)')
-
-
-def record(labels):
-    names = {}
-    for label in labels or []:
-        n = canonical(label)
-        if n and n != 'readonline':
-            names.setdefault(n, label)
-    if not names:
-        return
-    try:
-        myDB = db.DBConnection()
-        _ensure(myDB)
-        now = datetime.datetime.now().strftime('%Y-%m-%d %H:%M')
-        for n, label in names.items():
-            row = myDB.selectone('SELECT Seen FROM ddl_sources WHERE Name=?', [n]).fetchone()
-            vals = {'Label': label, 'LastSeen': now, 'Seen': (row['Seen'] or 0) + 1 if row else 1}
-            if not row:
-                vals['FirstSeen'] = now
-            myDB.upsert('ddl_sources', vals, {'Name': n})
-    except Exception as e:
-        logger.fdebug('[DDL-SOURCES] Unable to record sources %s: %s' % (list(names), e))
+    ranks = [groups.index(group(s)) for s in available if s and s != 'torrent' and group(s) in groups]
+    return not ranks or groups.index('torrent') < min(ranks)
 
 
 def _as_list(value):
@@ -96,39 +80,25 @@ def _as_list(value):
         return []
 
 
-def configured_order():
-    order = _as_list(getattr(mylar.CONFIG, 'DDL_PRIORITY_ORDER', None)) or list(DEFAULT_ORDER)
-    for b in KNOWN:
-        if b not in order:
-            order.append(b)
-    return order
+def configured_groups():
+    """The groups in the order to try them. An order saved as host names (before the groups) keeps
+    each group where its first host was."""
+    out = []
+    for n in _as_list(getattr(mylar.CONFIG, 'DDL_PRIORITY_ORDER', None)) or DEFAULT_GROUPS:
+        g = group(n)
+        if g not in out:
+            out.append(g)
+    return out + [g for g in GROUPS if g not in out]
 
 
 def disabled():
-    return set(_as_list(getattr(mylar.CONFIG, 'DDL_DISABLED_SOURCES', None)))
+    """Groups that are turned off. Of the old per-host switches only GetComics direct and torrent carry over."""
+    return {group(n) for n in _as_list(getattr(mylar.CONFIG, 'DDL_DISABLED_SOURCES', None)) if n in GROUPS or n in ('main', 'torrent')}
 
 
 def all_sources():
-    seen = {}
-    try:
-        myDB = db.DBConnection()
-        _ensure(myDB)
-        seen = {r['Name']: dict(r) for r in myDB.select('SELECT * FROM ddl_sources')}
-    except Exception:
-        pass
-    order = configured_order()
-    for n in seen:
-        if n not in order:
-            order.append(n)
     off = disabled()
-    out = []
-    for n in order:
-        s = seen.get(n, {})
-        out.append({'name': n, 'label': LABELS.get(n) or s.get('Label') or n, 'builtin': n in BUILTIN,
-                    'via': 'Mylar or JD2' if n in BUILTIN and n != 'main' else ('Mylar (FlareSolverr)' if n == 'main' else
-                           'your torrent client, when torrent search is on' if n == 'torrent' else JD2_ONLY.get(n, 'JD2, if it supports the host')),
-                    'enabled': n not in off, 'last_seen': s.get('LastSeen'), 'seen': s.get('Seen') or 0})
-    return out
+    return [{'name': g, 'label': GROUP_LABELS[g], 'via': GROUP_VIA[g], 'enabled': g not in off} for g in configured_groups()]
 
 
 def size_bytes(text):
@@ -149,22 +119,26 @@ def large_limit():
 
 
 def order(size_bytes=None):
+    """Every source, host by host, in the order to try them."""
     off = disabled()
-    result = [n for n in configured_order() if n not in off]
-    if 'pixeldrain' in result and size_bytes and not pixeldrain_fits(size_bytes):
-        result.remove('pixeldrain')
-        result.append('pixeldrain')
-        logger.fdebug('[DDL-SOURCES] Pixeldrain allowance too low for %s bytes - trying it last.' % size_bytes)
+    cloud = list(CLOUD)
+    if size_bytes and not pixeldrain_fits(size_bytes):
+        cloud.remove('pixeldrain')
+        cloud.append('pixeldrain')
+        logger.fdebug('[DDL-SOURCES] Pixeldrain allowance too low for %s bytes - trying it last of the cloud shares.' % size_bytes)
+    hosts = {'direct': ['main'], 'cloud': cloud, 'torrent': ['torrent']}
+    groups = [g for g in configured_groups() if g not in off]
     limit = large_limit()
-    if 'main' in result and size_bytes and limit and size_bytes > limit and result[-1] != 'main':
-        result.remove('main')
-        result.append('main')
-        logger.info('[DDL-SOURCES] %s MB is over the %s MB limit for the GetComics server - trying the other hosts first.' % (size_bytes // 1048576, limit // 1048576))
-    return result
+    if 'direct' in groups and 'cloud' in groups and size_bytes and limit and size_bytes > limit \
+            and groups.index('direct') < groups.index('cloud'):
+        groups.remove('direct')
+        groups.insert(groups.index('cloud') + 1, 'direct')
+        logger.info('[DDL-SOURCES] %s MB is over the %s MB limit for the GetComics server - trying the cloud shares first.' % (size_bytes // 1048576, limit // 1048576))
+    return [h for g in groups for h in hosts[g]]
 
 
 def is_enabled(name):
-    return name not in disabled()
+    return group(name) not in disabled()
 
 
 def pixeldrain_key():

@@ -12,6 +12,9 @@ IMAGE_EXT = ('.jpg', '.jpeg', '.png', '.webp', '.gif', '.bmp', '.avif', '.jxl')
 ARCHIVE_EXT = ('.zip', '.rar')
 SETTLE_SECONDS = 120
 RUNS = [0]
+# The series each running post-processing job is filing; None for a job that could be filing
+# anything (the monitored folder, a manual run).
+JOBS = []
 ACTIVITY = {'state': 'Idle', 'detail': '', 'since': None, 'last': '', 'last_at': None, 'notes': []}
 
 
@@ -38,15 +41,19 @@ def processing():
     return ACTIVITY['state'] == 'Working' or RUNS[0] > 0 or autoadd.running() or queued
 
 
-def wait_idle(label, limit=1800):
-    if not processing():
-        return
-    logger.info('%s Waiting for post-processing to finish before searching, so issues already downloaded aren\'t grabbed again.' % label)
-    end = time.time() + limit
-    while processing() and time.time() < end:
-        time.sleep(10)
-    if processing():
-        logger.info('%s Post-processing is still running after %s minutes - searching anyway.' % (label, limit // 60))
+def holds(comicid):
+    """True while filing could still be handling a file of this series, so searching it now
+    might grab an issue that's already downloaded. Filing other series doesn't hold it up."""
+    from mylar import autoadd
+    if autoadd.running():
+        return True
+    series = list(JOBS)
+    try:
+        with mylar.PP_QUEUE.mutex:
+            series += [i.get('comicid') for i in mylar.PP_QUEUE.queue if isinstance(i, dict)]
+    except Exception:
+        pass
+    return any(c is None or str(c) == str(comicid) for c in series)
 
 
 def snapshot():

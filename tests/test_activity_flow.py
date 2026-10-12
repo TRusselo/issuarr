@@ -107,8 +107,13 @@ def test_search_stage_shows_current_and_queue_places(myDB, monkeypatch):
 
 @pytest.mark.unit
 def test_search_waiting_on_filing_says_so(myDB, monkeypatch):
-    monkeypatch.setattr(archives, 'processing', lambda: True)
+    from mylar.queues import search as worker
+    monkeypatch.setattr(worker, 'HELD', {})
     mylar.SEARCH_QUEUE.put(item('2'))
+    mylar.SEARCH_QUEUE.put(item('3'))
+    worker.HELD['2'] = time.time()
+    assert activity.flow()['search']['blocked'] is None          # 3 can search meanwhile
+    worker.HELD['3'] = time.time()
     assert activity.flow()['search']['blocked'] == 'filing'
 
 

@@ -104,14 +104,15 @@ def _wanted(myDB):
 
 def _search(issues):
     from mylar import search
+    from mylar.queues import search as search_worker
     st = search.search_status()
     current, waiting = st['current'], st['waiting']
     blocked = None
     if not current and waiting:
         if st['busy']:
             blocked = 'rss'
-        elif archives.processing():
-            blocked = 'filing'
+        elif search_worker.HELD and len(search_worker.HELD) >= len(waiting):
+            blocked = 'filing'   # everything waiting is a series being filed
     try:
         job = mylar.SCHED.get_job('search')
         nxt = job.next_run_time.timestamp() if job and job.next_run_time else None

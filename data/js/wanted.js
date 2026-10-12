@@ -9,6 +9,7 @@
     ['all', 'All', function () { return true; }],
     ['tier1', 'Tier 1', function (r) { return r.tier === 1; }],
     ['tier2', 'Tier 2', function (r) { return r.tier === 2; }],
+    ['soon', 'Not out yet', function (r) { return r.tier === 'soon'; }],
     ['snatched', 'Snatched', function (r) { return r.status === 'Snatched'; }],
     ['failed', 'Failed', function (r) { return r.status === 'Failed'; }],
     ['arcs', 'Story arcs', function (r) { return !!r.arc; }]
@@ -30,8 +31,10 @@
     var tierText = r[4] || '';
     var tier = 0, added = '';
     if (r[6] === 'Wanted') {
+      var m = /\[(.*)\]/.exec(tierText);
       if (tierText.indexOf('2nd') === 0) tier = 2;
-      else { tier = 1; var m = /\[(.*)\]/.exec(tierText); added = m ? m[1] : ''; }
+      else if (tierText.indexOf('Not out') === 0) tier = 'soon';
+      else { tier = 1; added = m ? m[1] : ''; }
     }
     return { name: r[0] || '', issue: r[1] == null ? '' : String(r[1]), release: r[2] || '', id: String(r[3]), tier: tier, added: added,
              comicid: r[5], status: r[6] || '', arc: r[7], arcid: r[8], arcissue: r[9] ? String(r[9]) : '', watch: r[10],
@@ -68,9 +71,21 @@
     return ' <span class="' + cls + '">' + esc(text) + '</span>';
   }
 
+  // Tier 1 lasts TIER_DAYS from the later of the day an issue was added and the day it came out.
+  var TIER_DAYS = Number($id('w-table').getAttribute('data-tier-days')) || 14;
+  function plusDays(iso, n) {
+    var t = new Date(iso + 'T00:00:00');
+    if (isNaN(t)) return '';
+    t.setDate(t.getDate() + n);
+    return t.getFullYear() + '-' + ('0' + (t.getMonth() + 1)).slice(-2) + '-' + ('0' + t.getDate()).slice(-2);
+  }
   function tierCell(r) {
-    if (r.tier === 1) return 'Tier 1' + (r.added ? ' <span class="muted mono">since ' + esc(r.added) + '</span>' : '');
+    if (r.tier === 1) {
+      var until = r.added ? plusDays(r.added, TIER_DAYS) : '';
+      return 'Tier 1' + (until ? ' <span class="muted mono" title="Searched on every scheduled search until then">until ' + esc(until) + '</span>' : '');
+    }
     if (r.tier === 2) return '<span class="muted">Tier 2</span>';
+    if (r.tier === 'soon') return '<span title="Searched from its release date">Not out yet</span>';
     return '';
   }
 
@@ -186,7 +201,17 @@
     fetch('markissues?' + p.toString(), { credentials: 'same-origin' })
       .then(function (r) {
         if (!r.ok) throw new Error(r.status);
-        I().toast(MARK[action].replace('{n}', plural(ids.length)) + '.');
+        return r.text();
+      })
+      .then(function (body) {
+        var d = {};
+        try { d = JSON.parse(body) || {}; } catch (e) { /* older replies have no body */ }
+        var msg = MARK[action].replace('{n}', plural(action === 'OppositeTier' && d.switched != null ? d.switched : ids.length)) + '.';
+        if (action === 'OppositeTier' && d.kept) {
+          msg += ' ' + (d.kept === 1 ? '1 came out in the last ' + TIER_DAYS + ' days or isn\'t out yet, so it can\'t' :
+                 fmt(d.kept) + ' came out in the last ' + TIER_DAYS + ' days or aren\'t out yet, so they can\'t') + ' move to Tier 2 yet.';
+        }
+        I().toast(msg);
         st.sel = {};
         return load();
       })

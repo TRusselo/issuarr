@@ -9,7 +9,7 @@
         <div class="page-head">
             <div class="head-text">
                 <h1>Wanted</h1>
-                <p class="page-sub">Issues Issuarr is looking for. <b>Tier 1</b> is everything added in the last ${tier_cutoff} days and is searched on every scheduled search. <b>Tier 2</b> is older and is only picked up from RSS feeds, unless you use <b>Search all</b>.</p>
+                <p class="page-sub">Issues Issuarr is looking for. <b>Tier 1</b> is everything added or released in the last ${tier_cutoff} days and is searched on every scheduled search. <b>Tier 2</b> is older and is only picked up from RSS feeds, unless you use <b>Search all</b>. Issues that are <b>not out yet</b> aren't searched until their release date.</p>
             </div>
             <div class="btn-row">
                 <button type="button" class="btn btn-primary" id="w-search-tier1" title="Run the scheduled search now, for every Tier 1 issue">Search Tier 1 now</button>
@@ -39,7 +39,7 @@
                     <select id="w-sort">
                         <option value="release-desc">Newest release first</option>
                         <option value="release-asc">Oldest release first</option>
-                        <option value="added-desc">Recently added to Wanted</option>
+                        <option value="added-desc">Longest left in Tier 1</option>
                         <option value="series">Series</option>
                     </select>
                 </label>
@@ -58,7 +58,7 @@
             </div>
 
             <div class="dt-wrap">
-                <table class="dt" id="w-table">
+                <table class="dt" id="w-table" data-tier-days="${tier_cutoff}">
                     <thead>
                         <tr>
                             <th scope="col" class="check"><input type="checkbox" id="w-all" aria-label="Select all shown" /></th>

@@ -1820,6 +1820,7 @@ def searchforissue(issueid=None, new=False, rsschecker=None, manual=False, all_t
                     ' Date-data in the database: %s' % (search_skip)
                 )
 
+            tier_date = helpers.search_tier_date()
             for result in sorted(results, key=itemgetter('StoreDate'), reverse=True):
 
                 try:
@@ -1955,16 +1956,22 @@ def searchforissue(issueid=None, new=False, rsschecker=None, manual=False, all_t
                     else:
                         DateAdded = result['DateAdded']
 
-                    if rsschecker is None and (all_tiers or DateAdded >= mylar.SEARCH_TIER_DATE):
+                    # Tier 1 runs from the later of the day it was added and the day it came out.
+                    # RSS still matches an issue that isn't out yet: if it's in a feed, it's out.
+                    tier, tier_since = helpers.search_tier(DateAdded, StoreDate, DigitalDate, tier_date)
+                    if rsschecker is None and tier == 'soon':
+                        logger.fdebug('[NOT OUT YET] %s #%s comes out %s, searching from then' % (comicname, result['Issue_Number'], tier_since))
+                        continue
+                    if rsschecker is None and (all_tiers or tier == 1):
                         # Story-arc issues are looked up by their arc id (the queue spots the "_");
                         # the plain IssueID isn't found when the series isn't on the watchlist.
                         queue_id = result['IssueArcID'] if result['mode'] == 'story_arc' and result.get('IssueArcID') else result['IssueID']
                         if queue_id in already_queued:
                             continue
                         logger.fdebug(
-                            '[%s] Adding: %s #%s [ComicID:%s / IssueiD: %s][ %s %s %s]'
-                            % ('TIER1' if DateAdded >= mylar.SEARCH_TIER_DATE else 'TIER2', comicname, result['Issue_Number'], result['ComicID'], result['IssueID'],
-                               DateAdded, '>=' if DateAdded >= mylar.SEARCH_TIER_DATE else '<', mylar.SEARCH_TIER_DATE)
+                            '[TIER%s] Adding: %s #%s [ComicID:%s / IssueiD: %s][added %s, out %s, Tier 1 from %s]'
+                            % (tier, comicname, result['Issue_Number'], result['ComicID'], result['IssueID'],
+                               DateAdded, helpers.release_date(StoreDate, DigitalDate), tier_date)
                         )
                         mylar.SEARCH_QUEUE.put(
                             {
@@ -1983,7 +1990,7 @@ def searchforissue(issueid=None, new=False, rsschecker=None, manual=False, all_t
                             sqlquery_name = re.sub(r'[\:\-]', '%', comic['ComicName']).strip()
                             rss_queue.append((comic['ComicName'], sqlquery_name, result['Issue_Number'], ComicYear, SeriesYear, Publisher, IssueDate, StoreDate, result['IssueID'], AlternateSearch, UseFuzzy, ComicVersion, result['SARC'], result['IssueArcID'], result['mode'], rsschecker, result['ComicID'], Comicname_filesafe, AllowPacks, OneOff, TorrentID_32p, DigitalDate, booktype, ignore_booktype))
                     else:
-                        logger.fdebug('[TIER2] %s #%s [%s < %s]' % (comicname, result['Issue_Number'], DateAdded, mylar.SEARCH_TIER_DATE))
+                        logger.fdebug('[TIER2] %s #%s [%s < %s]' % (comicname, result['Issue_Number'], tier_since, tier_date))
                         continue
                     # - removed below - if uncommented will ignore the Tier searches
                     #else:
@@ -2628,6 +2635,13 @@ def searchIssueIDList(issuelist):
                     ' still wanted, perform a Manual search or mark issue as Skipped'
                     ' or Wanted.'
                 )
+                continue
+
+            # Marking an issue Wanted (or adding a series) doesn't search what isn't out yet:
+            # the scheduled search picks it up from its release date.
+            if helpers.not_out_yet(issue['ReleaseDate'], issue['DigitalDate']):
+                logger.fdebug('[NOT OUT YET] IssueID %s comes out %s, searching from then'
+                              % (issueid, helpers.release_date(issue['ReleaseDate'], issue['DigitalDate'])))
                 continue
 
             if comicname is None:

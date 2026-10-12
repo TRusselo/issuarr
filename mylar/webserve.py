@@ -200,6 +200,14 @@ class WebMaintenance(object):
     shutdown.exposed = True
 
 
+def wanted_tier(dateadded, storedate, digitaldate, tier_date):
+    """The Wanted list's tier text: '1st [since]', '2nd', or 'Not out [release date]'."""
+    tier, since = helpers.search_tier(dateadded, storedate, digitaldate, tier_date)
+    if tier == 'soon':
+        return 'Not out [%s]' % since
+    return '1st [%s]' % since if tier == 1 else '2nd'
+
+
 class WebInterface(object):
 
     auth = AuthController()
@@ -2366,6 +2374,7 @@ class WebInterface(object):
         issuestoArchive = []
         tier1_cnt = 0
         tier2_cnt = 0
+        kept_cnt = 0
         if action == 'WantedNew':
             newaction = 'Wanted'
         else:
@@ -2423,18 +2432,20 @@ class WebInterface(object):
                     seriesyear = mi['ComicYear']
 
                 if action == 'OppositeTier':
-                    try:
-                        if mi['DateAdded'] <= mylar.SEARCH_TIER_DATE:
-                            date_added = helpers.today() #tier = "2nd"
-                            tier1_cnt +=1
-                        else:
-                            dt = datetime.datetime.strptime(mylar.SEARCH_TIER_DATE, '%Y-%m-%d')
-                            dt-=datetime.timedelta(days=2)
-                            new_tier_date = datetime.datetime.strftime(dt, '%Y-%m-%d')
-                            date_added = new_tier_date #tier = "1st [%s]" % mi['DateAdded']
-                            tier2_cnt +=1
-                    except:
-                        date_added = mylar.SEARCH_TIER_DATE #"1st [%s]" % mi['DateAdded']
+                    tier_date = helpers.search_tier_date()
+                    tier, _ = helpers.search_tier(mi['DateAdded'], mi['ReleaseDate'], mi['DigitalDate'], tier_date)
+                    out = helpers.release_date(mi['ReleaseDate'], mi['DigitalDate'])
+                    if tier == 2:
+                        date_added = helpers.today()
+                        tier1_cnt +=1
+                    elif tier == 'soon' or (out and out >= tier_date):
+                        # not out yet, or out in the last SEARCH_TIER_CUTOFF days: it stays in Tier 1
+                        # until then, whatever day it was added
+                        kept_cnt +=1
+                        continue
+                    else:
+                        dt = datetime.datetime.strptime(tier_date, '%Y-%m-%d') - datetime.timedelta(days=2)
+                        date_added = dt.strftime('%Y-%m-%d')
                         tier2_cnt +=1
 
                     newValueDict = {'DateAdded': date_added}
@@ -2487,6 +2498,8 @@ class WebInterface(object):
                 if tier2_cnt > 0:
                     tierline += ' and '
                 tierline += '%s Tier2 items to Tier 1' % tier1_cnt
+            if kept_cnt > 0:
+                tierline += ' (%s new releases stay in Tier 1)' % kept_cnt
             logger.info('[TIER-REARRANGER] %s' % tierline)
         if action == 'Failed' and mylar.CONFIG.FAILED_DOWNLOAD_HANDLING:
             self.failed_handling(failedcomicid, failedissueid)
@@ -2498,7 +2511,7 @@ class WebInterface(object):
         else:
             updater.forceRescan(mi['ComicID'])
         mylar.GLOBAL_MESSAGES = {'status': 'success', 'comicname': comicname, 'seriesyear': seriesyear, 'comicid': comicid, 'tables': 'both', 'message': 'Successfully changed status of %s issues to %s' % (len(issuelist), action)}
-        return json.dumps({'status': 'success'})
+        return json.dumps({'status': 'success', 'switched': tier1_cnt + tier2_cnt, 'kept': kept_cnt})
     markissues.exposed = True
 
     def markentries(self, action=None, **args):
@@ -3471,7 +3484,7 @@ class WebInterface(object):
         if mylar.CONFIG.FAILED_DOWNLOAD_HANDLING is True:
             statline += " OR Status='Failed'"
 
-        iss_query = "SELECT ComicName, Status, ComicID, IssueID, DateAdded from issues WHERE %s" % statline
+        iss_query = "SELECT ComicName, Status, ComicID, IssueID, DateAdded, ReleaseDate, DigitalDate from issues WHERE %s" % statline
         issues = myDB.select(iss_query)
 
         arcs = {}
@@ -3493,6 +3506,7 @@ class WebInterface(object):
         isCounts[3] = 0   #3 failed
         isCounts[4] = 0   #4 tier1
         isCounts[5] = 0   #5 tier2
+        isCounts[6] = 0   #6 not out yet
 
         ann_list = []
 
@@ -3539,10 +3553,13 @@ class WebInterface(object):
                     if seas in curResult['Status'].lower():
                         sconv = baseissues[seas]
                         if curResult['Status'] == 'Wanted':
-                            if curResult['DateAdded'] is not None and curResult['DateAdded'] <= mylar.SEARCH_TIER_DATE:
+                            tier, _ = helpers.search_tier(curResult['DateAdded'], curResult['ReleaseDate'], curResult['DigitalDate'])
+                            if tier == 2:
                                 isCounts[4]+=1  #tier2
-                            elif curResult['DateAdded'] is not None and curResult['DateAdded'] > mylar.SEARCH_TIER_DATE:
+                            elif tier == 1:
                                 isCounts[5]+=1  #tier1
+                            else:
+                                isCounts[6]+=1  #not out yet
                         else:
                             isCounts[sconv]+=1  #everything else
 
@@ -3554,7 +3571,8 @@ class WebInterface(object):
                     "failed": str(isCounts[3]),
                     #"storyarcs": str(len(arcs)),
                     "tier1": str(isCounts[5]),
-                    "tier2": str(isCounts[4])}
+                    "tier2": str(isCounts[4]),
+                    "soon": str(isCounts[6])}
 
         return json.dumps({'status': 'success', 'filters': isCounts})
     update_upcoming_filters.exposed = True
@@ -3578,11 +3596,11 @@ class WebInterface(object):
         if mylar.CONFIG.FAILED_DOWNLOAD_HANDLING is True:
             statline += " OR Status='Failed'"
 
-        iss_query = "SELECT ComicName, Issue_Number, Int_IssueNumber, ReleaseDate, Status, ComicID, IssueID, DateAdded from issues WHERE %s" % statline
+        iss_query = "SELECT ComicName, Issue_Number, Int_IssueNumber, ReleaseDate, DigitalDate, Status, ComicID, IssueID, DateAdded from issues WHERE %s" % statline
         issues = myDB.select(iss_query)
         arcs = {}
         if mylar.CONFIG.UPCOMING_STORYARCS is True:
-            arcs_query = "SELECT Storyarc, StoryArcID, IssueArcID, ComicName, IssueNumber, Int_IssueNumber, ReleaseDate, Status, ComicID, IssueID, DateAdded from storyarcs WHERE %s" % statline
+            arcs_query = "SELECT Storyarc, StoryArcID, IssueArcID, ComicName, IssueNumber, Int_IssueNumber, ReleaseDate, DigitalDate, Status, ComicID, IssueID, DateAdded from storyarcs WHERE %s" % statline
             arclist = myDB.select(arcs_query)
             for arc in arclist:
                 arc_int_number = arc['Int_IssueNumber']
@@ -3596,11 +3614,12 @@ class WebInterface(object):
                                         'issuenumber': arc['IssueNumber'],
                                         'int_issuenumber': arc_int_number,
                                         'releasedate': arc['ReleaseDate'],
+                                        'digitaldate': arc['DigitalDate'],
                                         'status': arc['Status'],
                                         'dateadded': arc['DateAdded']}
 
         if mylar.CONFIG.ANNUALS_ON:
-            annuals_query = "SELECT ReleaseComicName as ComicName, Issue_Number as Issue_Number, Int_IssueNumber, ReleaseDate, Status, ComicID, IssueID, DateAdded FROM annuals WHERE NOT Deleted AND %s" % statline
+            annuals_query = "SELECT ReleaseComicName as ComicName, Issue_Number as Issue_Number, Int_IssueNumber, ReleaseDate, DigitalDate, Status, ComicID, IssueID, DateAdded FROM annuals WHERE NOT Deleted AND %s" % statline
             annuals_list = myDB.select(annuals_query)
 
             issues += annuals_list
@@ -3610,24 +3629,15 @@ class WebInterface(object):
         iDisplayLength = int(iDisplayLength)
         filtered = []
         tier = None
+        tier_date = helpers.search_tier_date()
         dollars = []
         bills = []
         for row in resultlist:
             matched = False
             if row['Status'] == 'Wanted':
-                try:
-                    if row['DateAdded'] <= mylar.SEARCH_TIER_DATE:
-                        tier = '2nd'
-                        if sSearch.lower() in tier.lower():
-                            matched = True
-                    else:
-                        tier = '1st [%s]' % row['DateAdded']
-                        if sSearch.lower() in tier.lower():
-                            matched = True
-                except:
-                    tier = '1st [%s]' % row['DateAdded']
-                    if sSearch.lower() in tier.lower():
-                        matched = True
+                tier = wanted_tier(row['DateAdded'], row['ReleaseDate'], row['DigitalDate'], tier_date)
+                if sSearch.lower() in tier.lower():
+                    matched = True
             else:
                 tier = ''
 
@@ -3683,19 +3693,9 @@ class WebInterface(object):
             for key, ark in arcs.items():
                 matched = False
                 if ark['status'] == 'Wanted':
-                    try:
-                        if ark['dateadded'] <= mylar.SEARCH_TIER_DATE:
-                            tier = '2nd'
-                            if sSearch.lower() in tier.lower():
-                                matched = True
-                        else:
-                            tier = '1st [%s]' % ark['dateadded']
-                            if sSearch.lower() in tier.lower():
-                                matched = True
-                    except:
-                        tier = '1st [%s]' % ark['dateadded']
-                        if sSearch.lower() in tier.lower():
-                            matched = True
+                    tier = wanted_tier(ark['dateadded'], ark['releasedate'], ark['digitaldate'], tier_date)
+                    if sSearch.lower() in tier.lower():
+                        matched = True
                 else:
                     tier = ''
 

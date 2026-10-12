@@ -269,6 +269,35 @@ def test_a_run_saves_its_choices_and_the_form_opens_with_them(env, monkeypatch):
 
 
 @pytest.mark.unit
+def test_changing_how_files_convert_does_not_need_a_new_preview(env, monkeypatch):
+    monkeypatch.setattr(webp, 'MAX_THREADS', 16)
+    monkeypatch.setattr(webp, 'available', lambda: True)
+    started = []
+    monkeypatch.setattr(webp.threading, 'Thread', lambda **kw: types.SimpleNamespace(start=lambda: started.append(kw['args'])))
+    backup = env.root / 'originals'
+    opts = webp.options(root=str(env.lib), since='2015', limit=200, quality=85, backup_dir=str(backup), threads=2, files=1)
+    webp.BULK.update(state='previewed', token='t', count=1, opts=opts, files=['x'], bytes=1, backup_free=None)
+    how = {'quality': '80', 'min_q': '75', 'threads': '8', 'files': '2', 'backup_dir': '', 'no_backup': True}
+    assert webp.start_run('t', '1', how) is None
+    files, used = started[0]
+    assert files == ['x']
+    assert (used['root'], used['since'], used['limit']) == (str(env.lib), '2015', 200)
+    assert (used['quality'], used['min_q'], used['threads'], used['files'], used['no_backup'], used['backup_dir']) == \
+        (80, 75, 8, 2, True, '')
+
+
+@pytest.mark.unit
+def test_a_bad_holding_folder_given_at_start_is_refused(env, monkeypatch):
+    monkeypatch.setattr(webp, 'available', lambda: True)
+    monkeypatch.setattr(webp.threading, 'Thread', lambda **kw: types.SimpleNamespace(start=lambda: None))
+    opts = webp.options(root=str(env.lib), backup_dir=str(env.root / 'originals'))
+    webp.BULK.update(state='previewed', token='t', count=1, opts=opts, files=['x'], bytes=1, backup_free=None)
+    how = {'quality': '85', 'min_q': '80', 'threads': '2', 'files': '1', 'backup_dir': str(env.lib / 'inside'), 'no_backup': False}
+    assert 'outside the folder' in webp.start_run('t', '1', how)
+    assert webp.BULK['state'] == 'previewed'
+
+
+@pytest.mark.unit
 def test_cpu_limit_reads_the_container_allowance(tmp_path):
     (tmp_path / 'cpu.max').write_text('250000 100000\n')
     assert webp._cgroup_cpus(str(tmp_path)) == 3

@@ -150,11 +150,22 @@
       : (st.state === 'stopped' ? 'Stopped' : 'Finished') + ' after ' + dur(elapsed) + '. Details are in the Mylar log ([WEBP]).';
   }
 
+  // Show the form's current "how" choices in the preview, in place of the ones it ran with.
+  function syncHow() {
+    var d = formData(), o = st.opts = Object.assign({}, st.opts);
+    ['quality', 'min_q', 'threads', 'files'].forEach(function (k) { if (d[k] !== '' && !isNaN(d[k])) o[k] = +d[k]; });
+    o.no_backup = !!d.no_backup;
+    var dir = o.no_backup ? '' : (d.backup_dir || '').trim();
+    if (dir !== o.backup_dir) st.backup_free = null;
+    o.backup_dir = dir;
+  }
+
   function poll() {
     clearTimeout(timer);
     if (document.hidden) return;
     fetch('webp_status', { credentials: 'same-origin', cache: 'no-store' }).then(function (r) { return r.json(); }).then(function (s) {
       st = s;
+      if (st.state === 'previewed') syncHow();
       render();
       if (s.state === 'previewing' || s.state === 'running') timer = setTimeout(poll, 2000);
       else if (s.gradual && (s.gradual.state === 'running' || s.gradual.state === 'waiting')) timer = setTimeout(poll, 10000);
@@ -173,8 +184,17 @@
       st = r.status; render(); poll();
     });
   });
-  form.addEventListener('input', function () { if (st.state === 'previewed') { dirty = true; renderPreview(); } });
-  form.addEventListener('change', function () { if (st.state === 'previewed') { dirty = true; renderPreview(); } });
+  // Only the choices about which files to convert need a new preview. The others (quality, threads,
+  // originals) just update this one, and go with the Convert request.
+  var WHICH = { root: 1, since: 1, unknown: 1, limit: 1 };
+  function edited(e) {
+    if (st.state !== 'previewed' || !e.target.name) return;
+    if (WHICH[e.target.name]) dirty = true;
+    else syncHow();
+    renderPreview();
+  }
+  form.addEventListener('input', edited);
+  form.addEventListener('change', edited);
   form.elements.no_backup.addEventListener('change', function () { form.elements.backup_dir.disabled = this.checked; });
 
   function reset() {
@@ -221,6 +241,8 @@
   });
   $id('wp-go').addEventListener('click', function () {
     var o = st.opts || {};
+    if (!o.no_backup && !o.backup_dir) { showError('Choose a holding folder for the originals, or tick the box to not keep them.'); return; }
+    showError('');
     $id('wp-c1-body').innerHTML =
       '<p><b>' + num(st.count) + ' files</b> (' + gb(st.bytes) + ') under <code>' + esc(o.root) + '</code> will have their pages re-encoded as WebP quality ' + o.quality + ' and be replaced in place.</p>' +
       (o.no_backup ? '<p class="wp-danger"><b>The originals will be deleted as each file is replaced. This can\'t be undone.</b></p>'
@@ -241,7 +263,9 @@
   $id('wp-c2-start').addEventListener('click', function () {
     var btn = this;
     btn.disabled = true;
-    post('webp_start', { token: st.token, confirm: input.value.trim() }).then(function (r) {
+    var d = formData(), body = { token: st.token, confirm: input.value.trim() };
+    ['quality', 'min_q', 'threads', 'files', 'backup_dir', 'no_backup'].forEach(function (k) { if (d[k] != null) body[k] = d[k]; });
+    post('webp_start', body).then(function (r) {
       c2.close();
       if (r.error) { showError(r.error); poll(); return; }
       showError('');

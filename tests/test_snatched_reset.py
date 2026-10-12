@@ -14,7 +14,7 @@ import cherrypy
 import pytest
 
 import mylar
-from mylar import archives, db, downloadqueue
+from mylar import archives, db, downloadqueue, helpers
 from mylar.queues import ddl, jd2
 from mylar.webserve import WebInterface
 
@@ -161,7 +161,8 @@ def test_clear_failed_puts_still_snatched_issues_back_and_clear_finished_does_no
     download(myDB, '10', '1', status='Failed')
     download(myDB, '20', '2', status='Failed')
     download(myDB, '30', '3', status='Completed', filename='x [__3__].cbz')
-    mylar.PP_QUEUE.put({'download_info': {'provider': 'DDL', 'id': '30'}})
+    mylar.PP_QUEUE.put({'comicid': '29329', 'issueid': '3', 'ddl': True, 'pack': False,
+                        'download_info': {'provider': 'DDL', 'id': '30'}})
     r = json.loads(WebInterface().ddl_clear(status='Failed'))
     assert r['message'] == 'Cleared 2 failed downloads from the list. 1 issue is back to Wanted'
     json.loads(WebInterface().ddl_clear(status='Completed'))
@@ -175,6 +176,114 @@ def test_unsnatch_never_touches_issues_that_moved_on(myDB):
     myDB.action("INSERT INTO annuals (IssueID, Status) VALUES ('6', 'Snatched')")
     assert downloadqueue.unsnatch(myDB, ['1', '2', '3', '4', '5', '6', None]) == ['5', '6']
     assert statuses(myDB) == {'1': 'Downloaded', '2': 'Archived', '3': 'Failed', '4': 'Skipped', '5': 'Wanted'}
+
+
+# ---- a newer grab owns the Snatched status ----------------------------------
+# Failed downloads are searched again straight away (failed_auto), so by the time the owner clears
+# or removes the old row the issue may be Snatched by a retry. Putting it back to Wanted then would
+# make the next search grab it a second time.
+
+def _regrab_queued(d):
+    download(d, '20', '1')                                   # a DDL retry, still queued
+
+def _regrab_downloading(d):
+    download(d, '20', '1', status='Downloading')
+
+def _regrab_at_jd2(d):
+    mylar.JD2_QUEUE.put({'id': '20'})                        # row not written yet / JD2 reloads it
+    d.action("INSERT INTO nzblog (IssueID, NZBName, PROVIDER, ID) VALUES ('1', 'x', 'DDL(GetComics)', '20')")
+
+def _regrab_in_memory(d):
+    mylar.PACK_ISSUEIDS_DONT_QUEUE['1'] = '20'               # taken by another pack still queued
+    mylar.DDL_QUEUED.add('20')
+
+def _regrab_nzb(d):
+    d.action("INSERT INTO snatched VALUES ('1', 'Deadpool Team-Up', '1', '2026-10-12 09:00:00', 'Snatched', '29329', 'experimental')")
+
+def _regrab_torrent_job(d):
+    d.action("INSERT INTO client_jobs (IssueID, Client, JobID) VALUES ('1', 'qbittorrent', 'abc')")
+
+def _regrab_finished_unfiled(d):
+    download(d, '20', '1', status='Completed', filename='Deadpool Team-Up 001 [__1__].cbz')
+    with open(os.path.join(mylar.CONFIG.DDL_LOCATION, 'Deadpool Team-Up 001 [__1__].cbz'), 'wb') as f:
+        f.write(b'x')
+
+def _regrab_being_filed(d):
+    download(d, '20', '1', status='Completed')
+    archives.ddl_filing({'provider': 'DDL', 'id': '20'}, 'waiting')
+
+def _regrab_post_processing(d):
+    mylar.PP_QUEUE.put({'comicid': '29329', 'issueid': '1', 'ddl': False})
+
+def _regrab_needs_attention(d):
+    path = os.path.join(mylar.CONFIG.ARCHIVE_REVIEW_DIR, 'Deadpool Team-Up 001 [__1__].cbz')
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, 'wb') as f:
+        f.write(b'x')
+    d.action("INSERT INTO attention (path, status, size) VALUES (?, 'open', 1)", [path])
+
+REGRABS = [_regrab_queued, _regrab_downloading, _regrab_at_jd2, _regrab_in_memory, _regrab_nzb, _regrab_torrent_job,
+           _regrab_finished_unfiled, _regrab_being_filed, _regrab_post_processing, _regrab_needs_attention]
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize('regrab', REGRABS, ids=lambda f: f.__name__[len('_regrab_'):])
+def test_clear_failed_leaves_an_issue_another_grab_has(myDB, method, regrab):
+    issue(myDB, '1', ddl_id='10')
+    download(myDB, '10', '1', status='Failed')
+    regrab(myDB)
+    r = json.loads(WebInterface().ddl_clear(status='Failed'))
+    assert statuses(myDB) == {'1': 'Snatched'}
+    assert 'Wanted' not in r['message']
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize('mode', ['remove', 'abort'])
+@pytest.mark.parametrize('regrab', REGRABS, ids=lambda f: f.__name__[len('_regrab_'):])
+def test_remove_or_stop_leaves_an_issue_another_grab_has(myDB, regrab, mode):
+    issue(myDB, '1', ddl_id='10')
+    download(myDB, '10', '1', status='Failed' if mode == 'remove' else 'Downloading')
+    regrab(myDB)
+    requeue(mode, id='10')
+    assert statuses(myDB) == {'1': 'Snatched'}
+
+
+@pytest.mark.unit
+def test_removing_a_pack_leaves_issues_grabbed_on_their_own_since(myDB):
+    issue(myDB, '1', number='883', ddl_id='4746')
+    issue(myDB, '2', number='884', ddl_id='4746')
+    download(myDB, '4746', '1', pack=1, status='Failed')
+    download(myDB, '30', '2')                                  # #884 re-grabbed by itself
+    requeue('remove', id='4746')
+    assert statuses(myDB) == {'1': 'Wanted', '2': 'Snatched'}
+
+
+@pytest.mark.unit
+def test_clear_the_queue_leaves_an_issue_a_download_in_progress_also_has(myDB):
+    issue(myDB, '1', ddl_id='10')
+    download(myDB, '10', '1')
+    download(myDB, '20', '1', status='Downloading')
+    requeue('clear_queue')
+    assert statuses(myDB) == {'1': 'Snatched'}
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize('mode', ['remove', 'abort', 'clear_queue'])
+def test_a_pack_cancelled_mid_download_goes_to_wanted_not_skipped(myDB, monkeypatch, mode):
+    # the download thread can see the cancel the moment it's set; it reverses the pack's mapped
+    # issues to Skipped, so the map has to be emptied first
+    class Racing(set):
+        def add(self, rid):
+            set.add(self, rid)
+            helpers.reverse_the_pack_snatch(rid, '29329')
+    monkeypatch.setattr(mylar, 'DDL_CANCEL', Racing(), raising=False)
+    monkeypatch.setattr(mylar, 'GLOBAL_MESSAGES', None, raising=False)
+    issue(myDB, '1', number='883', ddl_id='4746')
+    issue(myDB, '2', number='884', ddl_id='4746')
+    download(myDB, '4746', '1', pack=1)
+    mylar.PACK_ISSUEIDS_DONT_QUEUE.update({'1': '4746', '2': '4746'})
+    requeue(mode, id=None if mode == 'clear_queue' else '4746')
+    assert statuses(myDB) == {'1': 'Wanted', '2': 'Wanted'}
 
 
 # ---- issues already stuck ------------------------------------------------
@@ -272,9 +381,23 @@ def test_reset_puts_stuck_issues_back_to_wanted(myDB, method, monkeypatch):
     listed = json.loads(WebInterface().stuck_snatched())
     assert (listed['count'], listed['hours']) == (1, downloadqueue.STUCK_HOURS)
     assert [i['issueid'] for i in listed['issues']] == ['1']
-    r = json.loads(WebInterface().reset_stuck_snatched())
+    r = json.loads(WebInterface().reset_stuck_snatched(issueids='1'))
     assert r == {'status': True, 'count': 1, 'message': 'Put 1 issue back to Wanted'}
     assert statuses(myDB) == {'1': 'Wanted', '2': 'Snatched', '3': 'Downloaded'}
+
+
+@pytest.mark.unit
+def test_reset_only_touches_issues_the_owner_was_shown(myDB, method, monkeypatch):
+    issue(myDB, '1', ddl_id='10')
+    issue(myDB, '2', ddl_id='20')    # became stuck after the confirm was shown
+    issue(myDB, '3', ddl_id='30')    # shown, but its download came back before the reset
+    real = downloadqueue.stuck_snatched
+    monkeypatch.setattr(downloadqueue, 'stuck_snatched', lambda d: real(d, now=NOW))
+    download(myDB, '31', '3')
+    r = json.loads(WebInterface().reset_stuck_snatched(issueids='1,3'))
+    assert r['count'] == 1
+    assert statuses(myDB) == {'1': 'Wanted', '2': 'Snatched', '3': 'Snatched'}
+    assert json.loads(WebInterface().reset_stuck_snatched())['count'] == 0
 
 
 @pytest.mark.unit

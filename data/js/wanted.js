@@ -274,6 +274,10 @@
     fetch('stuck_snatched', { credentials: 'same-origin', cache: 'no-store' })
       .then(function (r) { if (!r.ok) throw new Error(r.status); return r.json(); })
       .then(function (d) {
+        if (!d.count && d.filing) {
+          I().toast('Files are being added to the library right now, so nothing can be checked. Try again when that finishes.');
+          return;
+        }
         if (!d.count) {
           I().toast('No snatched issues are stuck. Everything marked Snatched is still downloading, waiting to be filed, or was snatched in the last ' + d.hours + ' hours.');
           return;
@@ -283,7 +287,8 @@
         if (!window.confirm(plural(d.count) + (d.count === 1 ? ' has' : ' have') + ' been Snatched for over ' + d.hours + ' hours with nothing downloading or filing ' +
           (d.count === 1 ? 'it' : 'them') + ':\n\n' + names.join('\n') + '\n\nPut ' + (d.count === 1 ? 'it' : 'them') +
           ' back to Wanted so ' + (d.count === 1 ? 'it is' : 'they are') + ' searched again?')) return;
-        return fetch('reset_stuck_snatched', { method: 'POST', credentials: 'same-origin', cache: 'no-store' })
+        var body = new URLSearchParams({ issueids: d.issues.map(function (i) { return i.issueid; }).join(',') });
+        return fetch('reset_stuck_snatched', { method: 'POST', credentials: 'same-origin', cache: 'no-store', body: body })
           .then(function (r) { if (!r.ok) throw new Error(r.status); return r.json(); })
           .then(function (res) { I().toast(res.message + '.'); return load(); });
       })

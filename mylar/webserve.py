@@ -3879,7 +3879,7 @@ class WebInterface(object):
             if countchk == 0:
                 return json.dumps({'status': True, 'message': 'Queue already cleared - there was nothing to clear from the Queue'})
 
-            cleared = myDB.select("SELECT * FROM ddl_info WHERE status = 'Queued'")
+            cleared = downloadqueue.claim(myDB.select("SELECT * FROM ddl_info WHERE status = 'Queued'"))
             for row in cleared:
                 mylar.DDL_CANCEL.add(str(row['id']))
             myDB.action("DELETE FROM ddl_info WHERE status = 'Queued'")
@@ -3960,11 +3960,13 @@ class WebInterface(object):
                     logger.fdebug('resume set to resume at: %s bytes' % filesize)
                     resume = filesize
                 elif mode == 'abort':
+                    downloadqueue.claim(items)   # before the cancel, or the download thread marks a pack Skipped
                     mylar.DDL_CANCEL.add(str(item['id']))
                     myDB.upsert("ddl_info", {'Status': 'Failed'}, {'id': id}) #DELETE FROM ddl_info where ID=?', [id])
                     wanted = downloadqueue.release(myDB, items)
                     continue
                 elif mode == 'remove':
+                    downloadqueue.claim(items)
                     mylar.DDL_CANCEL.add(str(item['id']))
                     myDB.action('DELETE FROM ddl_info where ID=?', [id])
                     wanted = downloadqueue.release(myDB, items)   # only if it hadn't finished
@@ -4078,16 +4080,20 @@ class WebInterface(object):
     def stuck_snatched(self):
         # Read only: what reset_stuck_snatched would put back to Wanted, for its confirm.
         cherrypy.response.headers['Content-Type'] = 'application/json'
+        from mylar import autoadd
         issues = downloadqueue.stuck_snatched(db.DBConnection())
-        return json.dumps({'hours': downloadqueue.STUCK_HOURS, 'count': len(issues), 'issues': issues})
+        return json.dumps({'hours': downloadqueue.STUCK_HOURS, 'count': len(issues), 'issues': issues,
+                           'filing': autoadd.running()})   # filing holds every series, so nothing is listed
     stuck_snatched.exposed = True
 
-    def reset_stuck_snatched(self):
+    def reset_stuck_snatched(self, issueids=None):
+        # Only the issues the owner was shown, and only those still stuck now.
         if cherrypy.request.method != 'POST':
             raise cherrypy.HTTPError(405)
         cherrypy.response.headers['Content-Type'] = 'application/json'
+        shown = set(str(issueids or '').split(','))
         myDB = db.DBConnection()
-        issues = downloadqueue.stuck_snatched(myDB)
+        issues = [i for i in downloadqueue.stuck_snatched(myDB) if i['issueid'] in shown]
         done = downloadqueue.unsnatch(myDB, [i['issueid'] for i in issues])
         if done:
             names = ['%s #%s' % (i['series'], i['issue']) for i in issues if i['issueid'] in done]

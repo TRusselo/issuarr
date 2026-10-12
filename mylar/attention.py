@@ -26,6 +26,7 @@ ATTENTION_TRASH_DAYS; or ignored, which hides it until it moves or changes.
 """
 
 import datetime
+import collections
 import difflib
 import hashlib
 import os
@@ -45,6 +46,7 @@ REASONS = ('damaged', 'cover', 'volume', 'year', 'issue', 'series', 'unclaimed')
 CACHE_SECONDS = 60
 _COUNT = [0.0, 0]          # (counted at, count) for the nav badge
 _COMICS = [0.0, []]        # (loaded at, watchlist rows) for suggestions
+_NAMED = {}                # (series name, comicid, watchlist load time) -> close watchlist names
 JOBS = {}                  # path -> {'state': 'filing'|'filed'|'failed', 'note': str}
 _LOCK = threading.Lock()
 
@@ -204,7 +206,11 @@ def _watchlist():
     if time.time() - _COMICS[0] < 300 and _COMICS[1]:
         return _COMICS[1]
     rows = db.DBConnection().select('SELECT ComicID, ComicName, ComicYear, ComicVersion, Total FROM comics WHERE ComicName IS NOT NULL')
-    _COMICS[:] = [time.time(), [dict(r, norm=_norm(r['ComicName'])) for r in rows]]
+    rows = [dict(r, norm=_norm(r['ComicName'])) for r in rows]
+    for r in rows:
+        r['chars'] = collections.Counter(r['norm'])
+    _COMICS[:] = [time.time(), rows]
+    _NAMED.clear()
     return _COMICS[1]
 
 
@@ -237,6 +243,38 @@ def _vol(v):
     return int(digits) if digits and len(digits) < 4 else None
 
 
+def _named(want, comicid=None, floor=0.75):
+    """Watchlist series whose name scores at least floor against want, best first. A name can
+    only reach the floor if the lengths and the letters the two share allow it, so those cheap
+    bounds (the ones SequenceMatcher's quick ratios use) skip most of a large watchlist before
+    the full comparison. Remembered per name until the watchlist is reloaded: a pack's leftovers
+    share one series name."""
+    comics = _watchlist()
+    key = (want, str(comicid or ''), _COMICS[0])
+    if key in _NAMED:
+        return _NAMED[key]
+    named = []
+    have = collections.Counter(want)
+    total = len(want)
+    for c in comics:
+        if comicid and str(c['ComicID']) == str(comicid):
+            named.append((1.0, c))
+            continue
+        both = total + len(c['norm'])
+        if not both or 2.0 * min(total, len(c['norm'])) / both < floor:
+            continue
+        if 2.0 * sum((have & c['chars']).values()) / both < floor:
+            continue
+        s = difflib.SequenceMatcher(None, want, c['norm']).ratio()
+        if s >= floor:
+            named.append((s, c))
+    named.sort(key=lambda x: -x[0])
+    if len(_NAMED) > 2000:
+        _NAMED.clear()
+    _NAMED[key] = named
+    return named
+
+
 def suggest(parsed, limit=3, comicid=None):
     """Watchlist series closest to what the file name says, each with the issue it would be
     and which parts of the name agree. Series with the same name are told apart by whether
@@ -244,12 +282,7 @@ def suggest(parsed, limit=3, comicid=None):
     want = _norm(parsed.get('series'))
     if not want and not comicid:
         return []
-    named = []
-    for c in _watchlist():
-        s = 1.0 if comicid and str(c['ComicID']) == str(comicid) else difflib.SequenceMatcher(None, want, c['norm']).ratio()
-        if s >= 0.75:
-            named.append((s, c))
-    named.sort(key=lambda x: -x[0])
+    named = _named(want, comicid)
     myDB = db.DBConnection()
     target = _num(parsed.get('issue')) if parsed.get('issue') else None
     fyear = str(parsed.get('year') or '')

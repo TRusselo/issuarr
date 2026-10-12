@@ -258,3 +258,20 @@ def test_a_page_that_isnt_an_image_is_not_kept_as_a_cover(env, monkeypatch):
     import requests
     monkeypatch.setattr(requests, 'get', lambda url, **kw: types.SimpleNamespace(content=b'<html>', headers={'Content-Type': 'text/html'}, raise_for_status=lambda: None))
     assert attention.issue_cover('562595') is None
+
+
+@pytest.mark.unit
+def test_quick_bounds_never_drop_a_close_name(monkeypatch):
+    # the length and shared-letter bounds must keep every series the full comparison would keep
+    import collections
+    import difflib
+    names = ['X-Factor', 'All-New X-Factor', 'X-Force', 'Uncanny X-Men', 'X-Men', 'Batman', 'Batman Beyond',
+             'Spider-Man', 'Superior Spider-Man', 'Spider-Woman', 'Powers', 'Power Pack', 'Hetalia Axis Powers',
+             'Supergirl', 'Supergirl Being Super', 'Ragnarok', 'Jungle Action', 'Great Lakes Avengers']
+    rows = [{'ComicID': str(i), 'ComicName': n, 'norm': attention._norm(n), 'chars': collections.Counter(attention._norm(n))}
+            for i, n in enumerate(names)]
+    monkeypatch.setattr(attention, '_watchlist', lambda: rows)
+    attention._NAMED.clear()
+    for want in ['x factor', 'xfactor', 'x men', 'spiderman', 'spider man', 'power', 'supergirl', 'batman beyon', 'ragnarok']:
+        brute = sorted(r['ComicID'] for r in rows if difflib.SequenceMatcher(None, want, r['norm']).ratio() >= 0.75)
+        assert sorted(c['ComicID'] for s, c in attention._named(want)) == brute, want

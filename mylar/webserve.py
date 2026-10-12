@@ -3853,6 +3853,20 @@ class WebInterface(object):
 
     annualDelete.exposed = True
 
+    def _jd2_orphans(self, myDB):
+        """Queued rows left with a JD2 job id that JD2 no longer holds. Nothing would ever pick them
+        up, so the job id is cleared and the built-in downloaders take them instead."""
+        from mylar.queues import jd2
+        if not jd2.loaded():
+            return []  # at startup JD2's saved rows aren't back in its queue yet
+        held = jd2.at_jd2()
+        rows = [r for r in myDB.select("SELECT * FROM ddl_info WHERE status = 'Queued' AND jd2_job_id IS NOT NULL "
+                                       "ORDER BY updated_date ASC") if str(r['id']) not in held]
+        for r in rows:
+            logger.info('[DDL-RESTART-QUEUE] JD2 is no longer watching %s - handing it to the built-in downloaders.' % r['series'])
+            myDB.upsert('ddl_info', {'jd2_job_id': None}, {'id': r['id']})
+        return rows
+
     def ddl_requeue(self, mode, id=None, issueid=None):
         logger.info('id: %s / mode: %s / issueid: %s' % (id, mode, issueid))
         myDB = db.DBConnection()
@@ -3872,6 +3886,8 @@ class WebInterface(object):
 
         if id is None:
             items = myDB.select("SELECT * FROM ddl_info WHERE status = 'Queued' AND jd2_job_id IS NULL ORDER BY updated_date ASC")
+            if mode == 'restart_queue':
+                items = list(items) + self._jd2_orphans(myDB)
         else:
             oneitem = myDB.selectone("SELECT * FROM DDL_INFO WHERE ID=?", [id]).fetchone()
             items = [oneitem]
@@ -4088,8 +4104,9 @@ class WebInterface(object):
     def downloadQueue(self):
         # Everything on its way: direct downloads plus grabs at SABnzbd, NZBGet or a torrent client.
         myDB = db.DBConnection()
+        # stalled follows the flow line's rule, so rows JD2 is holding never count as stuck
         return json.dumps({'items': downloadqueue.build(myDB, rate=downloadqueue.download_rate),
-                           'waiting': ddl_queue.waiting_count()})
+                           'stalled': activity.stalled_downloads(myDB)})
     downloadQueue.exposed = True
 
     def previewRename(self, **args): #comicid=None, comicidlist=None):

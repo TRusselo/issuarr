@@ -1,0 +1,279 @@
+<%inherit file="base.html" />
+<%!
+    import mylar
+%>
+
+<%def name="body()">
+    <input type="hidden" id="page_name" value="needs_attention" />
+    <div class="page">
+        <div class="page-head">
+            <div class="head-text">
+                <h1><span class="page-crumb">Downloads › </span>Needs attention</h1>
+                <p class="page-sub">Files Issuarr couldn't file on its own. File each one as the right issue, or clear it out.</p>
+            </div>
+        </div>
+
+        <section class="section" aria-label="Files that need a decision">
+            <div class="filter-tabs" role="group" aria-label="Show" id="att-tabs"></div>
+            <div id="att-list" class="att-list" aria-live="polite">
+                <p class="empty-state">Looking for files…</p>
+            </div>
+            <p class="att-foot muted">Moving a file to the trash puts it in <span class="mono">${trash | h}</span>. Each day's trash is deleted after ${trash_days} days.</p>
+        </section>
+    </div>
+</%def>
+
+<%def name="javascriptIncludes()">
+    <script>
+    (function () {
+        'use strict';
+        var list = document.getElementById('att-list');
+        var tabs = document.getElementById('att-tabs');
+        var items = [], show = 'all', open = null, timer = null;
+
+        var REASON = {
+            series: ['place', 'Couldn\'t tell which series this is.'],
+            volume: ['place', 'The volume doesn\'t match your series.'],
+            year: ['place', 'The year doesn\'t match that issue.'],
+            issue: ['place', 'That issue number isn\'t on the series.'],
+            damaged: ['bad', 'The file is damaged or incomplete.'],
+            cover: ['bad', 'Covers only, not the full issue.'],
+            unclaimed: ['review', 'Nothing on your watchlist claimed it, so it was moved to review.']
+        };
+        var TABS = [['all', 'All'], ['place', 'Couldn\'t place'], ['review', 'In review'], ['bad', 'Damaged or covers']];
+
+        function esc(t) { return window.Issuarr.esc(t == null ? '' : String(t)); }
+        function kind(i) { return (REASON[i.reason] || REASON.series)[0]; }
+        function mb(n) { return n == null ? '' : (n / 1048576).toFixed(n < 10485760 ? 1 : 0) + ' MB'; }
+        function ago(t) { return window.Issuarr.relTime(t); }
+        function q(p) { return new URLSearchParams(p).toString(); }
+
+        function post(url, params) {
+            return fetch(url, { method: 'POST', credentials: 'same-origin',
+                                headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: q(params) })
+                .then(function (r) { if (!r.ok) throw new Error(r.status); return r.json(); });
+        }
+
+        /* How the file name reads, set against the closest series: one column per part of the name. */
+        function cell(label, file, lib, agree, note) {
+            var state = agree === true ? 'is-agree' : agree === false ? 'is-differ' : 'is-unknown';
+            return '<div class="att-col ' + state + '">' +
+                '<span class="att-part">' + label + '</span>' +
+                '<span class="att-file">' + (file ? esc(file) : '<span class="faint">none</span>') + '</span>' +
+                '<span class="att-lib">' + (lib ? esc(lib) : '<span class="faint">' + (note || 'none') + '</span>') + '</span>' +
+                '</div>';
+        }
+
+        function reading(i) {
+            var p = i.parsed, m = i.matches[0];
+            if (!p.series && !m) return '<p class="att-unread">Issuarr couldn\'t read a series or issue number from this name.</p>';
+            var a = m ? m.agree : {};
+            return '<div class="att-read" role="group" aria-label="The file name next to the closest series">' +
+                '<div class="att-col att-rowhead"><span class="att-part">&nbsp;</span><span class="att-file">File name</span><span class="att-lib">' + (m ? 'Closest match' : 'No close match') + '</span></div>' +
+                cell('Series', p.series, m && (m.name + ' (' + m.year + ')'), m ? a.series : null) +
+                cell('Issue', p.issue && '#' + p.issue, m && m.number && '#' + m.number, m ? a.issue : null, m ? 'not on this series' : '') +
+                cell('Year', p.year, m && m.issue_year, m ? a.year : null) +
+                cell('Volume', p.volume, m && m.volume, m ? a.volume : null) +
+                '</div>';
+        }
+
+        function actions(i) {
+            var m = i.matches[0], out = '';
+            if (i.job && i.job.state === 'filing') return '<p class="att-job">' + esc(i.job.note) + '…</p>';
+            if (m && m.issueid) {
+                out += '<button type="button" class="btn btn-sm btn-primary" data-file="' + esc(m.comicid) + '|' + esc(m.issueid) + '">File as ' + esc(m.name) + ' #' + esc(m.number) + '</button>';
+            }
+            out += '<button type="button" class="btn btn-sm" data-pick aria-expanded="' + (open === i.path) + '">' + (m && m.issueid ? 'Choose another' : 'Choose the issue') + '</button>';
+            out += '<button type="button" class="btn btn-sm btn-ghost" data-trash>Move to trash</button>';
+            out += '<button type="button" class="btn btn-sm btn-ghost" data-ignore>Ignore</button>';
+            return '<div class="att-acts">' + out + '</div>';
+        }
+
+        function others(i) {
+            var rest = i.matches.slice(1).filter(function (m) { return m.issueid; });
+            if (!rest.length) return '';
+            return '<p class="att-others">Or ' + rest.map(function (m) {
+                return '<button type="button" class="link-btn" data-file="' + esc(m.comicid) + '|' + esc(m.issueid) + '">' + esc(m.name) + ' (' + esc(m.year) + ') #' + esc(m.number) + '</button>';
+            }).join(', ') + '</p>';
+        }
+
+        /* The file's own front cover beside the suggested issue's cover from ComicVine. */
+        function covers(i) {
+            var m = i.matches[0];
+            var file = '<figure class="att-cover"><button type="button" class="att-cover-btn" data-zoom aria-label="Show the covers larger">' +
+                '<img src="attention_cover?' + q({ path: i.path, v: Math.round(i.modified) }) + '" alt="Front cover of ' + esc(i.name) + '" loading="lazy" data-cover-img />' +
+                '</button><figcaption>This file</figcaption></figure>';
+            var issue = '<figure class="att-cover" data-issue-cover' + (m && m.issueid ? '' : ' hidden') + '>' +
+                '<button type="button" class="att-cover-btn" data-zoom aria-label="Show the covers larger">' +
+                (m && m.issueid ? '<img src="attention_issue_cover?' + q({ issueid: m.issueid }) + '" alt="Cover of ' + esc(m.name) + ' #' + esc(m.number) + '" loading="lazy" data-cover-img />' : '') +
+                '</button><figcaption>' + (m && m.issueid ? esc(m.name) + ' #' + esc(m.number) : '') + '</figcaption></figure>';
+            return '<div class="att-covers">' + file + issue + '</div>';
+        }
+
+        function row(i) {
+            var r = REASON[i.reason] || REASON.series;
+            var where = i.in_review ? 'In review' : i.folder;
+            var job = i.job && i.job.state === 'failed' ? '<p class="att-job is-failed">' + esc(i.job.note) + '</p>' : '';
+            return '<article class="att-item is-' + r[0] + '" data-path="' + esc(i.path) + '">' +
+                '<div class="att-head">' +
+                    '<h2 class="att-name mono">' + esc(i.name) + '</h2>' +
+                    '<p class="att-meta muted"><span title="' + esc(i.folder) + '">' + esc(where) + '</span>' +
+                    (i.size != null ? '<span>' + mb(i.size) + '</span>' : '') + '<span>' + esc(ago(i.modified)) + '</span></p>' +
+                '</div>' +
+                '<div class="att-body">' + covers(i) + '<div class="att-main">' +
+                '<p class="att-why"><b>' + r[1] + '</b>' + (i.detail ? ' ' + esc(i.detail) : '') + '</p>' +
+                reading(i) + others(i) + job + actions(i) +
+                (open === i.path ? picker(i) : '') +
+                '</div></div>' +
+                '</article>';
+        }
+
+        function picker(i) {
+            return '<div class="att-picker" data-picker>' +
+                '<label class="field"><span>Series on your watchlist</span>' +
+                '<input type="search" data-q value="' + esc(i.parsed.series || '') + '" autocomplete="off" /></label>' +
+                '<ul class="att-series" data-series></ul>' +
+                '<label class="field" hidden data-issue-wrap><span>Issue</span><select data-issue></select></label>' +
+                '<div class="att-acts"><button type="button" class="btn btn-sm btn-primary" data-file-picked disabled>File as this issue</button>' +
+                '<button type="button" class="btn btn-sm btn-ghost" data-add>Not on your watchlist? Add the series</button></div>' +
+                '</div>';
+        }
+
+        function drawTabs() {
+            var counts = { all: items.length, place: 0, review: 0, bad: 0 };
+            items.forEach(function (i) { counts[kind(i)]++; });
+            tabs.innerHTML = TABS.filter(function (t) { return t[0] === 'all' || counts[t[0]]; }).map(function (t) {
+                return '<button type="button" data-tab="' + t[0] + '" aria-pressed="' + (show === t[0]) + '">' + t[1] +
+                       '<span class="count">' + counts[t[0]] + '</span></button>';
+            }).join('');
+        }
+
+        function draw() {
+            drawTabs();
+            var shown = items.filter(function (i) { return show === 'all' || kind(i) === show; });
+            if (!items.length) {
+                list.innerHTML = '<p class="empty-state">Nothing needs attention. Files Issuarr can\'t file on its own, and anything it moves to the review folder, show up here.</p>';
+            } else if (!shown.length) {
+                list.innerHTML = '<p class="empty-state">Nothing here. Pick another tab.</p>';
+            } else {
+                list.innerHTML = shown.map(row).join('');
+            }
+            if (open) {
+                var pk = list.querySelector('[data-picker]');
+                if (pk) search(pk, pk.querySelector('[data-q]').value);
+            }
+        }
+
+        function load() {
+            clearTimeout(timer);
+            return fetch('attention_items', { credentials: 'same-origin', cache: 'no-store' })
+                .then(function (r) { if (!r.ok) throw new Error(r.status); return r.json(); })
+                .then(function (d) {
+                    items = d.items;
+                    draw();
+                    if (items.some(function (i) { return i.job && i.job.state === 'filing'; })) timer = setTimeout(load, 3000);
+                })
+                .catch(function () { list.innerHTML = '<p class="empty-state">Couldn\'t list the files. Check the log.</p>'; });
+        }
+
+        function itemOf(el) {
+            var art = el.closest('[data-path]');
+            return art && items.filter(function (i) { return i.path === art.getAttribute('data-path'); })[0];
+        }
+
+        function search(pk, text) {
+            fetch('attention_search?' + q({ q: text }), { credentials: 'same-origin' }).then(function (r) { return r.json(); }).then(function (d) {
+                var ul = pk.querySelector('[data-series]');
+                ul.innerHTML = d.series.length ? d.series.map(function (s) {
+                    return '<li><button type="button" class="link-btn" data-series-id="' + esc(s.comicid) + '">' + esc(s.name) + ' (' + esc(s.year) + ')' +
+                           (s.volume ? ' ' + esc(s.volume) : '') + '</button></li>';
+                }).join('') : '<li class="muted">No series on your watchlist by that name.</li>';
+            });
+        }
+
+        function chooseSeries(pk, comicid, btn) {
+            pk.querySelectorAll('[data-series-id]').forEach(function (b) { b.removeAttribute('aria-current'); });
+            btn.setAttribute('aria-current', 'true');
+            fetch('attention_issues?' + q({ comicid: comicid }), { credentials: 'same-origin' }).then(function (r) { return r.json(); }).then(function (d) {
+                var sel = pk.querySelector('[data-issue]'), want = (itemOf(pk).parsed.issue || '').replace(/^0+(?=\d)/, '');
+                sel.innerHTML = d.issues.map(function (s) {
+                    var n = String(s.Issue_Number);
+                    return '<option value="' + esc(comicid) + '|' + esc(s.IssueID) + '"' + (n === want ? ' selected' : '') + '>#' + esc(n) +
+                           (s.IssueDate ? ' (' + esc(String(s.IssueDate).slice(0, 7)) + ')' : '') + ' - ' + esc(s.Status) + '</option>';
+                }).join('');
+                pk.querySelector('[data-issue-wrap]').hidden = !d.issues.length;
+                pk.querySelector('[data-file-picked]').disabled = !d.issues.length;
+                if (d.issues.length) sel.dispatchEvent(new Event('change', { bubbles: true }));
+            });
+        }
+
+        function act(url, i, params, done) {
+            post(url, Object.assign({ path: i.path }, params || {})).then(function (d) {
+                window.Issuarr.toast(d.note, d.ok !== false);
+                if (done) done(d);
+                load();
+            }).catch(function () { window.Issuarr.toast('That didn\'t work. Check the log.', false); });
+        }
+
+        function fileAs(i, pair) {
+            var parts = pair.split('|');
+            open = null;
+            act('attention_file', i, { comicid: parts[0], issueid: parts[1] });
+        }
+
+        list.addEventListener('error', function (e) {
+            if (!e.target.matches || !e.target.matches('[data-cover-img]')) return;
+            var b = e.target.parentNode;
+            b.innerHTML = '<span class="att-nocover">No cover</span>';
+        }, true);
+
+        list.addEventListener('change', function (e) {
+            if (!e.target.matches('[data-issue]')) return;
+            var art = e.target.closest('[data-path]'), fig = art.querySelector('[data-issue-cover]');
+            var opt = e.target.selectedOptions[0], pair = e.target.value.split('|');
+            var name = (art.querySelector('[data-series-id][aria-current]') || {}).textContent || '';
+            fig.hidden = false;
+            fig.querySelector('button').innerHTML = '<img src="attention_issue_cover?' + q({ issueid: pair[1] }) + '" alt="Cover of the chosen issue" data-cover-img />';
+            fig.querySelector('figcaption').textContent = name.replace(/\s*\(\d{4}\).*$/, '') + ' ' + opt.textContent.split(' ')[0];
+        });
+
+        tabs.addEventListener('click', function (e) {
+            var b = e.target.closest('[data-tab]');
+            if (!b) return;
+            show = b.getAttribute('data-tab');
+            draw();
+        });
+
+        list.addEventListener('click', function (e) {
+            var i = itemOf(e.target), b;
+            if (!i) return;
+            if (e.target.closest('[data-zoom]')) { e.target.closest('.att-covers').classList.toggle('is-large'); return; }
+            if ((b = e.target.closest('[data-file]'))) return fileAs(i, b.getAttribute('data-file'));
+            if (e.target.closest('[data-pick]')) { open = open === i.path ? null : i.path; draw(); return; }
+            if (e.target.closest('[data-trash]')) return act('attention_trash', i);
+            if (e.target.closest('[data-ignore]')) return act('attention_ignore', i);
+            if ((b = e.target.closest('[data-series-id]'))) return chooseSeries(b.closest('[data-picker]'), b.getAttribute('data-series-id'), b);
+            if (e.target.closest('[data-add]')) {
+                var add = document.querySelector('[data-action="add"]');
+                if (add) {
+                    add.click();   // the add-series search, filled in with the name read from the file
+                    var box = document.activeElement;
+                    if (box && box.tagName === 'INPUT') { box.value = i.parsed.series || ''; box.dispatchEvent(new Event('input', { bubbles: true })); }
+                }
+                return;
+            }
+            if ((b = e.target.closest('[data-file-picked]'))) return fileAs(i, b.closest('[data-picker]').querySelector('[data-issue]').value);
+        });
+
+        var typing = null;
+        list.addEventListener('input', function (e) {
+            if (!e.target.matches('[data-q]')) return;
+            clearTimeout(typing);
+            var pk = e.target.closest('[data-picker]');
+            typing = setTimeout(function () { search(pk, e.target.value); }, 250);
+        });
+
+        load();
+    })();
+    </script>
+</%def>

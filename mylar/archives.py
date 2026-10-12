@@ -186,8 +186,10 @@ def _leftover_action():
 
 
 def _dispose(path, rel_dir):
+    from mylar import attention
     if _leftover_action() == 'delete':
         os.remove(path)
+        attention.forget(path)
         return 'deleted'
     dest = os.path.join(review_dir(), rel_dir) if rel_dir else review_dir()
     os.makedirs(dest, exist_ok=True)
@@ -196,6 +198,7 @@ def _dispose(path, rel_dir):
         base, ext = os.path.splitext(target)
         target = '%s (%s)%s' % (base, int(time.time()), ext)
     shutil.move(path, target)
+    attention.moved(path, target)   # it keeps the reason filing turned it down for
     return 'moved'
 
 

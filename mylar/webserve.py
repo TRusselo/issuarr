@@ -56,6 +56,7 @@ import mylar
 from mylar.comicinfo import tag_mode as ct_tag_mode
 from mylar import (
     activity,
+    attention,
     archives,
     webp,
     carepackage,
@@ -4444,6 +4445,67 @@ class WebInterface(object):
 
         return serve_template(templatename="managefailed.html", title="Failed DB Management", failed=results)
     manageFailed.exposed = True
+
+    def needsAttention(self):
+        return serve_template(templatename="attention.html", title="Needs attention",
+                              trash_days=attention.trash_days(), review=attention.review_dir(), trash=attention.trash_dir())
+    needsAttention.exposed = True
+
+    def _attention_json(self, data):
+        cherrypy.response.headers['Content-Type'] = 'application/json'
+        return json.dumps(data)
+
+    def _attention_post(self):
+        if cherrypy.request.method != 'POST':
+            raise cherrypy.HTTPError(405)
+
+    def attention_items(self):
+        return self._attention_json({'items': attention.items()})
+    attention_items.exposed = True
+
+    def _attention_image(self, path):
+        if not path:
+            raise cherrypy.HTTPError(404)
+        cherrypy.response.headers['Content-Type'] = 'image/jpeg'
+        cherrypy.response.headers['Cache-Control'] = 'private, max-age=86400'
+        with open(path, 'rb') as f:
+            return f.read()
+
+    def attention_cover(self, path, v=None):   # v: the file's time, so a changed file isn't served from cache
+        return self._attention_image(attention.file_cover(path))
+    attention_cover.exposed = True
+
+    def attention_issue_cover(self, issueid):
+        return self._attention_image(attention.issue_cover(issueid))
+    attention_issue_cover.exposed = True
+
+    def attention_search(self, q=''):
+        return self._attention_json({'series': attention.search(q)})
+    attention_search.exposed = True
+
+    def attention_issues(self, comicid):
+        return self._attention_json({'issues': attention.issues(comicid)})
+    attention_issues.exposed = True
+
+    def attention_file(self, path, comicid, issueid):
+        self._attention_post()
+        return self._attention_json(attention.file_as(path, comicid, issueid))
+    attention_file.exposed = True
+
+    def attention_trash(self, path):
+        self._attention_post()
+        try:
+            return self._attention_json(attention.trash(path))
+        except Exception as e:
+            logger.warn('[ATTENTION] Could not move %s to the trash: %s' % (path, e))
+            return self._attention_json({'ok': False, 'note': 'Could not move it: %s' % e})
+    attention_trash.exposed = True
+
+    def attention_ignore(self, path):
+        self._attention_post()
+        attention.ignore(path)
+        return self._attention_json({'ok': True, 'note': 'Hidden until the file changes.'})
+    attention_ignore.exposed = True
 
     def cblimport(self):
         return serve_template(templatename="cblimport.html", title="CBL Import")

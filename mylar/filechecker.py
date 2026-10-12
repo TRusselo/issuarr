@@ -367,6 +367,12 @@ class FileChecker(object):
                 modfilename = '%s %s'.strip() % (modfilename[:x], modfilename[y+3:])
                 logger.fdebug('issueid %s removed successfully: %s' % (issueid, modfilename))
 
+        # A cover gallery, 'Age of Ultron 007 03 of 03 covers': the issue number comes first and
+        # 'N of M covers' only counts the covers, so drop the count before it's read as the issue.
+        modfilename = re.sub(r'(\d)\s+\d+\s+of\s+\d+\s+(?:variant\s+)?covers?\b', r'\1 ', modfilename, flags=re.I).strip()
+        # A cover date in square brackets, '[2013-07]', reads like the usual '(2013-07)'.
+        modfilename = re.sub(r'\[((?:19|20)\d{2}(?:-\d{2}){0,2})\]', r' (\1)', modfilename).strip()
+
         #here we take a snapshot of the current modfilename, the intent is that we will remove characters that match
         #as we discover them - namely volume, issue #, years, etc
         #the remaining strings should be the series title and/or issue title if present (has to be detected properly)

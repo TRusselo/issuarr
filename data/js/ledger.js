@@ -38,9 +38,10 @@
   }
 
   // One bar per series, by status: on disk, wanted, snatched, failed, missing and not wanted, and the rest
-  // (Ignored issues aren't listed as missing, so they make up most of it).
-  var SEGS = [['have', 'seg-have', 'On disk'], ['w', 'seg-wanted', 'Wanted'], ['s', 'seg-snatched', 'Snatched'], ['f', 'seg-failed', 'Failed'],
-              ['m', 'seg-missing', 'Missing, not wanted'], ['rest', 'seg-ignored', 'Ignored or not listed']];
+  // (Ignored issues aren't listed as missing, so they make up most of it). The last item is what the colour means, on hover.
+  var SEGS = [['have', 'seg-have', 'On disk', 'Downloaded or archived'], ['w', 'seg-wanted', 'Wanted', 'Mylar searches for these'],
+              ['s', 'seg-snatched', 'Snatched', 'Grabbed, not filed yet'], ['f', 'seg-failed', 'Failed', 'The download or filing failed'],
+              ['m', 'seg-missing', 'Missing, not wanted', 'Not on disk and not searched for'], ['rest', 'seg-ignored', 'Ignored or not listed', 'Ignored, or not counted as missing']];
   function counts(si) {
     var S = M.series[si], c = M.sc[si] || { w: 0, s: 0, f: 0, m: 0 }, tot = S[3] || 0, have = tot ? Math.min(S[2], tot) : S[2];
     return { have: have, w: c.w, s: c.s, f: c.f, m: c.m, rest: Math.max(tot - have - c.w - c.s - c.f - c.m, 0) };
@@ -48,11 +49,11 @@
   function bar(c) {
     var title = SEGS.filter(function (x) { return c[x[0]]; }).map(function (x) { return x[2] + ': ' + fmt(c[x[0]]); }).join(' · ');
     return '<div class="collection-bar" title="' + esc(title) + '">' + SEGS.map(function (x) {
-      return c[x[0]] ? '<span class="' + x[1] + '" style="flex: ' + c[x[0]] + ' 1 0"></span>' : '';
+      return c[x[0]] ? '<span class="' + x[1] + '" style="flex: ' + c[x[0]] + ' 1 0" title="' + esc(x[2] + ' - ' + x[3].toLowerCase() + ': ' + fmt(c[x[0]])) + '"></span>' : '';
     }).join('') + '</div>';
   }
   // A series' issues in number order as runs: on disk, wanted, missing and so on, so each gap shows where it is.
-  var RUN = { h: ['seg-have', 'on disk'], w: ['seg-wanted', 'wanted'], s: ['seg-snatched', 'snatched'], f: ['seg-failed', 'failed'],
+  var RUN = { h: ['seg-have', 'on disk'], w: ['seg-wanted', 'wanted'], s: ['seg-snatched', 'snatched', 'grabbed, not filed yet'], f: ['seg-failed', 'failed'],
               i: ['seg-ignored', 'ignored'], m: ['seg-missing', 'missing'] };
   function runsBar(runs) {
     if (!runs || !runs.length) return '<div class="collection-bar"></div>';
@@ -61,7 +62,7 @@
       var k = RUN[r[0]] || RUN.m;
       tot[k[1]] = (tot[k[1]] || 0) + r[1]; n += r[1];
       var which = r[1] === 1 ? '#' + r[2] : '#' + r[2] + '–#' + r[3];
-      return '<span class="' + k[0] + '" style="flex: ' + r[1] + ' 1 0" title="' + esc(which + ' ' + k[1]) + '"></span>';
+      return '<span class="' + k[0] + '" style="flex: ' + r[1] + ' 1 0" title="' + esc(which + ' ' + k[1] + (k[2] ? ' - ' + k[2] : '')) + '"></span>';
     }).join('');
     var label = n + ' issues: ' + Object.keys(tot).map(function (k) { return tot[k] + ' ' + k; }).join(', ');
     return '<div class="collection-bar is-runs" role="img" aria-label="' + esc(label) + '">' + spans + '</div>';
@@ -78,7 +79,7 @@
     var missing = t.w + t.s + t.f + t.m;
     box.innerHTML = '<div class="lg-sum-line"><span><b>' + fmt(ids.length) + '</b> series with missing issues · <b>' + fmt(missing) + '</b> missing of <b>' + fmt(tracked) + '</b> tracked</span>' +
       '<span class="is-wanted"><b>' + fmt(t.w) + '</b> wanted</span></div>' + bar(t) +
-      '<div class="legend">' + SEGS.map(function (x) { return '<span><i class="' + x[1].replace('seg-', 'is-') + '"></i>' + x[2] + ' <b>' + fmt(t[x[0]]) + '</b></span>'; }).join('') + '</div>';
+      '<div class="legend">' + SEGS.map(function (x) { return '<span title="' + esc(x[3]) + '"><i class="' + x[1].replace('seg-', 'is-') + '"></i>' + x[2] + ' <b>' + fmt(t[x[0]]) + '</b></span>'; }).join('') + '</div>';
   }
 
   var PILL = { Wanted: 'is-wanted', Snatched: 'is-snatched', Failed: 'is-failed', Downloaded: 'is-have', Archived: 'is-have', Ignored: 'is-ignored', Skipped: 'is-idle' };
@@ -181,7 +182,7 @@
     var mine = list.filter(function (i) { return M.trades[i][4]; }), other = list.filter(function (i) { return !M.trades[i][4]; });
     var html = mine.map(function (i) {
       var T = M.trades[i];
-      return '<a class="lg-trade" style="--c:var(--lg-done)" href="comicDetails?ComicID=' + T[3] + '" title="You own this in ' + esc(tradeName(T)) + '">' + BOOK + '<span>' + esc(tradeName(T)) + '</span></a>';
+      return '<a class="lg-trade" style="--c:var(--lg-c-fills)" href="comicDetails?ComicID=' + T[3] + '" title="You own this in ' + esc(tradeName(T)) + '">' + BOOK + '<span>' + esc(tradeName(T)) + '</span></a>';
     }).join('');
     if (other.length) html += '<span class="lg-trade lg-trade-out" title="Collected in ' + esc(other.map(function (i) { return tradeName(M.trades[i]); }).join(', ')) + ' (not owned)">' + BOOK + '<span>' + (other.length === 1 ? esc(tradeName(M.trades[other[0]])) : other.length + ' trades') + '</span></span>';
     return html;
@@ -193,7 +194,7 @@
     var keys = Object.keys(g).map(Number).sort();
     if (!keys.length) return '<span class="lg-trade lg-trade-out" title="Collected in trades you don\'t own">' + BOOK + '<span>' + list.length + ' not owned</span></span>';
     return keys.map(function (k) {
-      return '<span class="lg-trade" style="--c:var(' + CC[k] + ')" title="' + esc(CL[k] + ': ' + g[k].join(', ')) + '">' + BOOK + '<span>' + CL[k] + (g[k].length > 1 ? ' ×' + g[k].length : '') + '</span></span>';
+      return '<span class="lg-trade' + (CC[k] === '--lg-c-dupe' ? ' lg-trade-dupe' : '') + '" style="--c:var(' + CC[k] + ')" title="' + esc(CL[k] + ': ' + g[k].join(', ')) + '">' + BOOK + '<span>' + CL[k] + (g[k].length > 1 ? ' ×' + g[k].length : '') + '</span></span>';
     }).join('');
   }
 

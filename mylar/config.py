@@ -1711,15 +1711,15 @@ class Config(object):
                     self.DDL_PRIORITY_ORDER = json.loads(self.DDL_PRIORITY_ORDER)
                 except Exception as e:
                     logger.warn('[DDL PRIORITY ORDER] Unable to load DDL priority order from setting to default')
-                    setattr(self, 'DDL_PRIORITY_ORDER', ["mega", "mediafire", "pixeldrain", "main"])
+                    setattr(self, 'DDL_PRIORITY_ORDER', ["direct", "cloud", "torrent"])
 
             self.DDL_PRIORITY_ORDER = [str(dpo).lower() for dpo in self.DDL_PRIORITY_ORDER if re.match(r'^[a-z0-9]+$', str(dpo).lower())]
 
         else:
-            setattr(self, 'DDL_PRIORITY_ORDER', ["mega", "mediafire", "pixeldrain", "main"])  #default order
+            setattr(self, 'DDL_PRIORITY_ORDER', ["direct", "cloud", "torrent"])  #default order
             config.set('DDL', 'ddl_priority_order', json.dumps(self.DDL_PRIORITY_ORDER))
 
-        logger.info('[DDL PRIORITY ORDER] DDL will attempt to use the following 3rd party sites in this specific download order: %s' % self.DDL_PRIORITY_ORDER)
+        logger.info('[DDL PRIORITY ORDER] Download sources are tried in this order: %s' % self.DDL_PRIORITY_ORDER)
 
         if self.SEARCH_TIER_CUTOFF is None:
             self.SEARCH_TIER_CUTOFF = 14

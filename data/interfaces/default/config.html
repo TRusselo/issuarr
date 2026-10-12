@@ -513,7 +513,7 @@
                         </div>
                     </div>
                     <div class="set-row">
-                        <div class="set-label"><b>Download sources, in the order to try them</b><span>Sources a post doesn't offer are skipped. GetComics direct downloads go through Issuarr and FlareSolverr; other hosts go to JDownloader 2 when it's on. New hosts that GetComics adds appear here automatically.</span></div>
+                        <div class="set-label"><b>Download sources, in the order to try them</b><span>Sources a post doesn't offer are skipped. Cloud shares other than Mega, MediaFire and Pixeldrain need JDownloader 2.</span></div>
                         <div class="set-ctl ddl-sources" id="ddl_sources_box">
                             <ol id="ddl_sources_list" class="ddl-src-list"></ol>
                             <input type="hidden" name="ddl_priority_order" id="ddl_priority_order" value="">
@@ -1950,7 +1950,7 @@ $("#enable_airdcpp").click(function(){
                             return '<li data-i="' + i + '"><button type="button" class="ddl-up" aria-label="Move up"' + (i === 0 ? ' disabled' : '') + '>▲</button>' +
                                 '<button type="button" class="ddl-down" aria-label="Move down"' + (i === src.length - 1 ? ' disabled' : '') + '>▼</button>' +
                                 '<label class="ddl-src"><input type="checkbox" class="ddl-on"' + (s.enabled ? ' checked' : '') + '> ' + $('<span>').text(s.label).html() + '</label>' +
-                                '<small class="ddl-via">' + $('<span>').text(s.via).html() + (s.last_seen ? ' · last offered ' + s.last_seen.slice(0, 10) : ' · not seen yet') + '</small></li>';
+                                '<small class="ddl-via">' + $('<span>').text(s.via).html() + '</small></li>';
                         }).join(''));
                         $('#ddl_priority_order').val(JSON.stringify(src.map(function (s) { return s.name; })));
                         $('#ddl_disabled_sources').val(JSON.stringify(src.filter(function (s) { return !s.enabled; }).map(function (s) { return s.name; })));

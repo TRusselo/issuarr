@@ -29,7 +29,6 @@ def cfg(monkeypatch, tmp_path):
     monkeypatch.setattr(mylar, 'USE_DELUGE', True, raising=False)
     monkeypatch.setattr(mylar, 'SNATCHED_QUEUE', queue.Queue(), raising=False)
     monkeypatch.setattr(ddlsources, 'pixeldrain_fits', lambda b: True)
-    monkeypatch.setattr(ddlsources, 'record', lambda labels: None)
 
 
 def gc(jd2=None):
@@ -60,9 +59,10 @@ def test_hosts_are_not_torrents():
 
 @pytest.mark.unit
 def test_torrent_is_last_by_default_and_listed_in_settings():
-    assert ddlsources.DEFAULT_ORDER[-1] == 'torrent'
+    assert ddlsources.DEFAULT_GROUPS[-1] == 'torrent'
     mylar.CONFIG.DDL_PRIORITY_ORDER = '["main","mega"]'
-    assert ddlsources.configured_order()[-1] == 'torrent'
+    assert ddlsources.configured_groups() == ['direct', 'cloud', 'torrent']
+    assert [s['name'] for s in ddlsources.all_sources()] == ['direct', 'cloud', 'torrent']
 
 
 @pytest.mark.unit

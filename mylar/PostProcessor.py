@@ -514,6 +514,18 @@ class PostProcessor(object):
             archives.JOBS[archives.JOBS.index(job)] = self.job
             logger.fdebug('[POST-PROCESSING] Searches of %s series wait for this run; the rest carry on.' % len(ids))
 
+    def _clear_pack(self):
+        """A direct-download pack has been filed: what's left in it goes to the trash, not to
+        Needs attention. Single-issue downloads and torrents are left alone."""
+        if self.ddl is not True:
+            return
+        if not (self.pack or self.issueid is None or getattr(self, '_unpacked_pack', False)):
+            return
+        try:
+            archives.clear_pack(self.nzb_folder)
+        except Exception as e:
+            logger.warn('[PACK] Unable to clear what\'s left of %s: %s' % (self.nzb_folder, e))
+
     def _widen_job(self):
         job = getattr(self, 'job', None)
         if job in archives.JOBS:
@@ -526,7 +538,9 @@ class PostProcessor(object):
         source, source_name = self.nzb_folder, self.nzb_name
         archives.busy('Post-processing %s' % ('the monitored folder' if source_name == 'Manual Run' else source_name))
         try:
-            return self._process_main()
+            result = self._process_main()
+            self._clear_pack()
+            return result
         finally:
             archives.cleanup(self.extracted)
             if source_name == 'Manual Run' and mylar.CONFIG.CHECK_FOLDER and source and \
@@ -625,6 +639,7 @@ class PostProcessor(object):
                 self.nzb_folder = newpath
                 self.nzb_name = os.path.basename(newpath)
                 if kind == 'pack':
+                    self._unpacked_pack = True
                     logger.info('%s Post-processing the comics extracted from %s against the whole watchlist' % (module, newpath))
                     self.nzb_name = 'Manual Run'
                     self.issueid = None

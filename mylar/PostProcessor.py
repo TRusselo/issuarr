@@ -68,6 +68,38 @@ def _loop_name(name):
     return out
 
 
+def alternate_names(myDB):
+    """Each watchlist series' alternate search names, the way filing compares them."""
+    alt_list = []
+    alt_db = myDB.select("SELECT * FROM Comics WHERE AlternateSearch != 'None'")
+    if alt_db is not None:
+        for aldb in alt_db:
+            as_d = filechecker.FileChecker(AlternateSearch=aldb['AlternateSearch'])
+            as_dinfo = as_d.altcheck()
+            alt_list.append({'AS_Alt':   as_dinfo['AS_Alt'],
+                             'AS_Tuple': as_dinfo['AS_Tuple'],
+                             'AS_DyComicName': aldb['DynamicComicName']})
+    return alt_list
+
+
+def folder_job(folder):
+    """What a run over a folder holds up: the watchlist series its comics are named for, or every
+    search, (None, None), when it can't tell - there's an archive still to unpack, which could
+    hold anything, or the folder can't be read."""
+    try:
+        if not folder or not os.path.isdir(folder):
+            return (None, None)
+        for root, dirs, names in os.walk(folder):
+            if any(n.lower().endswith(archives.ARCHIVE_EXT) for n in names):
+                return (None, None)
+        files = filechecker.FileChecker(folder, justparse=True, pp_mode=True).listFiles()
+        myDB = db.DBConnection()
+        return (frozenset(run_series(myDB, files.get('comiclist') or [], alternate_names(myDB))), None)
+    except Exception as e:
+        logger.fdebug('[POST-PROCESSING] Holding every search for %s - could not tell which series it holds: %s' % (folder, e))
+        return (None, None)
+
+
 def run_series(myDB, comiclist, alt_list):
     """The watchlist series a run over these files could file: those named like a file (or by
     one of their alternate names), and those of any issue id in a file name."""
@@ -443,7 +475,9 @@ class PostProcessor(object):
     def Process(self):
         archives.RUNS[0] += 1
         if self.nzb_name in ('Manual Run', 'Manual+Run'):
-            self.job = (None, None)
+            # the series its files are named for, worked out before it waits its turn: while it
+            # waits, searches of every other series carry on
+            self.job = folder_job(getattr(self, 'nzb_folder', None))
         else:
             self.job = (self.comicid, archives.own_issue(self.issueid, self.ddl, self.pack))
         archives.JOBS.append(self.job)
@@ -649,15 +683,7 @@ class PostProcessor(object):
                         filelist['comiclist'] =  []
                         filelist['comiccount'] = 0
                 #preload the entire ALT list in here.
-                alt_list = []
-                alt_db = myDB.select("SELECT * FROM Comics WHERE AlternateSearch != 'None'")
-                if alt_db is not None:
-                    for aldb in alt_db:
-                        as_d = filechecker.FileChecker(AlternateSearch=aldb['AlternateSearch']) #helpers.conversion(aldb['AlternateSearch']))
-                        as_dinfo = as_d.altcheck()
-                        alt_list.append({'AS_Alt':   as_dinfo['AS_Alt'],
-                                         'AS_Tuple': as_dinfo['AS_Tuple'],
-                                         'AS_DyComicName': aldb['DynamicComicName']})
+                alt_list = alternate_names(myDB)
 
                 if self.job == (None, None):
                     self._narrow_job(myDB, filelist['comiclist'], alt_list)

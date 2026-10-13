@@ -442,8 +442,11 @@ def missing_data(cutoff=None):
     missing_cids = {i['ComicID'] for i in rows}
     complete = [series_index(cid) for cid, c in comics.items()
                 if cid not in missing_cids and (c['Total'] or 0) > 0 and (c['Have'] or 0) >= (c['Total'] or 0)]
+    # The whole watchlist, not just the series with something missing, for the summary's library line.
+    library = {'series': len(comics), 'have': sum(c['Have'] or 0 for c in comics.values()),
+               'tracked': sum(c['Total'] or 0 for c in comics.values()), 'complete': len(complete)}
     return {'kinds': KINDS, 'pubs': pubs, 'series': series, 'rows': out, 'cutoff': cutoff or '',
-            'trades': trades, 'coverage': COVERAGE, 'complete': complete}
+            'trades': trades, 'coverage': COVERAGE, 'complete': complete, 'library': library}
 
 
 def _extra_name(u, found, status, comics):

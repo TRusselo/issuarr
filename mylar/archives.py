@@ -41,6 +41,15 @@ def busy(detail):
         job['detail'] = detail
 
 
+def progress(detail):
+    """Update the running job's detail as it goes. Unlike busy() it never starts a job, so a
+    filing run without one (File as from Needs attention) doesn't leave one behind."""
+    with _active_lock:
+        job = _job()
+        if job is not None:
+            job['detail'] = detail
+
+
 def note(text):
     with _active_lock:
         job = _job()

@@ -372,9 +372,6 @@ class FileChecker(object):
         modfilename = re.sub(r'(\d)\s+\d+\s+of\s+\d+\s+(?:variant\s+)?covers?\b', r'\1 ', modfilename, flags=re.I).strip()
         # A cover date in square brackets, '[2013-07]', reads like the usual '(2013-07)'.
         modfilename = re.sub(r'\[((?:19|20)\d{2}(?:-\d{2}){0,2})\]', r' (\1)', modfilename).strip()
-        # a US-style release date, (MM-DD-YYYY), read as (YYYY-MM-DD) so its year is seen
-        modfilename = re.sub(r'\((\d{1,2})-(\d{1,2})-((?:19|20)\d{2})\)',
-                             lambda m: '(%s-%02d-%02d)' % (m.group(3), int(m.group(1)), int(m.group(2))), modfilename)
 
         #here we take a snapshot of the current modfilename, the intent is that we will remove characters that match
         #as we discover them - namely volume, issue #, years, etc

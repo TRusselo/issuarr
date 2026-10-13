@@ -1364,6 +1364,9 @@ a.w-where:hover { color: var(--text); text-decoration-color: currentColor; }
   background: var(--ink); border: 1px solid var(--line); border-radius: var(--radius-sm); }
 .att-series { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; max-height: 220px; overflow-y: auto; }
 .att-foot { margin-top: 18px; font-size: 13px; }
+.att-head-acts, .head-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.att-refile { margin: 12px 0 0; font-size: 13.5px; }
+.att-item.is-busy { opacity: .6; }
 @media (max-width: 720px) {
   .att-item { padding-left: 12px; }
   .att-read { grid-template-columns: 1fr; gap: 10px; overflow: visible; }

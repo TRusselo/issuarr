@@ -653,6 +653,14 @@ def start():
                     logger.info('[FOLDER MONITOR] Folder monitoring is not enabled.')
                     MONITOR_SCHEDULER.pause()
 
+            # File as choices a restart interrupted, and once per new version, filing everything
+            # under Needs attention again
+            try:
+                from mylar import attention
+                attention.after_start()
+            except Exception as e:
+                logger.warn('[ATTENTION] Unable to resume Needs attention work: %s' % e)
+
             logger.info('Firing up the Background Schedulers now....')
 
             try:

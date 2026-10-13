@@ -42,11 +42,12 @@
             volume: ['place', 'The volume doesn\'t match your series.'],
             year: ['place', 'The year doesn\'t match that issue.'],
             issue: ['place', 'That issue number isn\'t on the series.'],
+            owned: ['owned', 'You already have this issue.'],
             damaged: ['bad', 'The file is damaged or incomplete.'],
             cover: ['bad', 'Covers only, not the full issue.'],
             unclaimed: ['review', 'Nothing on your watchlist claimed it, so it was moved to review.']
         };
-        var TABS = [['all', 'All'], ['place', 'Couldn\'t place'], ['review', 'In review'], ['bad', 'Damaged or covers']];
+        var TABS = [['all', 'All'], ['place', 'Couldn\'t place'], ['owned', 'Already have'], ['review', 'In review'], ['bad', 'Damaged or covers']];
 
         function esc(t) { return window.Issuarr.esc(t == null ? '' : String(t)); }
         function kind(i) { return (REASON[i.reason] || REASON.series)[0]; }
@@ -154,7 +155,7 @@
         }
 
         function drawTabs() {
-            var counts = { all: items.length, place: 0, review: 0, bad: 0 };
+            var counts = { all: items.length, place: 0, owned: 0, review: 0, bad: 0 };
             items.forEach(function (i) { counts[kind(i)]++; });
             tabs.innerHTML = TABS.filter(function (t) { return t[0] === 'all' || counts[t[0]]; }).map(function (t) {
                 return '<button type="button" data-tab="' + t[0] + '" aria-pressed="' + (show === t[0]) + '">' + t[1] +

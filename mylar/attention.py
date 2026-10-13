@@ -42,7 +42,7 @@ from mylar import db, logger
 COMIC_EXT = ('.cbz', '.cbr', '.cb7', '.pdf')
 # Most telling first: a file that failed on volume for one series and on name for the rest
 # failed on volume.
-REASONS = ('damaged', 'cover', 'volume', 'year', 'issue', 'series', 'unclaimed')
+REASONS = ('damaged', 'cover', 'owned', 'volume', 'year', 'issue', 'series', 'unclaimed')
 CACHE_SECONDS = 60
 _COUNT = [0.0, 0]          # (counted at, count) for the nav badge
 _COMICS = [0.0, []]        # (loaded at, watchlist rows) for suggestions

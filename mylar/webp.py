@@ -10,6 +10,7 @@ import threading
 import time
 import zipfile
 import zlib
+from collections import deque
 from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 
 import mylar
@@ -54,6 +55,10 @@ MAX_THREADS = max(1, _cpus())
 MAX_FILES = 8
 SAMPLE_FILES = 150
 MIN_SAVING = 0.10
+# Pages handed to the workers ahead of the one being written, per worker. A comic is streamed
+# through this window, so memory per file stays at a few pages: on 12-13 Oct whole 2-3 GB comics
+# were read in at once and the container reached 10 GB.
+PAGES_AHEAD = 2
 STD = (16, 11, 10, 16, 24, 40, 51, 61, 12, 12, 14, 19, 26, 58, 60, 55, 14, 13, 16, 24, 40, 57, 69, 56, 14, 17, 22, 29, 51, 87, 80, 62,
        18, 22, 37, 56, 68, 109, 103, 77, 24, 35, 55, 64, 81, 104, 113, 92, 49, 64, 78, 87, 103, 121, 120, 101, 72, 92, 95, 98, 112, 100, 103, 99)
 SAVINGS = ((80, 0.0), (86, 0.25), (92, 0.45), (99, 0.8))
@@ -153,21 +158,28 @@ def _verify(tmp, src, converted, threads=1, pool=None):
         expect = [converted[n][0] if n in converted else n for n in old]
         if [i.filename for i in b.infolist()] != expect:
             return 'entry list changed'
-        pages = []
-        for name in old:
-            if name.endswith('/'):
-                continue
-            if name in converted:
-                new, _, size = converted[name]
-                pages.append((new, size, b.read(new)))
-            elif a.read(name) != b.read(name):
-                return '%s changed' % name
         ex = pool or ThreadPoolExecutor(max(1, threads))
+        ahead = deque()
         try:
-            for (new, size, _), got in zip(pages, ex.map(_decoded_size, [p[2] for p in pages])):
-                if got != size:
+            for name in old:
+                if name.endswith('/'):
+                    continue
+                if name in converted:
+                    new, _, size = converted[name]
+                    ahead.append((new, size, ex.submit(_decoded_size, b.read(new))))
+                    if len(ahead) > max(1, threads) * PAGES_AHEAD:
+                        new, size, fut = ahead.popleft()
+                        if fut.result() != size:
+                            return 'page %s has the wrong size' % new
+                elif a.read(name) != b.read(name):
+                    return '%s changed' % name
+            while ahead:
+                new, size, fut = ahead.popleft()
+                if fut.result() != size:
                     return 'page %s has the wrong size' % new
         finally:
+            for _, _, fut in ahead:
+                fut.cancel()
             if pool is None:
                 ex.shutdown()
         back = {converted[n][0] if n in converted else n: n for n in old}
@@ -225,41 +237,52 @@ def convert(path, quality=None, min_source_q=None, backup_dir=None, backup_root=
                     continue
                 taken.add(target)
                 work.append((info, target))
+            need = st.st_size * (2.1 if backup_dir else 1.1)
+            if shutil.disk_usage(os.path.dirname(path)).free < need:
+                return dict(res, status='failed', reason='not enough free space')
+            targets = {info.filename: target for info, target in work}
+            converted = {}
+
+            def write(zo, info, fut):
+                # a page that didn't get smaller is copied as it is
+                done = fut.result()[0] if fut is not None else None
+                if done:
+                    zi = zipfile.ZipInfo(targets[info.filename], date_time=info.date_time)
+                    zi.compress_type = zipfile.ZIP_STORED
+                    zi.external_attr = info.external_attr
+                    zo.writestr(zi, done[0])
+                    converted[info.filename] = (targets[info.filename], None, done[1])
+                else:
+                    zi = zipfile.ZipInfo(info.filename, date_time=info.date_time)
+                    zi.compress_type = info.compress_type
+                    zi.external_attr = info.external_attr
+                    zi.comment = info.comment
+                    zi.create_system = info.create_system
+                    zo.writestr(zi, b'' if info.filename.endswith('/') else z.read(info))
+
             ex = pool or ThreadPoolExecutor(threads)
+            ahead = deque()
             try:
-                futures = [(info, target, ex.submit(_page, z.read(info), quality, min_q)) for info, target in work]
-                converted = {}
-                for info, target, fut in futures:
-                    done, why = fut.result()
-                    if done:
-                        converted[info.filename] = (target, done[0], done[1])
+                with zipfile.ZipFile(tmp, 'w', allowZip64=True) as zo:
+                    zo.comment = z.comment
+                    for info in infos:
+                        fut = ex.submit(_page, z.read(info), quality, min_q) if info.filename in targets else None
+                        ahead.append((info, fut))
+                        while sum(1 for _, f in ahead if f is not None) > threads * PAGES_AHEAD or (ahead and ahead[0][1] is None):
+                            write(zo, *ahead.popleft())
+                    while ahead:
+                        write(zo, *ahead.popleft())
             finally:
+                for _, fut in ahead:
+                    if fut is not None:
+                        fut.cancel()
                 if pool is None:
                     ex.shutdown()
             res['converted'] = len(converted)
             res['kept'] = len(todo) - len(converted)
             if not converted:
                 return dict(res, reason='nothing to gain')
-            need = st.st_size * (2.1 if backup_dir else 1.1)
-            if shutil.disk_usage(os.path.dirname(path)).free < need:
-                return dict(res, status='failed', reason='not enough free space')
-            with zipfile.ZipFile(tmp, 'w', allowZip64=True) as zo:
-                zo.comment = z.comment
-                for info in infos:
-                    if info.filename in converted:
-                        target, blob, _ = converted[info.filename]
-                        zi = zipfile.ZipInfo(target, date_time=info.date_time)
-                        zi.compress_type = zipfile.ZIP_STORED
-                        zi.external_attr = info.external_attr
-                        zo.writestr(zi, blob)
-                    else:
-                        zi = zipfile.ZipInfo(info.filename, date_time=info.date_time)
-                        zi.compress_type = info.compress_type
-                        zi.external_attr = info.external_attr
-                        zi.comment = info.comment
-                        zi.create_system = info.create_system
-                        zo.writestr(zi, b'' if info.filename.endswith('/') else z.read(info))
-        check = {n: (v[0], None, v[2]) for n, v in converted.items()}
+        check = converted
         problem = _verify(tmp, path, check, threads, pool)
         if problem:
             return dict(res, status='failed', reason=problem)

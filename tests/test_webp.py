@@ -86,6 +86,42 @@ def test_converts_pages_and_keeps_everything_else(tmp_path):
     assert not [n for n in os.listdir(tmp_path) if n.startswith('.') or n.endswith('.tmp')]
 
 
+
+class CountingPool:
+    """Runs work like a thread pool but notes how many pages were handed over and not yet collected."""
+
+    def __init__(self):
+        from concurrent.futures import ThreadPoolExecutor
+        self.ex = ThreadPoolExecutor(2)
+        self.out = set()
+        self.most = 0
+
+    def submit(self, fn, *a):
+        fut = self.ex.submit(fn, *a)
+        self.out.add(fut)
+        self.most = max(self.most, len([f for f in self.out if not getattr(f, 'collected', False)]))
+        real = fut.result
+
+        def result(*args, **kw):
+            fut.collected = True
+            return real(*args, **kw)
+        fut.result = result
+        return fut
+
+
+@pytest.mark.unit
+def test_big_comic_streams_a_few_pages_at_a_time(tmp_path):
+    pages = [('%03d.jpg' % n, jpeg(page(w=200, h=300, seed=n))) for n in range(30)]
+    src = make_cbz(tmp_path / 'big.cbz', pages[:15] + [('notes.txt', b'mid')] + pages[15:])
+    pool = CountingPool()
+    res = webp.convert(src, threads=2, pool=pool)
+    assert res['status'] == 'converted' and res['converted'] == 30, res
+    assert pool.most <= 2 * webp.PAGES_AHEAD + 1          # not all 30 pages held at once
+    _, _, order = entries(src)
+    assert order == ['%03d.webp' % n for n in range(15)] + ['notes.txt'] + ['%03d.webp' % n for n in range(15, 30)] + ['ComicInfo.xml']
+    pool.ex.shutdown()
+
+
 @pytest.mark.unit
 def test_low_quality_source_page_is_kept(tmp_path):
     low = jpeg(page(seed=3), q=40)

@@ -4610,6 +4610,9 @@ class WebInterface(object):
 
     def attention_file(self, path, comicid, issueid):
         self._attention_post()
+        left = attention.gone(path)
+        if left:
+            return self._attention_json(left)
         return self._attention_json(attention.file_as(path, comicid, issueid))
     attention_file.exposed = True
 
@@ -4624,9 +4627,26 @@ class WebInterface(object):
 
     def attention_ignore(self, path):
         self._attention_post()
+        left = attention.gone(path)
+        if left:
+            return self._attention_json(left)
         attention.ignore(path)
         return self._attention_json({'ok': True, 'note': 'Hidden until the file changes.'})
     attention_ignore.exposed = True
+
+    def attention_status(self):
+        return self._attention_json(attention.status())
+    attention_status.exposed = True
+
+    def attention_refile(self):
+        self._attention_post()
+        return self._attention_json(attention.refile_all())
+    attention_refile.exposed = True
+
+    def attention_refile_stop(self):
+        self._attention_post()
+        return self._attention_json({'ok': attention.stop_refile(), 'note': 'Stopping after the folder being filed now.'})
+    attention_refile_stop.exposed = True
 
     def cblimport(self):
         return serve_template(templatename="cblimport.html", title="CBL Import")

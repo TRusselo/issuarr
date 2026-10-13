@@ -135,7 +135,7 @@ def test_file_as_hands_filing_the_users_pick_as_a_forced_match(env, monkeypatch)
     monkeypatch.setattr(PostProcessor, 'PostProcessor', FakePP)
     monkeypatch.setattr(attention.threading, 'Thread', lambda target, args, **k: types.SimpleNamespace(start=lambda: target(*args)))
     out = attention.file_as(p, '94801', '562595')
-    assert out == {'ok': True, 'note': 'Filing as Great Lakes Avengers #2'}
+    assert out == {'ok': True, 'note': "Filing as Great Lakes Avengers #2. It starts as soon as the filing that's running now finishes."}
     assert seen[0] == ('Manual Run', str(env.review))
     [entry] = seen[1]
     assert entry['ComicLocation'] == p and entry['IssueID'] == '562595' and entry['ForcedMatch'] is True
@@ -330,3 +330,112 @@ def test_the_cover_endpoint_says_busy_with_a_503(monkeypatch):
     with pytest.raises(cherrypy.HTTPError) as e:
         WebInterface().attention_cover('/x.cbz', v='1', r='2')
     assert e.value.status == 503
+
+
+def _no_thread(monkeypatch):
+    started = []
+    monkeypatch.setattr(attention.threading, 'Thread', lambda target, args=(), **k: types.SimpleNamespace(start=lambda: started.append((target, args))))
+    return started
+
+
+@pytest.mark.unit
+def test_a_file_as_choice_survives_a_restart(env, monkeypatch):
+    p = touch(env.review / 'Great Lakes Avengers 002 (2017).cbz')
+    started = _no_thread(monkeypatch)
+    assert attention.file_as(p, '94801', '562595')['ok'] is True
+    assert attention.JOBS[p]['state'] == 'waiting'
+    row = env.db.selectone('SELECT status, pick FROM attention WHERE path=?', [p]).fetchone()
+    assert (row['status'], row['pick']) == ('queued', '94801|562595')
+    # filing turning the file down again doesn't drop the user's choice
+    attention.record(p, 'series')
+    assert env.db.selectone('SELECT status FROM attention WHERE path=?', [p]).fetchone()['status'] == 'queued'
+    # restart: jobs in memory are gone, the choice is picked up again
+    attention.JOBS.clear()
+    assert [i['job'] for i in attention.items()] == [{'state': 'waiting', 'note': 'Waiting to file'}]
+    del started[:]
+    assert attention.resume_picks() == 1
+    assert attention.JOBS[p]['note'] == 'Waiting to file as Great Lakes Avengers #2'
+    assert len(started) == 1
+
+
+@pytest.mark.unit
+def test_a_choice_that_fails_goes_back_to_open(env, monkeypatch):
+    p = touch(env.review / 'Great Lakes Avengers 002 (2017).cbz')
+
+    class FakePP(object):
+        def __init__(self, *a, **k):
+            pass
+
+        def nzb_or_oneoff_pp(self, manual=None):
+            pass   # nothing filed
+
+    from mylar import PostProcessor
+    monkeypatch.setattr(PostProcessor, 'PostProcessor', FakePP)
+    monkeypatch.setattr(attention.threading, 'Thread', lambda target, args, **k: types.SimpleNamespace(start=lambda: target(*args)))
+    attention.file_as(p, '94801', '562595')
+    assert attention.JOBS[p]['state'] == 'failed'
+    row = env.db.selectone('SELECT status, pick FROM attention WHERE path=?', [p]).fetchone()
+    assert (row['status'], row['pick']) == ('open', None)
+
+
+@pytest.mark.unit
+def test_a_file_already_moved_by_hand_just_leaves_the_list(env):
+    p = touch(env.root / 'downloads' / 'Some Comic 001 (2020).cbz')
+    attention.record(p, 'series')
+    os.remove(p)
+    out = attention.trash(p)
+    assert out['ok'] is True and out['gone'] is True
+    assert env.db.selectone('SELECT path FROM attention WHERE path=?', [p]).fetchone() is None
+
+
+@pytest.mark.unit
+def test_refile_folders_groups_review_runs_it_last_and_skips_nested(env):
+    review = str(env.review)
+    paths = [os.path.join(review, 'a.cbz'), os.path.join(review, 'sub', 'b.cbz'),
+             '/dl/Pack (2003)/x.cbz', '/dl/Pack (2003)/Annuals/y.cbz', '/dl/Other/z.cbz', '/dl/Pack (2003)/Annuals/w.cbz']
+    assert attention.refile_folders(paths) == ['/dl/Other', '/dl/Pack (2003)', review]
+
+
+@pytest.mark.unit
+def test_try_filing_again_runs_filing_over_each_folder_after_new_downloads(env, monkeypatch):
+    a = touch(env.review / 'Great Lakes Avengers 002 (2017).cbz')
+    b = touch(env.root / 'dl' / 'Pack' / 'Other 001 (2001).cbz')
+    attention.record(b, 'year')
+    ran, waits = [], []
+    sizes = [2, 1, 0]
+    monkeypatch.setattr(mylar, 'PP_QUEUE', types.SimpleNamespace(qsize=lambda: sizes.pop(0) if sizes else 0), raising=False)
+    monkeypatch.setattr(attention.time, 'sleep', waits.append)
+
+    class FakePP(object):
+        def __init__(self, name, folder, queue=None):
+            self.folder = folder
+            ran.append((name, folder))
+
+        def Process(self):
+            if self.folder == str(env.review):
+                os.remove(a)   # filed
+
+    from mylar import PostProcessor
+    monkeypatch.setattr(PostProcessor, 'PostProcessor', FakePP)
+    monkeypatch.setattr(attention.threading, 'Thread', lambda target, args=(), **k: types.SimpleNamespace(start=lambda: target(*args)))
+    out = attention.refile_all()
+    assert out['ok'] is True
+    assert ran == [('Manual Run', str(env.root / 'dl' / 'Pack')), ('Manual Run', str(env.review))]
+    assert len(waits) == 2   # waited twice for the queue to empty before starting
+    st = attention.status()['refile']
+    assert (st['state'], st['before'], st['after'], st['done'], st['total']) == ('done', 2, 1, 2, 2)
+
+
+@pytest.mark.unit
+def test_everything_is_tried_again_once_per_new_version(env, monkeypatch):
+    monkeypatch.setattr(mylar.CONFIG, 'CACHE_DIR', str(env.root), raising=False)
+    monkeypatch.setattr(mylar, 'CURRENT_VERSION', 'abc123', raising=False)
+    calls = []
+    monkeypatch.setattr(attention, 'refile_all', lambda auto=False: calls.append(auto))
+    monkeypatch.setattr(attention.threading, 'Thread', lambda target, args=(), **k: types.SimpleNamespace(start=lambda: target(*args)))
+    monkeypatch.setattr(attention.time, 'sleep', lambda s: None)
+    assert attention.refile_after_update() is True
+    assert attention.refile_after_update() is False
+    monkeypatch.setattr(mylar, 'CURRENT_VERSION', 'def456', raising=False)
+    assert attention.refile_after_update() is True
+    assert calls == [True, True]

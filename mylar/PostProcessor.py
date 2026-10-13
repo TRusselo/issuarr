@@ -91,8 +91,11 @@ class PostProcessor(object):
         if queue:
             self.queue = queue
 
+        # Another post-processing run holding APILOCK used to end __init__ with a return value,
+        # which raises "__init__() should return None, not 'dict'": File as on Needs attention failed
+        # whenever a download was being filed. Process() waits for that run on PP_LOCK, so carry on.
         if mylar.APILOCK is True:
-            return {'status':  'IN PROGRESS'}
+            logger.fdebug('%s Another post-processing run is working - this one waits for it.' % self.module)
 
         if apicall is True:
             self.apicall = True

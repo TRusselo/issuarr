@@ -14,10 +14,10 @@ def myDB(monkeypatch, tmp_path):
     for k, v in dict(IGNORE_SEARCH_WORDS=[], ANNUALS_ON=True).items():
         monkeypatch.setattr(mylar.CONFIG, k, v, raising=False)
     d = db.DBConnection()
-    d.action('CREATE TABLE comics (ComicID TEXT, ComicName TEXT, DynamicComicName TEXT)')
+    d.action('CREATE TABLE comics (ComicID TEXT, ComicName TEXT, DynamicComicName TEXT, AlternateSearch TEXT DEFAULT "None")')
     d.action('CREATE TABLE issues (IssueID TEXT, ComicID TEXT)')
     d.action('CREATE TABLE annuals (IssueID TEXT, ComicID TEXT)')
-    d.action("INSERT INTO comics VALUES ('7180', 'Superman/Batman', 'supermanbatman'), ('22', 'Punisher 2099', 'punisher2099'), "
+    d.action("INSERT INTO comics (ComicID, ComicName, DynamicComicName) VALUES ('7180', 'Superman/Batman', 'supermanbatman'), ('22', 'Punisher 2099', 'punisher2099'), "
              "('99', 'Franken-Castle', 'frankencastle'), ('1', 'Batman', 'batman')")
     d.action("INSERT INTO issues VALUES ('5001', '1')")
     return d
@@ -46,3 +46,20 @@ def test_searches_of_other_series_carry_on_during_a_folder_run(monkeypatch):
     assert archives.holds('555', '9') is False
     monkeypatch.setattr(archives, 'JOBS', [(None, None)])
     assert archives.holds('555', '9') is True   # a run that could file anything still holds all
+
+
+@pytest.mark.unit
+def test_a_queued_folder_run_holds_only_its_series_while_it_waits(myDB, tmp_path, monkeypatch):
+    # live 12 Oct: Try filing again waited its turn as "could file anything", holding all 570 searches
+    from mylar.PostProcessor import folder_job
+    for k, v in dict(CUSTOM_ISSUE_EXCEPTIONS=[], FOLDER_SCAN_LOG_VERBOSE=False, ZERO_LEVEL_N=None, ZERO_LEVEL=False,
+                     ENABLE_TORRENTS=False).items():
+        monkeypatch.setattr(mylar.CONFIG, k, v, raising=False)
+    folder = tmp_path / 'review'
+    folder.mkdir()
+    (folder / 'Superman Batman 001 (2003).cbz').write_bytes(b'x')
+    (folder / 'The Punisher 2099 005 (1993).cbr').write_bytes(b'x')
+    assert folder_job(str(folder)) == (frozenset({'7180', '22'}), None)
+    (folder / 'Big Pack.zip').write_bytes(b'x')   # could hold any series once unpacked
+    assert folder_job(str(folder)) == (None, None)
+    assert folder_job(str(tmp_path / 'missing')) == (None, None)

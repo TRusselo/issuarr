@@ -8,6 +8,31 @@ Releases come from the `main` branch and are the `latest` Docker image. Changes 
 
 Nothing yet.
 
+## 0.8.2 (12 October 2026)
+
+### Searching
+
+- Searching GetComics reuses results from the last 3 hours, stops reading single-issue results after 3 pages, and no longer waits after an issue's last search, so Wanted searches finish sooner. ([`845828f`](https://github.com/issuarr/issuarr/commit/845828f))
+- Searches no longer all wait while a folder of files is being filed, only searches for the series in that folder. ([`03b01bc`](https://github.com/issuarr/issuarr/commit/03b01bc))
+
+### Filing and Needs attention
+
+- Packs grabbed for one series (say, its Annual) now file the other issues they contain too, instead of leaving them in Needs attention. ([`5a45280`](https://github.com/issuarr/issuarr/commit/5a45280))
+- Filing accepts a filename year anywhere from the year a series began to a year after the issue came out, so pack issues labelled with the series' start year are filed. ([`8a02e55`](https://github.com/issuarr/issuarr/commit/8a02e55))
+- Needs attention has a "Try filing again" button that runs filing over every listed file in the background, and does so by itself once after each update. Choices made with "File as" survive a restart, and every button answers straight away. ([`f1fdfbe`](https://github.com/issuarr/issuarr/commit/f1fdfbe))
+- "File as" no longer fails with "__init__() should return None" while a download is being filed. ([`ffa8e6b`](https://github.com/issuarr/issuarr/commit/ffa8e6b))
+- Needs attention shows each file's full folder with a Copy path button, its covers keep loading, and the page says it can be slow while downloads run. ([`63ee92a`](https://github.com/issuarr/issuarr/commit/63ee92a), [`f7d0963`](https://github.com/issuarr/issuarr/commit/f7d0963))
+- Cover galleries ("007 03 of 03 covers") are read as the issue, not the cover count. ([`c43eb46`](https://github.com/issuarr/issuarr/commit/c43eb46))
+
+### WebP conversion
+
+- The library can be converted to WebP gradually: a set number of files each night in a time window, largest first. Damaged files go to Needs attention. ([`e01046a`](https://github.com/issuarr/issuarr/commit/e01046a), [`b3f250c`](https://github.com/issuarr/issuarr/commit/b3f250c), [`c39edf2`](https://github.com/issuarr/issuarr/commit/c39edf2))
+- Conversion choices are remembered, start from modest defaults (2 threads, 1 file at a time), and quality, threads or keeping the originals can change without a new preview. ([`52748e2`](https://github.com/issuarr/issuarr/commit/52748e2), [`a8ffc4f`](https://github.com/issuarr/issuarr/commit/a8ffc4f))
+
+### Ledger
+
+- The Ledger shows whole-library totals above the missing-issues bar, its legend reads Have and Missing, not marked Wanted, and the Missing column sorts by total missing. ([`087a485`](https://github.com/issuarr/issuarr/commit/087a485))
+
 ## 0.8.1 (12 October 2026)
 
 The first release: Issuarr is in Unraid Community Applications. It's still beta, below 1.0.

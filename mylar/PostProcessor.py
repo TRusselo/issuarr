@@ -691,7 +691,9 @@ class PostProcessor(object):
                 manual_arclist = []
                 oneoff_issuelist = []
                 manual_list = []
-                for fl in filelist['comiclist']:
+                checking = len(filelist['comiclist'])
+                for checked, fl in enumerate(filelist['comiclist'], 1):
+                    archives.progress('Checking file %s of %s against the watchlist' % (checked, checking))
                     self._att_start(fl, (len(manual_list), len(manual_arclist), len(oneoff_issuelist)))
                     if all([fl['series_name'] is not None, fl['series_name'] != '']) and mylar.CONFIG.IGNORE_COVERS is True:
                         cvchk = re.sub(r'[\s\s+\_\.]', '', fl['series_name']).lower()
@@ -2482,6 +2484,7 @@ class PostProcessor(object):
 
                 for ml in manual_list:
                     i+=1
+                    archives.progress('Filing %s of %s matched issues' % (i, len(manual_list)))
                     comicid = ml['ComicID']
                     issueid = ml['IssueID']
                     issuenumOG = ml['IssueNumber']
@@ -2953,6 +2956,7 @@ class PostProcessor(object):
 
             for ml in manual_list:
                 i+=1
+                archives.progress('Filing %s of %s matched issues' % (i, len(manual_list)))
                 comicid = ml['ComicID']
                 issueid = ml['IssueID']
                 issuenumOG = ml['IssueNumber']

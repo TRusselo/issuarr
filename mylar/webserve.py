@@ -4634,6 +4634,15 @@ class WebInterface(object):
         return self._attention_json({'ok': True, 'note': 'Hidden until the file changes.'})
     attention_ignore.exposed = True
 
+    def attention_groups(self):
+        return self._attention_json({'groups': attention.groups()})
+    attention_groups.exposed = True
+
+    def attention_group(self, key, action):
+        self._attention_post()
+        return self._attention_json(attention.group_action(key, action))
+    attention_group.exposed = True
+
     def attention_status(self):
         return self._attention_json(attention.status())
     attention_status.exposed = True

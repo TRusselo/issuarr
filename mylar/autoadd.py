@@ -143,17 +143,30 @@ def _find_volume(series, issue, year, packdate):
     return best[1] if best else None
 
 
-def queue(paths):
-    if not enabled() or not paths:
-        return
-    reg = _load()
-    fresh = [p for p in paths if p not in reg]
-    if not fresh or _running.is_set():
-        return
-    threading.Thread(target=_run, args=(fresh,), name='AUTO-ADD', daemon=True).start()
+def queue(paths, force=False, folder=None):
+    """Find and add the series of these unclaimed files, in the background. force: the user asked,
+    from Needs attention, so it runs with auto-add switched off and tries files tried before; then
+    files folder again. Returns why it couldn't start, or None."""
+    if not paths:
+        return 'There are no files to look up.'
+    if force:
+        if not mylar.CONFIG.COMICVINE_API:
+            return 'Adding series needs a ComicVine API key (Settings).'
+        fresh = list(paths)
+    else:
+        if not enabled():
+            return 'Auto-add is off.'
+        reg = _load()
+        fresh = [p for p in paths if p not in reg]
+    if not fresh:
+        return 'Those files were looked up already.'
+    if _running.is_set():
+        return 'Series are already being added. Try again when that finishes.'
+    threading.Thread(target=_run, args=(fresh, folder), name='AUTO-ADD', daemon=True).start()
+    return None
 
 
-def _run(paths):
+def _run(paths, folder=None):
     from mylar import importer, archives
     with _lock:
         _running.set()
@@ -203,9 +216,10 @@ def _run(paths):
             if unknown:
                 archives.note('could not identify %s series' % len(set(unknown)))
             logger.info('[AUTO-ADD] Added %s series; %s could not be identified.' % (len(added), len(set(unknown))))
-            if added and mylar.CONFIG.CHECK_FOLDER:
-                logger.info('[AUTO-ADD] Filing the issues of the new series now.')
-                mylar.PP_QUEUE.put({'nzb_name': 'Manual Run', 'nzb_folder': mylar.CONFIG.CHECK_FOLDER, 'failed': False, 'issueid': None,
+            refile = folder or mylar.CONFIG.CHECK_FOLDER
+            if added and refile:
+                logger.info('[AUTO-ADD] Filing the issues of the new series now (%s).' % refile)
+                mylar.PP_QUEUE.put({'nzb_name': 'Manual Run', 'nzb_folder': refile, 'failed': False, 'issueid': None,
                                     'comicid': None, 'apicall': False, 'ddl': False, 'download_info': None})
             archives.done('Auto-add finished.')
         finally:

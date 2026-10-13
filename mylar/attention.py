@@ -352,7 +352,7 @@ def items():
         job = JOBS.get(path)
         if job is None and row.get('status') == 'queued':
             job = {'state': 'waiting', 'note': 'Waiting to file'}
-        out.append({'path': path, 'name': os.path.basename(path), 'folder': os.path.dirname(path),
+        out.append({'path': path, 'name': os.path.basename(path), 'folder': os.path.dirname(path), 'group': group_of(path)[0],
                     'in_review': bool(review) and os.path.normpath(path).startswith(review + os.sep),
                     'in_library': library,
                     'reason': row.get('reason') or 'unclaimed', 'detail': row.get('detail') or '',
@@ -536,6 +536,12 @@ def trash(path):
         return left
     if not _known(path):
         return {'ok': False, 'note': 'That file is no longer waiting for a decision.'}
+    dest_dir = _trash_file(path)
+    logger.info('[ATTENTION] Moved %s to the trash (%s).' % (os.path.basename(path), dest_dir))
+    return {'ok': True, 'note': 'Moved to the trash. It\'s deleted for good after %s days.' % trash_days()}
+
+
+def _trash_file(path):
     dest_dir = os.path.join(trash_dir(), datetime.date.today().isoformat())
     os.makedirs(dest_dir, exist_ok=True)
     dest = os.path.join(dest_dir, os.path.basename(path))
@@ -544,8 +550,7 @@ def trash(path):
         dest = '%s (%s)%s' % (base, int(time.time()), ext)
     shutil.move(path, dest)
     forget(path)
-    logger.info('[ATTENTION] Moved %s to the trash (%s).' % (os.path.basename(path), dest_dir))
-    return {'ok': True, 'note': 'Moved to the trash. It\'s deleted for good after %s days.' % trash_days()}
+    return dest_dir
 
 
 def purge_trash():
@@ -792,3 +797,73 @@ def refile_after_update(delay=AFTER_UPDATE_DELAY):
 def after_start():
     resume_picks()
     refile_after_update()
+
+
+def group_of(path):
+    """Which group a listed file belongs to, as (key, label, folder): a collection in the review
+    folder (its first sub-folder, "Star Wars"), a download's own folder, or else the file's folder."""
+    path = os.path.normpath(path)
+    review = os.path.normpath(review_dir() or '')
+    ddl = os.path.normpath(getattr(mylar.CONFIG, 'DDL_LOCATION', None) or '') if getattr(mylar.CONFIG, 'DDL_LOCATION', None) else ''
+    for base, where in ((review, 'Review folder'), (ddl, 'Downloads')):
+        if base and path.startswith(base + os.sep):
+            parts = os.path.relpath(path, base).split(os.sep)
+            if len(parts) == 1:
+                return (base, '%s (loose files)' % where, base)
+            folder = os.path.join(base, parts[0])
+            return (folder, parts[0], folder)
+    folder = os.path.dirname(path)
+    return (folder, os.path.basename(folder) or folder, folder)
+
+
+def groups():
+    """The listed files by group, biggest first, with how many and why. Cheap: no suggestions."""
+    out = {}
+    for path, row in _open_paths(db.DBConnection()).items():
+        key, label, folder = group_of(path)
+        g = out.setdefault(key, {'key': key, 'label': label, 'folder': folder, 'count': 0, 'size': 0, 'reasons': {}})
+        g['count'] += 1
+        g['size'] += _size(path) or 0
+        reason = row.get('reason') or 'unclaimed'
+        g['reasons'][reason] = g['reasons'].get(reason, 0) + 1
+    return sorted(out.values(), key=lambda g: (-g['count'], g['label'].lower()))
+
+
+def group_paths(key):
+    return [p for p in _open_paths(db.DBConnection()) if group_of(p)[0] == key]
+
+
+def group_action(key, action):
+    """Do one thing to every listed file in a group: 'trash', 'ignore', or 'add' (find their series
+    on ComicVine, add them, then file the group's folder again)."""
+    paths = group_paths(key)
+    if not paths:
+        return {'ok': False, 'note': 'Nothing in that group is waiting any more.'}
+    if action == 'add':
+        from mylar import autoadd
+        folder = group_of(paths[0])[2]
+        problem = autoadd.queue(paths, force=True, folder=folder)
+        if problem:
+            return {'ok': False, 'note': problem}
+        return {'ok': True, 'note': 'Looking up the series of %s files on ComicVine. Series found are added, then the folder is filed again.' % len(paths)}
+    done, failed = 0, 0
+    for p in paths:
+        try:
+            if action == 'trash':
+                if os.path.exists(p):
+                    _trash_file(p)
+                else:
+                    forget(p)
+            elif action == 'ignore':
+                ignore(p)
+            else:
+                return {'ok': False, 'note': 'Unknown action.'}
+            done += 1
+        except Exception as e:
+            failed += 1
+            logger.warn('[ATTENTION] Could not %s %s: %s' % (action, p, e))
+    _COUNT[0] = 0
+    what = 'Moved %s files to the trash.' % done if action == 'trash' else 'Hid %s files until they change.' % done
+    if action == 'trash':
+        logger.info('[ATTENTION] Moved %s file(s) of %s to the trash.' % (done, key))
+    return {'ok': failed == 0, 'note': what + (' %s could not be changed - the log has why.' % failed if failed else '')}

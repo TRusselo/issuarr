@@ -20,7 +20,14 @@
         <p class="att-refile muted" id="att-refile-note" aria-live="polite" hidden></p>
 
         <section class="section" aria-label="Files that need a decision">
-            <div class="filter-tabs" role="group" aria-label="Show" id="att-tabs"></div>
+            <div class="att-bar">
+                <div class="filter-tabs" role="group" aria-label="Show" id="att-tabs"></div>
+                <div class="filter-tabs" role="group" aria-label="View" id="att-view">
+                    <button type="button" data-view="files" aria-pressed="true">Each file</button>
+                    <button type="button" data-view="groups" aria-pressed="false">By folder</button>
+                </div>
+            </div>
+            <p class="att-groupbar muted" id="att-groupbar" hidden></p>
             <div id="att-list" class="att-list" aria-live="polite">
                 <p class="empty-state">Looking for files…</p>
             </div>
@@ -36,6 +43,8 @@
         var list = document.getElementById('att-list');
         var tabs = document.getElementById('att-tabs');
         var items = [], show = 'all', open = null, timer = null, poller = null, refiling = false;
+        var view = 'files', groupFilter = null, groupList = [];
+        var viewBar = document.getElementById('att-view'), groupBar = document.getElementById('att-groupbar');
 
         var REASON = {
             series: ['place', 'Couldn\'t tell which series this is.'],
@@ -164,7 +173,13 @@
 
         function draw() {
             drawTabs();
-            var shown = items.filter(function (i) { return show === 'all' || kind(i) === show; });
+            viewBar.querySelectorAll('[data-view]').forEach(function (b) { b.setAttribute('aria-pressed', String(b.getAttribute('data-view') === view)); });
+            tabs.hidden = view === 'groups';
+            var g = groupFilter && groupList.filter(function (x) { return x.key === groupFilter; })[0];
+            groupBar.hidden = view !== 'files' || !groupFilter;
+            if (!groupBar.hidden) groupBar.innerHTML = 'Showing <b>' + esc(g ? g.label : groupFilter) + '</b> only. <button type="button" class="link-btn" data-group-clear>Show every file</button>';
+            if (view === 'groups') return drawGroups();
+            var shown = items.filter(function (i) { return (show === 'all' || kind(i) === show) && (!groupFilter || i.group === groupFilter); });
             if (!items.length) {
                 list.innerHTML = '<p class="empty-state">Nothing needs attention. Files Issuarr can\'t file on its own, and anything it moves to the review folder, show up here.</p>';
             } else if (!shown.length) {
@@ -177,6 +192,60 @@
                 if (pk) search(pk, pk.querySelector('[data-q]').value);
             }
         }
+
+        /* By folder: a collection or download as one row, with one action for all its files. */
+        var GROUP_REASON = { owned: 'Already have', series: 'Couldn\'t place', issue: 'Issue not on the series', volume: 'Wrong volume',
+                             year: 'Wrong year', unclaimed: 'Unclaimed', damaged: 'Damaged', cover: 'Covers only' };
+        function drawGroups() {
+            if (!groupList.length) { list.innerHTML = '<p class="empty-state">Nothing needs attention.</p>'; return; }
+            list.innerHTML = groupList.map(function (g) {
+                var why = Object.keys(g.reasons).sort(function (a, b) { return g.reasons[b] - g.reasons[a]; })
+                    .map(function (r) { return (GROUP_REASON[r] || r) + ' ' + g.reasons[r]; }).join(' · ');
+                return '<article class="att-item att-group" data-group="' + esc(g.key) + '">' +
+                    '<div class="att-head"><h2 class="att-name"><button type="button" class="link-btn" data-group-open>' + esc(g.label) + '</button></h2>' +
+                    '<p class="att-meta muted"><span>' + g.count + ' file' + (g.count === 1 ? '' : 's') + '</span><span>' + mb(g.size) + '</span></p></div>' +
+                    '<p class="att-path"><span class="mono">' + esc(g.folder) + '</span></p>' +
+                    '<p class="att-why">' + esc(why) + '</p>' +
+                    '<div class="att-acts">' +
+                        '<button type="button" class="btn btn-sm" data-group-act="add" title="Look their series up on ComicVine, add them to your watchlist, then file this folder again">Add their series</button>' +
+                        '<button type="button" class="btn btn-sm btn-ghost" data-group-act="ignore">Ignore all</button>' +
+                        '<button type="button" class="btn btn-sm btn-ghost" data-group-act="trash">Move all to trash</button>' +
+                    '</div></article>';
+            }).join('');
+        }
+
+        function loadGroups() {
+            return fetch('attention_groups', { credentials: 'same-origin', cache: 'no-store' })
+                .then(function (r) { if (!r.ok) throw new Error(r.status); return r.json(); })
+                .then(function (d) { groupList = d.groups; draw(); })
+                .catch(function () { list.innerHTML = '<p class="empty-state">Couldn\'t list the folders. Check the log.</p>'; });
+        }
+
+        function groupAct(key, action, btn) {
+            var g = groupList.filter(function (x) { return x.key === key; })[0] || { label: key, count: 0 };
+            if (action === 'trash' && !window.confirm('Move all ' + g.count + ' files of ' + g.label + ' to the trash? They are deleted for good after ${trash_days} days.')) return;
+            var art = btn.closest('[data-group]');
+            art.classList.add('is-busy');
+            art.querySelectorAll('button').forEach(function (b) { b.disabled = true; });
+            post('attention_group', { key: key, action: action }).then(function (d) {
+                window.Issuarr.toast(d.note, d.ok !== false);
+                if (action !== 'add') {
+                    groupList = groupList.filter(function (x) { return x.key !== key; });
+                    items = items.filter(function (i) { return i.group !== key; });
+                }
+                draw();
+            }).catch(function () { window.Issuarr.toast('That didn\'t work. Check the log.', false); draw(); });
+        }
+
+        viewBar.addEventListener('click', function (e) {
+            var b = e.target.closest('[data-view]');
+            if (!b) return;
+            view = b.getAttribute('data-view');
+            if (view === 'groups') { list.innerHTML = '<p class="empty-state">Grouping the files…</p>'; loadGroups(); } else draw();
+        });
+        groupBar.addEventListener('click', function (e) {
+            if (e.target.closest('[data-group-clear]')) { groupFilter = null; draw(); }
+        });
 
         function load() {
             clearTimeout(timer);
@@ -369,6 +438,13 @@
         }
 
         list.addEventListener('click', function (e) {
+            var gb = e.target.closest('[data-group]');
+            if (gb) {
+                var key = gb.getAttribute('data-group'), ab = e.target.closest('[data-group-act]');
+                if (ab) return groupAct(key, ab.getAttribute('data-group-act'), ab);
+                if (e.target.closest('[data-group-open]')) { groupFilter = key; view = 'files'; show = 'all'; draw(); window.scrollTo(0, 0); }
+                return;
+            }
             var i = itemOf(e.target), b;
             if (!i) return;
             if (e.target.closest('[data-zoom]')) { e.target.closest('.att-covers').classList.toggle('is-large'); return; }

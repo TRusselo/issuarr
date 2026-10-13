@@ -1367,6 +1367,8 @@ a.w-where:hover { color: var(--text); text-decoration-color: currentColor; }
 .att-head-acts, .head-actions { display: flex; gap: 8px; flex-wrap: wrap; }
 .att-refile { margin: 12px 0 0; font-size: 13.5px; }
 .att-item.is-busy { opacity: .6; }
+.att-bar { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px 16px; }
+.att-groupbar { margin: 10px 0 0; font-size: 13.5px; }
 @media (max-width: 720px) {
   .att-item { padding-left: 12px; }
   .att-read { grid-template-columns: 1fr; gap: 10px; overflow: visible; }

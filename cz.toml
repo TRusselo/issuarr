@@ -2,6 +2,6 @@
 name = "cz_conventional_commits"
 tag_format = "v$version"
 version_scheme = "semver"
-version = "0.8.2-dev"
+version = "0.8.2"
 version_files = ["mylar/appversion.py:VERSION"]
 major_version_zero = true

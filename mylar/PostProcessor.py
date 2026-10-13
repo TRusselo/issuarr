@@ -46,6 +46,17 @@ def series_year_label(file_year, series_year, issue_year):
         return False
     return sy <= f <= iy + 1
 
+
+def pack_other_series(myDB, issueid, comicid, names):
+    """Watchlist series other than the one a pack was grabbed for that a file in it is named like.
+    A pack holds more than that series ("Superman - Batman (01-87 +Annual)" grabbed for the Annual
+    files 87 issues of Superman/Batman too), so its files are also checked against the series
+    their names say, as a normal run would. Only for a pack: a download for one issue stays put."""
+    if issueid is not None or comicid is None or not names:
+        return []
+    sql = 'SELECT * FROM comics WHERE DynamicComicName IN ({seq}) COLLATE NOCASE AND ComicID != ?'.format(seq=','.join('?' * len(names)))
+    return [r for r in myDB.select(sql, tuple(names) + (comicid,))]
+
 class PostProcessor(object):
     """
     A class which will process a media file according to the post processing settings in the config.
@@ -658,6 +669,11 @@ class PostProcessor(object):
 
                     if any([self.issueid is not None, self.comicid is not None]) and fl['issueid'] is None:
                         comicseries = myDB.select('SELECT * FROM comics WHERE ComicID=?', [self.comicid])
+                        others = pack_other_series(myDB, self.issueid, self.comicid, loopchk)
+                        if others:
+                            logger.fdebug('%s %s is in a pack grabbed for another series - also checking %s'
+                                          % (module, fl['comicfilename'], ', '.join('%s (%s)' % (o['ComicName'], o['ComicYear']) for o in others)))
+                            comicseries = list(comicseries) + others
                     else:
                         if fl['issueid'] is not None:
                             story_the_arcs = False

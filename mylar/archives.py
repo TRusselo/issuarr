@@ -1,3 +1,4 @@
+import datetime
 import os
 import shutil
 import threading
@@ -324,6 +325,58 @@ def _hold(path):
         PENDING.append(path)
         return True
     return False
+
+
+def ddl_root(path):
+    """A direct download's own folder under the direct-download folder (DDL_LOCATION), or None
+    for anything else, a single file there included."""
+    base = getattr(mylar.CONFIG, 'DDL_LOCATION', None)
+    if not base or not path:
+        return None
+    base, p = os.path.normpath(base), os.path.normpath(path)
+    if not p.startswith(base + os.sep):
+        return None
+    top = os.path.join(base, os.path.relpath(p, base).split(os.sep)[0])
+    return top if os.path.isdir(top) else None
+
+
+def clear_pack(folder):
+    """After a direct-download pack has been filed, what's left in it wasn't wanted: copies of
+    issues already owned, other volumes, series not on the watchlist. Move those comics to the
+    Needs attention trash (emptied after ATTENTION_TRASH_DAYS) instead of listing them, and drop
+    the emptied folders. Files auto-add may still file stay. Returns how many were trashed."""
+    from mylar import attention
+    root = ddl_root(folder)
+    if not root:
+        return 0
+    dest = os.path.join(attention.trash_dir(), datetime.date.today().isoformat())
+    trashed = 0
+    for r, dirs, names in os.walk(root):
+        for n in names:
+            path = os.path.join(r, n)
+            if not n.lower().endswith(COMIC_EXT) or path in PENDING or _hold(path):
+                continue
+            try:
+                os.makedirs(dest, exist_ok=True)
+                target = os.path.join(dest, n)
+                if os.path.exists(target):
+                    base, ext = os.path.splitext(target)
+                    target = '%s (%s)%s' % (base, int(time.time()), ext)
+                shutil.move(path, target)
+                attention.forget(path)
+                trashed += 1
+            except Exception as e:
+                logger.warn('[PACK] Unable to move %s to the trash: %s' % (path, e))
+    for r, dirs, names in os.walk(root, topdown=False):
+        try:
+            if not os.listdir(r):
+                os.rmdir(r)
+        except OSError:
+            pass
+    if trashed:
+        logger.info('[PACK] %s: moved %s comic(s) nothing wanted to the trash (%s).' % (os.path.basename(root), trashed, dest))
+        tally('trashed')
+    return trashed
 
 
 def _in_monitor(path):

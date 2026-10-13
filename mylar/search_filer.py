@@ -46,6 +46,58 @@ def _words(name):
     return re.findall(r'[a-z0-9]+', (name or '').lower())
 
 
+def _years(text):
+    return [int(y) for y in re.findall(r'(?<!\d)((?:19|20)\d{2})(?!\d)', str(text or ''))]
+
+
+def pack_misfit(title, year, series_year, issue_year, version):
+    """Why a pack can't hold this issue, or None. A pack names its run, not the series' ComicVine
+    volume, so it's matched on years: it can't start more than a year before the series began,
+    and its years must cover the issue's (a year's slack either way for cover dates). Live, these
+    were grabbed: "Thunderbolts v1 (001-174) (1997-2012)" for Thunderbolts (2016) #1 and "Secret
+    Avengers Vol.1 (001 - 037) (2010-2013)" for Secret Avengers (2013) #9. Only with no years in
+    the title does a volume number decide, and only against a series with one set."""
+    years = _years(year) or _years(title)
+    try:
+        sy = int(str(series_year)[:4])
+    except (TypeError, ValueError):
+        sy = None
+    try:
+        iy = int(str(issue_year)[:4])
+    except (TypeError, ValueError):
+        iy = None
+    if years:
+        first, last = min(years), max(years)
+        if sy and first < sy - 1:
+            return 'the pack starts in %s, before the series began in %s' % (first, sy)
+        if iy and not (first - 1 <= iy <= last + 1):
+            return 'the pack covers %s, the issue is from %s' % (first if first == last else '%s-%s' % (first, last), iy)
+        return None
+    m = re.search(r'\b(?:v|vol\.?\s*|volume\s+)(\d{1,2})\b', title or '', flags=re.I)
+    want = re.sub(r'\D', '', str(version or ''))
+    if m and want and int(m.group(1)) != int(want):
+        return 'the pack is volume %s, the series is v%s' % (m.group(1), want)
+    return None
+
+
+def pack_already_downloaded(post_id):
+    """Why not to grab a pack again, or None: the same GetComics post (or a part of it) already
+    downloaded or on its way. Superman/Batman #1-87 was downloaded twice for one Annual it didn't
+    file; a failed download can still be tried again."""
+    if not post_id:
+        return None
+    try:
+        from mylar import db
+        row = db.DBConnection().selectone(
+            "SELECT status, updated_date FROM ddl_info WHERE (id=? OR id LIKE ?) AND status IN ('Completed', 'Queued', 'Downloading') "
+            "ORDER BY updated_date DESC", [str(post_id), '%s-%%' % post_id]).fetchone()
+    except Exception:
+        return None
+    if row is None:
+        return None
+    return 'that pack was already %s (%s)' % ('downloaded' if row['status'] == 'Completed' else 'queued', row['updated_date'])
+
+
 def with_extra_words(parsed, watchcomic, year):
     # GetComics sometimes adds words inside a series name: "Star Wars - Jedi of the Republic - Mace Windu"
     # for Star Wars: Mace Windu. Accept the post when it starts and ends like the series, has all its
@@ -887,6 +939,14 @@ class search_check(object):
                 '[PACK-QUEUE] %s Pack detected for %s.'
                 % (nzbprov, entry['filename'])
             )
+
+            # a pack of another volume of the series, or one already downloaded, isn't this issue
+            issue_year = next((d[:4] for d in (StoreDate, IssueDate) if d and str(d)[:4].isdigit() and not str(d).startswith('0000')), None)
+            problem = pack_misfit(entry.get('title') or entry.get('filename') or '', entry.get('year'),
+                                  SeriesYear or ComicYear, issue_year, ComicVersion) or pack_already_downloaded(entry.get('id'))
+            if problem:
+                logger.info('[PACK] Not using %s for %s (%s) #%s: %s' % (entry.get('title'), ComicName, SeriesYear or ComicYear, IssueNumber, problem))
+                return None
 
             # find the pack range.
             pack_issuelist = None

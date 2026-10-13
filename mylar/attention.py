@@ -738,6 +738,9 @@ def _refile_run(folders):
             if os.path.isdir(folder):
                 try:
                     PostProcessor.PostProcessor('Manual Run', folder, queue=queue.Queue()).Process()
+                    # a direct-download pack: what still doesn't file isn't wanted
+                    from mylar import archives
+                    archives.clear_pack(folder)
                 except Exception as e:
                     logger.warn('[ATTENTION] Filing %s again failed: %s' % (folder, e))
             REFILE['done'] = n + 1

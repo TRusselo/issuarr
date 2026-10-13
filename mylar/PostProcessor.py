@@ -34,6 +34,18 @@ from mylar import logger, db, helpers, updater, notifiers, filechecker, weeklypu
 PP_LOCK = threading.RLock()
 
 
+
+def series_year_label(file_year, series_year, issue_year):
+    """Whether a filename's year fits this issue even though it isn't the issue's own year. Filenames
+    are inconsistent: one says the year the series began ("The Punisher 2099 005 (1993)" for #5, out
+    in 1994), another the cover year, another the release year. Any year from the series' start to a
+    year after the issue fits; a later volume with the same name and number still doesn't."""
+    try:
+        f, sy, iy = int(file_year), int(series_year), int(issue_year)
+    except (TypeError, ValueError):
+        return False
+    return sy <= f <= iy + 1
+
 class PostProcessor(object):
     """
     A class which will process a media file according to the post processing settings in the config.
@@ -1389,6 +1401,10 @@ class PostProcessor(object):
                                         #now we see if the issue year matches exactly to what we have within Mylar.
                                         if int(watch_issueyear) == int(watchmatch['issue_year']):
                                             logger.fdebug('%s[ISSUE-VERIFY][Issue Year MATCH] Issue Year of %s is a match to the year found in the filename of : %s' % (module, watch_issueyear, watchmatch['issue_year']))
+                                            datematch = 'True'
+                                        elif series_year_label(watchmatch['issue_year'], watch_values['SeriesYear'], watch_issueyear):
+                                            # filenames carry the series' start year, the cover year or the release year
+                                            logger.fdebug('%s[ISSUE-VERIFY][Year in range MATCH] The filename\'s year %s is between the year %s began (%s) and a year after issue #%s came out (%s)' % (module, watchmatch['issue_year'], cs['ComicName'], watch_values['SeriesYear'], watchmatch['justthedigits'], watch_issueyear))
                                             datematch = 'True'
                                         else:
                                             logger.fdebug('%s[ISSUE-VERIFY][Issue Year FAILURE] Issue Year of %s does NOT match the year found in the filename of : %s' % (module, watch_issueyear, watchmatch['issue_year']))

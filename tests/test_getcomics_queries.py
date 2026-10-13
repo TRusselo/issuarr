@@ -13,17 +13,19 @@ def cfg(monkeypatch):
 
 def queries_sent(monkeypatch, name, issue, year, chktpb=0):
     """Run GC.search() with every query missing and return the query lines sent to GetComics."""
-    sent, slept = [], []
+    sent, slept, pages = [], [], []
     gc = getcomics.GC.__new__(getcomics.GC)
     gc.query = {'comicname': name, 'issue': issue, 'year': year}
     gc.search_format = ['"%s #%s (%s)"', '%s #%s (%s)', '%s #%s', '%s %s']
     gc.issueid, gc.comicid = '1', '2'
     monkeypatch.setattr(gc, 'cookie_receipt', lambda: None, raising=False)
-    monkeypatch.setattr(gc, 'perform_search_queries', lambda q: sent.append(q) or iter(()), raising=False)
+    monkeypatch.setattr(gc, 'perform_search_queries', lambda q, max_pages=None: sent.append(q) or pages.append(max_pages) or iter(()),
+                        raising=False)
     monkeypatch.setattr(search_filer, 'search_check', lambda: types.SimpleNamespace(
         check_for_first_result=lambda results, is_info, prefer_pack=False: None))
     monkeypatch.setattr(getcomics.time, 'sleep', slept.append)
     gc.search(is_info={'chktpb': chktpb})
+    queries_sent.pages = dict(zip(sent, pages))
     return sent, slept
 
 
@@ -32,7 +34,7 @@ def test_a_trade_queries_the_series_name_once(monkeypatch):
     sent, slept = queries_sent(monkeypatch, 'Aquaman', '5', '2016', chktpb=1)
     assert sent.count('Aquaman') == 1
     assert sent == ['Aquaman', '"Aquaman #5 (2016)"', 'Aquaman #5', 'Aquaman 2016']
-    assert slept == [15] * len(sent)  # a skipped query costs no wait; the others keep theirs
+    assert slept == []  # the wait is before each page fetch, not after each query
 
 
 @pytest.mark.unit
@@ -67,3 +69,13 @@ def test_query_key():
     assert getcomics.query_key('"Powers #1 (2009)"') == getcomics.query_key('powers  1 (2009)')
     assert getcomics.query_key('Powers #1 (2009)') != getcomics.query_key('Powers #1 (2010)')
     assert getcomics.query_key('Powers #1') != getcomics.query_key('Powers #11')
+
+
+@pytest.mark.unit
+def test_only_name_searches_read_deep(monkeypatch):
+    queries_sent(monkeypatch, 'Aquaman', '5', '2016', chktpb=1)
+    assert queries_sent.pages == {'Aquaman': 10, '"Aquaman #5 (2016)"': 3, 'Aquaman #5': 3, 'Aquaman 2016': 3}
+    queries_sent(monkeypatch, 'Powers', '1', '2009')
+    assert set(queries_sent.pages.values()) == {3}
+    queries_sent(monkeypatch, 'Ghost Rider', None, '2007')
+    assert set(queries_sent.pages.values()) == {10}

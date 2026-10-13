@@ -27,6 +27,14 @@
 		</ul>
 	</div>
 
+	<section class="wp-memory" aria-live="polite">
+		<p id="wp-memory-text">Each file a run looks at is remembered, and isn't opened again until it changes. The largest files go first.</p>
+		<div class="wp-memory-act">
+			<button type="button" class="btn" id="wp-recheck" hidden>Re-check skipped files</button>
+			<small>Looks again at the files that had nothing to gain, for example after lowering the WebP quality.</small>
+		</div>
+	</section>
+
 	<form id="wp-form" class="wp-form" autocomplete="off">
 		<fieldset>
 			<legend>What to convert</legend>
@@ -39,8 +47,8 @@
 			</label>
 			<label class="wp-check"><input type="checkbox" name="unknown" value="1"> Also convert files with no date</label>
 			<label class="wp-row"><span>Stop after</span>
-				<span><input type="number" name="limit" value="20" min="0" style="width:6em"> files
-				<small>Start with a small trial run. 0 converts every matching file.</small></span>
+				<span><input type="number" name="limit" value="${defaults['limit']}" min="0" style="width:6em"> files
+				<small>Start with a small trial run. 0 converts every matching file. The largest files go first.</small></span>
 			</label>
 		</fieldset>
 		<fieldset>
@@ -53,21 +61,21 @@
 				<input type="number" name="min_q" value="${defaults['min_q']}" min="0" max="100" style="width:5em">
 			</label>
 			<label class="wp-row"><span>CPU threads to use</span>
-				<span><input type="number" name="threads" value="${defaults['threads']}" min="1" max="${defaults['max_threads']}" style="width:5em"> of ${defaults['max_threads']}
-				<small>Pages are encoded in this many worker processes, shared by every file in progress. Leave a few for everything else on the server.</small></span>
+				<span><input type="number" name="threads" value="${defaults['threads']}" min="1" max="${defaults['max_threads']}" style="width:5em"> of ${defaults['max_threads']} this server can use
+				<small>Pages are encoded in this many worker processes, shared by every file in progress. 2 suits most servers; leave a few for everything else.</small></span>
 			</label>
 			<label class="wp-row"><span>Files at once</span>
 				<span><input type="number" name="files" value="${defaults['files']}" min="1" max="8" style="width:5em">
-				<small>Overlaps reading, checking and writing files so the CPU threads stay busy. It doesn't add CPU use.</small></span>
+				<small>Overlaps reading, checking and writing files so the CPU threads stay busy. It doesn't add CPU use. 1 is fine unless you use more than 4 threads.</small></span>
 			</label>
 			<label class="wp-row"><span>Keep the originals in</span>
 				<span><input type="text" name="backup_dir" value="${defaults['backup_dir']}" size="48" placeholder="/comics-originals">
-				<small>A folder outside the library, on a mapped volume with room for every original. Same folder layout as the library. Remembered after a preview.</small></span>
+				<small>A folder outside the library, on a mapped volume with room for every original. Same folder layout as the library.</small></span>
 			</label>
 			<label class="wp-check wp-danger"><input type="checkbox" name="no_backup" value="1"> Don't keep the originals (the conversion can't be undone)</label>
 		</fieldset>
 		<div class="lg-build">
-			<span id="wp-hint">Preview first: it only reads your files.</span>
+			<span id="wp-hint">Preview first: it only reads your files. Your choices are kept for next time when you start converting.</span>
 			<button type="submit" class="btn btn-primary" id="wp-preview">Preview</button>
 		</div>
 	</form>
@@ -93,6 +101,25 @@
 			<span id="wp-run-text"></span>
 			<button type="button" class="btn" id="wp-stop">Stop after this file</button>
 			<button type="button" class="btn" id="wp-done" hidden>Start over</button>
+		</div>
+	</section>
+
+	<section id="wp-gradual" class="wp-gradual" aria-labelledby="wp-g-title">
+		<h2 id="wp-g-title">A little each night</h2>
+		<p>Converts part of the library each night, largest files first, with the date, quality, CPU threads, files at once and holding folder chosen above. New downloads are already converted when they're filed, if that's turned on in the settings. It waits while downloads are running or being filed, and doesn't run at the same time as a conversion started here.</p>
+		<label class="wp-check"><input type="checkbox" id="wp-g-on"${' checked' if gradual['enabled'] else ''}> Convert the library gradually</label>
+		<label class="wp-row"><span>Issues per night</span>
+			<span><input type="number" id="wp-g-per" value="${gradual['per_night']}" min="1" max="100000" style="width:7em">
+			<small>Every issue it opens counts, including ones it leaves as they are.</small></span>
+		</label>
+		<div class="wp-row"><span>Between</span>
+			<span><input type="time" id="wp-g-start" value="${gradual['start']}" aria-label="Start time"> and <input type="time" id="wp-g-end" value="${gradual['end']}" aria-label="End time">
+			<small>Server time. The times can cross midnight, like 23:00 to 05:00.</small></span>
+		</div>
+		<p id="wp-g-night" class="wp-g-night" aria-live="polite"></p>
+		<div class="lg-build">
+			<span id="wp-g-hint"></span>
+			<button type="button" class="btn btn-primary" id="wp-g-save">Save</button>
 		</div>
 	</section>
 

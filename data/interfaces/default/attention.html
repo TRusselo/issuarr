@@ -10,8 +10,14 @@
             <div class="head-text">
                 <h1><span class="page-crumb">Downloads › </span>Needs attention</h1>
                 <p class="page-sub">Files Issuarr couldn't file on its own. File each one as the right issue, or clear it out.</p>
+                <p class="page-sub faint">Searching and covers here can be slow while downloads are running or being filed.</p>
+            </div>
+            <div class="head-actions">
+                <button type="button" class="btn btn-sm btn-primary" id="att-refile">Try filing again</button>
+                <button type="button" class="btn btn-sm btn-ghost" id="att-refile-stop" hidden>Stop</button>
             </div>
         </div>
+        <p class="att-refile muted" id="att-refile-note" aria-live="polite" hidden></p>
 
         <section class="section" aria-label="Files that need a decision">
             <div class="filter-tabs" role="group" aria-label="Show" id="att-tabs"></div>
@@ -29,7 +35,7 @@
         'use strict';
         var list = document.getElementById('att-list');
         var tabs = document.getElementById('att-tabs');
-        var items = [], show = 'all', open = null, timer = null;
+        var items = [], show = 'all', open = null, timer = null, poller = null, refiling = false;
 
         var REASON = {
             series: ['place', 'Couldn\'t tell which series this is.'],
@@ -79,7 +85,12 @@
 
         function actions(i) {
             var m = i.matches[0], out = '';
-            if (i.job && i.job.state === 'filing') return '<p class="att-job">' + esc(i.job.note) + '…</p>';
+            if (i.job && (i.job.state === 'filing' || i.job.state === 'waiting')) return '<p class="att-job">' + esc(i.job.note) + '…</p>';
+            if (i.in_library) {
+                // already filed: filing it again would put it over itself
+                return '<div class="att-acts"><button type="button" class="btn btn-sm btn-ghost" data-trash>Move to trash</button>' +
+                       '<button type="button" class="btn btn-sm btn-ghost" data-ignore>Ignore</button></div>';
+            }
             if (m && m.issueid) {
                 out += '<button type="button" class="btn btn-sm btn-primary" data-file="' + esc(m.comicid) + '|' + esc(m.issueid) + '">File as ' + esc(m.name) + ' #' + esc(m.number) + '</button>';
             }
@@ -112,17 +123,20 @@
 
         function row(i) {
             var r = REASON[i.reason] || REASON.series;
-            var where = i.in_review ? 'In review' : i.folder;
+            if (i.in_library && i.reason === 'damaged') r = [r[0], 'This file in your library is damaged or incomplete.'];
             var job = i.job && i.job.state === 'failed' ? '<p class="att-job is-failed">' + esc(i.job.note) + '</p>' : '';
             return '<article class="att-item is-' + r[0] + '" data-path="' + esc(i.path) + '">' +
                 '<div class="att-head">' +
                     '<h2 class="att-name mono">' + esc(i.name) + '</h2>' +
-                    '<p class="att-meta muted"><span title="' + esc(i.folder) + '">' + esc(where) + '</span>' +
+                    '<p class="att-meta muted">' + (i.in_review ? '<span>In review</span>' : '') +
                     (i.size != null ? '<span>' + mb(i.size) + '</span>' : '') + '<span>' + esc(ago(i.modified)) + '</span></p>' +
                 '</div>' +
+                /* where the file is now, in full, for handling it by hand */
+                '<p class="att-path"><span class="mono">' + esc(i.folder) + '</span>' +
+                    '<button type="button" class="link-btn" data-copy>Copy path</button></p>' +
                 '<div class="att-body">' + covers(i) + '<div class="att-main">' +
                 '<p class="att-why"><b>' + r[1] + '</b>' + (i.detail ? ' ' + esc(i.detail) : '') + '</p>' +
-                reading(i) + others(i) + job + actions(i) +
+                (i.in_library ? '<p class="att-unread">Replace it with a good copy, or move it to the trash.</p>' : reading(i) + others(i)) + job + actions(i) +
                 (open === i.path ? picker(i) : '') +
                 '</div></div>' +
                 '</article>';
@@ -171,7 +185,7 @@
                 .then(function (d) {
                     items = d.items;
                     draw();
-                    if (items.some(function (i) { return i.job && i.job.state === 'filing'; })) timer = setTimeout(load, 3000);
+                    poll();
                 })
                 .catch(function () { list.innerHTML = '<p class="empty-state">Couldn\'t list the files. Check the log.</p>'; });
         }
@@ -207,24 +221,114 @@
             });
         }
 
-        function act(url, i, params, done) {
+        function drop(i) {
+            items = items.filter(function (x) { return x.path !== i.path; });
+            draw();
+        }
+
+        // Each button answers at once on its card; the full list isn't reloaded, which is slow
+        // with hundreds of files.
+        function act(url, i, params, busy, done) {
+            var art = list.querySelector('[data-path="' + CSS.escape(i.path) + '"]');
+            if (art) {
+                art.classList.add('is-busy');
+                art.querySelectorAll('button').forEach(function (b) { b.disabled = true; });
+                var acts = art.querySelector('.att-acts');
+                if (acts) acts.insertAdjacentHTML('afterend', '<p class="att-job">' + esc(busy) + '…</p>');
+            }
             post(url, Object.assign({ path: i.path }, params || {})).then(function (d) {
                 window.Issuarr.toast(d.note, d.ok !== false);
-                if (done) done(d);
-                load();
-            }).catch(function () { window.Issuarr.toast('That didn\'t work. Check the log.', false); });
+                if (done && d.ok !== false && !d.gone) done(d);
+                else if (d.ok !== false || d.gone) drop(i);
+                else draw();
+            }).catch(function () { window.Issuarr.toast('That didn\'t work. Check the log.', false); draw(); });
         }
 
         function fileAs(i, pair) {
             var parts = pair.split('|');
             open = null;
-            act('attention_file', i, { comicid: parts[0], issueid: parts[1] });
+            act('attention_file', i, { comicid: parts[0], issueid: parts[1] }, 'Sending it to filing', function (d) {
+                i.job = { state: 'waiting', note: 'Waiting to file' };
+                draw();
+                poll();
+            });
         }
 
+        /* File jobs and the Try filing again run, from a cheap status call every few seconds. */
+        var refileBtn = document.getElementById('att-refile'), stopBtn = document.getElementById('att-refile-stop'),
+            refileNote = document.getElementById('att-refile-note');
+
+        function showRefile(r) {
+            var running = r.state === 'running';
+            refileBtn.disabled = running;
+            refileBtn.textContent = running ? 'Trying again…' : 'Try filing again';
+            stopBtn.hidden = !running;
+            stopBtn.disabled = !!r.stopping;
+            var text = '';
+            if (running) {
+                var where = r.waiting ? 'Waiting while new downloads are filed.' : r.current ? 'Filing ' + r.current + '.' : '';
+                text = (r.auto ? 'Trying everything here again after the update: ' : 'Trying again: ') + 'folder ' + Math.min(r.done + 1, r.total) +
+                       ' of ' + r.total + '. ' + where + (r.stopping ? ' Stopping after this folder.' : '');
+            } else if (r.state === 'done' || r.state === 'stopped') {
+                var filed = r.after == null ? null : Math.max(r.before - r.after, 0);
+                text = (r.state === 'stopped' ? 'Stopped. ' : 'Tried everything again. ') +
+                       (filed == null ? '' : filed + ' of ' + r.before + ' files were filed; ' + r.after + ' still need you.');
+            }
+            refileNote.textContent = text;
+            refileNote.hidden = !text;
+        }
+
+        function poll() {
+            clearTimeout(poller);
+            fetch('attention_status', { credentials: 'same-origin', cache: 'no-store' })
+                .then(function (r) { if (!r.ok) throw new Error(r.status); return r.json(); })
+                .then(function (d) {
+                    var changed = false, busy = false;
+                    items = items.filter(function (i) {
+                        var j = d.jobs[i.path];
+                        if (j && j.state === 'filed') { window.Issuarr.toast(j.note, true); changed = true; return false; }
+                        if (j && (!i.job || i.job.state !== j.state || i.job.note !== j.note)) { i.job = j; changed = true; }
+                        if (i.job && (i.job.state === 'waiting' || i.job.state === 'filing')) busy = true;
+                        return true;
+                    });
+                    if (changed) draw();
+                    showRefile(d.refile || {});
+                    var running = d.refile && d.refile.state === 'running';
+                    if (refiling && !running) { refiling = false; load(); return; }   // the run filed files: list again
+                    refiling = running;
+                    if (busy || running) poller = setTimeout(poll, 3000);
+                })
+                .catch(function () { poller = setTimeout(poll, 10000); });
+        }
+
+        refileBtn.addEventListener('click', function () {
+            refileBtn.disabled = true;
+            post('attention_refile', {}).then(function (d) {
+                window.Issuarr.toast(d.note, d.ok !== false);
+                refiling = d.ok !== false;
+                poll();
+            }).catch(function () { refileBtn.disabled = false; window.Issuarr.toast('That didn\'t work. Check the log.', false); });
+        });
+        stopBtn.addEventListener('click', function () {
+            stopBtn.disabled = true;
+            post('attention_refile_stop', {}).then(function (d) { window.Issuarr.toast(d.note, true); poll(); });
+        });
+
+        // A cover can fail because the server was busy making others: ask again after 3, 6 and 12
+        // seconds. A file with no cover is remembered by the server, so its retries answer at once.
         list.addEventListener('error', function (e) {
-            if (!e.target.matches || !e.target.matches('[data-cover-img]')) return;
-            var b = e.target.parentNode;
-            b.innerHTML = '<span class="att-nocover">No cover</span>';
+            var img = e.target;
+            if (!img.matches || !img.matches('[data-cover-img]')) return;
+            var tries = +(img.getAttribute('data-tries') || 0);
+            if (tries < 3) {
+                if (!img.getAttribute('data-src')) img.setAttribute('data-src', img.getAttribute('src'));
+                img.setAttribute('data-tries', tries + 1);
+                setTimeout(function () {
+                    if (img.isConnected) img.src = img.getAttribute('data-src') + '&r=' + (tries + 1);
+                }, 3000 * Math.pow(2, tries));
+                return;
+            }
+            img.parentNode.innerHTML = '<span class="att-nocover">No cover</span>';
         }, true);
 
         list.addEventListener('change', function (e) {
@@ -244,14 +348,35 @@
             draw();
         });
 
+        // The clipboard API needs https or localhost; on a plain-http LAN address use the old way.
+        function copyPath(path) {
+            function done(ok) { window.Issuarr.toast(ok ? 'Path copied' : 'Couldn\'t copy - select the path and copy it', ok); }
+            if (navigator.clipboard && window.isSecureContext) {
+                navigator.clipboard.writeText(path).then(function () { done(true); }, function () { done(false); });
+                return;
+            }
+            var t = document.createElement('textarea');
+            t.value = path;
+            t.setAttribute('readonly', '');
+            t.style.position = 'fixed';
+            t.style.opacity = '0';
+            document.body.appendChild(t);
+            t.select();
+            var ok = false;
+            try { ok = document.execCommand('copy'); } catch (err) { ok = false; }
+            document.body.removeChild(t);
+            done(ok);
+        }
+
         list.addEventListener('click', function (e) {
             var i = itemOf(e.target), b;
             if (!i) return;
             if (e.target.closest('[data-zoom]')) { e.target.closest('.att-covers').classList.toggle('is-large'); return; }
+            if (e.target.closest('[data-copy]')) return copyPath(i.path);
             if ((b = e.target.closest('[data-file]'))) return fileAs(i, b.getAttribute('data-file'));
             if (e.target.closest('[data-pick]')) { open = open === i.path ? null : i.path; draw(); return; }
-            if (e.target.closest('[data-trash]')) return act('attention_trash', i);
-            if (e.target.closest('[data-ignore]')) return act('attention_ignore', i);
+            if (e.target.closest('[data-trash]')) return act('attention_trash', i, null, 'Moving it to the trash');
+            if (e.target.closest('[data-ignore]')) return act('attention_ignore', i, null, 'Hiding it');
             if ((b = e.target.closest('[data-series-id]'))) return chooseSeries(b.closest('[data-picker]'), b.getAttribute('data-series-id'), b);
             if (e.target.closest('[data-add]')) {
                 var add = document.querySelector('[data-action="add"]');

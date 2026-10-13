@@ -39,9 +39,9 @@
 
   // One bar per series, by status: on disk, wanted, snatched, failed, missing and not wanted, and the rest
   // (Ignored issues aren't listed as missing, so they make up most of it). The last item is what the colour means, on hover.
-  var SEGS = [['have', 'seg-have', 'On disk', 'Downloaded or archived'], ['w', 'seg-wanted', 'Wanted', 'Mylar searches for these'],
+  var SEGS = [['have', 'seg-have', 'Have', 'On disk: downloaded or archived'], ['w', 'seg-wanted', 'Wanted', 'Mylar searches for these'],
               ['s', 'seg-snatched', 'Snatched', 'Grabbed, not filed yet'], ['f', 'seg-failed', 'Failed', 'The download or filing failed'],
-              ['m', 'seg-missing', 'Missing, not wanted', 'Not on disk and not searched for'], ['rest', 'seg-ignored', 'Ignored or not listed', 'Ignored, or not counted as missing']];
+              ['m', 'seg-missing', 'Missing, not marked Wanted', 'Not on disk and not searched for'], ['rest', 'seg-ignored', 'Ignored or not listed', 'Ignored, or not counted as missing']];
   function counts(si) {
     var S = M.series[si], c = M.sc[si] || { w: 0, s: 0, f: 0, m: 0 }, tot = S[3] || 0, have = tot ? Math.min(S[2], tot) : S[2];
     return { have: have, w: c.w, s: c.s, f: c.f, m: c.m, rest: Math.max(tot - have - c.w - c.s - c.f - c.m, 0) };
@@ -77,7 +77,10 @@
     var ids = Object.keys(seen);
     ids.forEach(function (si) { var c = counts(si); Object.keys(t).forEach(function (k) { t[k] += c[k]; }); tracked += M.series[si][3] || 0; });
     var missing = t.w + t.s + t.f + t.m;
-    box.innerHTML = '<div class="lg-sum-line"><span><b>' + fmt(ids.length) + '</b> series with missing issues · <b>' + fmt(missing) + '</b> missing of <b>' + fmt(tracked) + '</b> tracked</span>' +
+    var lib = M.library;
+    box.innerHTML = (lib ? '<div class="lg-sum-line lg-dim"><span>Whole library: <b>' + fmt(lib.series) + '</b> series · <b>' + fmt(lib.have) + '</b> issues on disk of <b>' +
+        fmt(lib.tracked) + '</b> tracked · <b>' + fmt(lib.complete) + '</b> series complete</span></div>' : '') +
+      '<div class="lg-sum-line"><span><b>' + fmt(ids.length) + '</b> series with missing issues · <b>' + fmt(missing) + '</b> missing of <b>' + fmt(tracked) + '</b> tracked in them</span>' +
       '<span class="is-wanted"><b>' + fmt(t.w) + '</b> wanted</span></div>' + bar(t) +
       '<div class="legend">' + SEGS.map(function (x) { return '<span title="' + esc(x[3]) + '"><i class="' + x[1].replace('seg-', 'is-') + '"></i>' + x[2] + ' <b>' + fmt(t[x[0]]) + '</b></span>'; }).join('') + '</div>';
   }
@@ -274,7 +277,7 @@
       if (g[si] || (st.pub && M.pubs[S[4]] !== st.pub) || (st.q && S[0].toLowerCase().indexOf(st.q) < 0)) return;
       g[si] = { s: si, p: [0, 0, 0], none: 0, ids: [], w: 0, done: true };
     });
-    var list = Object.keys(g).map(function (k) { var x = g[k], S = M.series[x.s]; x.series = S[0].toLowerCase(); x.pub = M.pubs[S[4]]; x.own = S[2] / (S[3] || 1); x.total = x.p[0] + x.p[1] + x.p[2] + x.none; x.miss = x.p[1] * 1e6 + x.total; x.tr = -(S[6] || []).length; return x; });
+    var list = Object.keys(g).map(function (k) { var x = g[k], S = M.series[x.s]; x.series = S[0].toLowerCase(); x.pub = M.pubs[S[4]]; x.own = S[2] / (S[3] || 1); x.total = x.p[0] + x.p[1] + x.p[2] + x.none; x.miss = x.total * 1e6 + x.p[1]; x.tr = -(S[6] || []).length; return x; });
     list.sort(function (a, b) { return s.dir * cmp(a[s.key], b[s.key]) || cmp(a.series, b.series); });
     head([['series', 'Series'], ['mix', 'Collection'], ['own', 'Owned', 'num'], ['miss', 'Missing <small class="lg-dim">before / gap / after</small>', 'num'], ['w', 'Wanted', 'num'], ['tr', 'Trades']], true);
     var page = list.slice(0, st.limit);

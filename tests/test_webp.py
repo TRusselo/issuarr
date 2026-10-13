@@ -60,6 +60,8 @@ def cfg(monkeypatch, tmp_path):
     monkeypatch.setattr(mylar, 'CONFIG', types.SimpleNamespace(
         WEBP_QUALITY=85, WEBP_MIN_SOURCE_Q=80, WEBP_SINCE='2015', WEBP_THREADS=2, WEBP_ON_IMPORT=True,
         WEBP_BACKUP_DIR=None, DESTINATION_DIR=str(tmp_path), CACHE_DIR=str(tmp_path / 'cache')), raising=False)
+    monkeypatch.setattr(mylar, 'DATA_DIR', str(tmp_path / 'cache'), raising=False)
+    monkeypatch.setattr(webp, '_ensured', [None])
     os.makedirs(str(tmp_path / 'cache'), exist_ok=True)
     yield
 

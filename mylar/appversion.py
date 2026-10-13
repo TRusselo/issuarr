@@ -5,4 +5,4 @@ The one place it's set. Still in beta, so it stays below 1.0. Between releases i
 "-dev" number. The commit id is shown next to it, so a dev build is still exact.
 """
 
-VERSION = '0.8.1'
+VERSION = '0.8.2'

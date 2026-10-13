@@ -121,6 +121,10 @@ def holds(comicid, issueid=None):
     for c, i in jobs:
         if c is None:
             return True
+        if isinstance(c, frozenset):   # a run over a folder: the series its files are named for
+            if str(comicid) in c:
+                return True
+            continue
         if str(c) == str(comicid) and (i is None or str(i) == str(issueid)):
             return True
     return False

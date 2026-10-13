@@ -3181,6 +3181,8 @@ def job_management(write=False, job=None, last_run_completed=None, current_run=N
             else:
                 mylar.MONITOR_STATUS = 'Paused'
             sched_status = mylar.MONITOR_STATUS
+        else:
+            continue   # jobs with no status of their own (WebP Gradual)
 
         #jobname = jobinfo[:jobinfo.find('(')-1].strip()
         #logger.fdebug('jobinfo: %s' % jobinfo)

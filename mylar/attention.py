@@ -47,14 +47,26 @@ CACHE_SECONDS = 60
 _COUNT = [0.0, 0]          # (counted at, count) for the nav badge
 _COMICS = [0.0, []]        # (loaded at, watchlist rows) for suggestions
 _NAMED = {}                # (series name, comicid, watchlist load time) -> close watchlist names
-JOBS = {}                  # path -> {'state': 'filing'|'filed'|'failed', 'note': str}
+JOBS = {}                  # path -> {'state': 'waiting'|'filing'|'filed'|'failed', 'note': str}
 _LOCK = threading.Lock()
+_SUGGESTED = {}            # (path, modified, comicid, watchlist load time) -> (parsed, matches)
+SUGGEST_SECONDS = 600
+# "Try filing again": filing's own matching, run again over every folder holding a file listed here.
+REFILE = {'state': 'idle'}
+_REFILE_LOCK = threading.Lock()
+REFILE_WAIT = 10           # seconds between looks at the post-processing queue, which goes first
+AFTER_UPDATE_DELAY = 300   # after a restart onto a new version, let downloads settle before trying again
 
 
 def ensure(myDB=None):
-    (myDB or db.DBConnection()).action(
+    myDB = myDB or db.DBConnection()
+    myDB.action(
         'CREATE TABLE IF NOT EXISTS attention (path TEXT PRIMARY KEY, reason TEXT, detail TEXT, comicid TEXT, '
         'status TEXT, added TEXT, size INTEGER)')
+    # pick: "comicid|issueid" the user chose with File as, kept (status 'queued') until it's filed,
+    # so a restart doesn't lose it
+    if 'pick' not in [r[1] for r in myDB.select('PRAGMA table_info(attention)')]:
+        myDB.action('ALTER TABLE attention ADD COLUMN pick TEXT')
 
 
 def _now():
@@ -82,7 +94,10 @@ def record(path, reason, detail='', comicid=None):
         ensure(myDB)
         row = myDB.selectone('SELECT status, size FROM attention WHERE path=?', [path]).fetchone()
         size = _size(path)
-        status = 'ignored' if row and row['status'] == 'ignored' and row['size'] == size else 'open'
+        if row and row['status'] == 'queued':
+            status = 'queued'   # the user's File as is still to run
+        else:
+            status = 'ignored' if row and row['status'] == 'ignored' and row['size'] == size else 'open'
         myDB.upsert('attention', {'reason': reason, 'detail': detail or '', 'comicid': comicid, 'status': status,
                                   'added': _now(), 'size': size}, {'path': path})
         _COUNT[0] = 0
@@ -320,20 +335,43 @@ def items():
     myDB = db.DBConnection()
     review = os.path.normpath(review_dir() or '')
     out = []
+    stamp = _COMICS[0]
     for path, row in _open_paths(myDB).items():
-        parsed = parse(path)
         try:
             mtime = os.path.getmtime(path)
         except OSError:
             continue
+        library = in_library(path)
+        key = (path, mtime, row.get('comicid'), stamp)
+        hit = _SUGGESTED.get(key)
+        if hit is None or time.time() - hit[2] > SUGGEST_SECONDS:
+            parsed = parse(path)
+            hit = (parsed, [] if library else suggest(parsed, comicid=row.get('comicid')), time.time())
+            _SUGGESTED[key] = hit
+        parsed, matches = hit[0], hit[1]
+        job = JOBS.get(path)
+        if job is None and row.get('status') == 'queued':
+            job = {'state': 'waiting', 'note': 'Waiting to file'}
         out.append({'path': path, 'name': os.path.basename(path), 'folder': os.path.dirname(path),
                     'in_review': bool(review) and os.path.normpath(path).startswith(review + os.sep),
+                    'in_library': library,
                     'reason': row.get('reason') or 'unclaimed', 'detail': row.get('detail') or '',
                     'size': _size(path), 'modified': mtime, 'parsed': parsed,
-                    'matches': suggest(parsed, comicid=row.get('comicid')), 'job': JOBS.get(path)})
+                    'matches': matches, 'job': job})
     out.sort(key=lambda i: -i['modified'])
     _COUNT[:] = [time.time(), len(out)]
+    live = {(i['path']) for i in out}
+    for k in [k for k in _SUGGESTED if k[0] not in live]:
+        del _SUGGESTED[k]
     return out
+
+
+def status():
+    """What's changing on the page: file jobs and the Try filing again run. Cheap, for polling."""
+    with _REFILE_LOCK:
+        refile = {k: v for k, v in REFILE.items() if k not in ('folders', 'stop')}
+        refile['stopping'] = bool(REFILE.get('stop'))
+    return {'jobs': dict(JOBS), 'refile': refile, 'count': count()}
 
 
 def search(text, limit=12):
@@ -365,6 +403,34 @@ def _cover_dir():
     return d
 
 
+# Covers are cut out of whole comics or fetched from ComicVine, which is slow, and the web server
+# has few threads. Only COVER_SLOTS covers are made at once; a request that can't get a slot within
+# COVER_WAIT seconds is told the server is busy, and the page asks again a little later.
+COVER_SLOTS = threading.BoundedSemaphore(2)
+COVER_WAIT = 8
+BUSY = 'busy'
+NO_COVER_DAYS = 1      # how long a missing ComicVine cover is remembered before trying again
+
+
+def _none_marker(out):
+    return out[:-len('.jpg')] + '.none'
+
+
+def _remembered_none(out, days=None):
+    marker = _none_marker(out)
+    try:
+        return days is None or time.time() - os.path.getmtime(marker) < days * 86400
+    except OSError:
+        return False
+
+
+def _remember_none(out):
+    try:
+        open(_none_marker(out), 'w').close()
+    except OSError:
+        pass
+
+
 def file_cover(path):
     """The front cover inside a file, as a cached JPEG path, or None. Picked the way the
     library picks covers; the cache is keyed on the file's size and time, so a changed file
@@ -379,18 +445,28 @@ def file_cover(path):
     out = os.path.join(_cover_dir(), 'file-%s.jpg' % key)
     if os.path.isfile(out):
         return out
-    try:
-        from mylar import getimage
-        res = getimage.extract_image(path, single=True)
-        data = (res or {}).get('rawImage')
-    except Exception as e:
-        logger.fdebug('[ATTENTION] No cover from %s: %s' % (os.path.basename(path), e))
-        data = None
-    if not data:
+    if os.path.isfile(_none_marker(out)):
         return None
-    with open(out, 'wb') as f:
-        f.write(data)
-    return out
+    if not COVER_SLOTS.acquire(timeout=COVER_WAIT):
+        return BUSY
+    try:
+        if os.path.isfile(out):    # made while this request waited
+            return out
+        try:
+            from mylar import getimage
+            res = getimage.extract_image(path, single=True)
+            data = (res or {}).get('rawImage')
+        except Exception as e:
+            logger.fdebug('[ATTENTION] No cover from %s: %s' % (os.path.basename(path), e))
+            data = None
+        if not data:
+            _remember_none(out)
+            return None
+        with open(out, 'wb') as f:
+            f.write(data)
+        return out
+    finally:
+        COVER_SLOTS.release()
 
 
 def issue_cover(issueid):
@@ -402,19 +478,41 @@ def issue_cover(issueid):
     out = os.path.join(_cover_dir(), 'issue-%s.jpg' % re.sub(r'[^0-9A-Za-z_-]', '', str(issueid)))
     if os.path.isfile(out):
         return out
-    import requests
+    if _remembered_none(out, NO_COVER_DAYS):
+        return None
+    if not COVER_SLOTS.acquire(timeout=COVER_WAIT):
+        return BUSY
     try:
-        r = requests.get(url, headers=getattr(mylar, 'CV_HEADERS', None), timeout=(15, 30),
-                         verify=getattr(mylar.CONFIG, 'CV_VERIFY', True))
-        r.raise_for_status()
-    except Exception as e:
-        logger.fdebug('[ATTENTION] Could not fetch the cover for issue %s: %s' % (issueid, e))
-        return None
-    if not r.headers.get('Content-Type', '').startswith('image/'):
-        return None
-    with open(out, 'wb') as f:
-        f.write(r.content)
-    return out
+        if os.path.isfile(out):
+            return out
+        import requests
+        try:
+            r = requests.get(url, headers=getattr(mylar, 'CV_HEADERS', None), timeout=(10, 20),
+                             verify=getattr(mylar.CONFIG, 'CV_VERIFY', True))
+            r.raise_for_status()
+        except Exception as e:
+            logger.fdebug('[ATTENTION] Could not fetch the cover for issue %s: %s' % (issueid, e))
+            _remember_none(out)
+            return None
+        if not r.headers.get('Content-Type', '').startswith('image/'):
+            _remember_none(out)
+            return None
+        with open(out, 'wb') as f:
+            f.write(r.content)
+        return out
+    finally:
+        COVER_SLOTS.release()
+
+
+def in_library(path):
+    """Whether a listed file is one already filed in the library (one WebP conversion found
+    damaged), rather than a download waiting to be filed. Filing it again would copy or move it
+    over itself, so the page only offers the trash or ignoring it."""
+    try:
+        row = db.DBConnection().selectone('SELECT status FROM webp_files WHERE path=?', [path]).fetchone()
+    except Exception:   # no WebP conversion has run yet
+        return False
+    return row is not None
 
 
 def _known(path):
@@ -423,7 +521,19 @@ def _known(path):
     return path in {os.path.normpath(p) for p in _open_paths(db.DBConnection())}
 
 
+def gone(path):
+    """A listed file that was moved or deleted outside Issuarr: drop it from the list."""
+    if os.path.exists(path):
+        return None
+    forget(path)
+    JOBS.pop(path, None)
+    return {'ok': True, 'gone': True, 'note': 'That file was already moved or deleted, so it\'s off the list.'}
+
+
 def trash(path):
+    left = gone(path)
+    if left:
+        return left
     if not _known(path):
         return {'ok': False, 'note': 'That file is no longer waiting for a decision.'}
     dest_dir = os.path.join(trash_dir(), datetime.date.today().isoformat())
@@ -460,18 +570,71 @@ def file_as(path, comicid, issueid):
     filing's matching, so the checks that turned the file down don't run again."""
     if not _known(path):
         return {'ok': False, 'note': 'That file is no longer waiting for a decision.'}
+    if in_library(path):
+        return {'ok': False, 'note': 'That file is already in your library. Replace it with a good copy, or move it to the trash.'}
     myDB = db.DBConnection()
     issue = myDB.selectone('SELECT i.IssueID, i.Issue_Number, i.ComicID, c.ComicName, c.ComicYear FROM issues i '
                            'JOIN comics c ON c.ComicID=i.ComicID WHERE i.IssueID=? AND i.ComicID=?', [issueid, comicid]).fetchone()
     if issue is None:
         return {'ok': False, 'note': 'That issue isn\'t on your watchlist.'}
     with _LOCK:
-        if (JOBS.get(path) or {}).get('state') == 'filing':
+        if (JOBS.get(path) or {}).get('state') in ('waiting', 'filing'):
             return {'ok': False, 'note': 'Already being filed.'}
-        note = 'Filing as %s #%s' % (issue['ComicName'], issue['Issue_Number'])
-        JOBS[path] = {'state': 'filing', 'note': note}
+        label = '%s #%s' % (issue['ComicName'], issue['Issue_Number'])
+        JOBS[path] = {'state': 'waiting', 'note': 'Waiting to file as %s' % label}
+    _keep_pick(path, comicid, issueid)
     threading.Thread(target=_file_now, args=(path, dict(issue)), name='ATTENTION-FILE', daemon=True).start()
-    return {'ok': True, 'note': note}
+    return {'ok': True, 'note': 'Filing as %s. It starts as soon as the filing that\'s running now finishes.' % label}
+
+
+def _keep_pick(path, comicid, issueid):
+    try:
+        myDB = db.DBConnection()
+        ensure(myDB)
+        myDB.upsert('attention', {'status': 'queued', 'pick': '%s|%s' % (comicid, issueid), 'size': _size(path)}, {'path': path})
+    except Exception as e:
+        logger.warn('[ATTENTION] Could not save the choice for %s: %s' % (path, e))
+
+
+def _drop_pick(path):
+    try:
+        myDB = db.DBConnection()
+        ensure(myDB)
+        myDB.action("UPDATE attention SET status='open', pick=NULL WHERE path=? AND status='queued'", [path])
+    except Exception as e:
+        logger.fdebug('[ATTENTION] Could not clear the choice for %s: %s' % (path, e))
+
+
+def resume_picks():
+    """File the File as choices a restart interrupted, one after another, in the background."""
+    try:
+        myDB = db.DBConnection()
+        ensure(myDB)
+        rows = [dict(r) for r in myDB.select("SELECT path, pick FROM attention WHERE status='queued' AND pick IS NOT NULL")]
+    except Exception as e:
+        logger.warn('[ATTENTION] Could not look for unfinished File as choices: %s' % e)
+        return 0
+    todo = []
+    for r in rows:
+        comicid, _, issueid = (r['pick'] or '').partition('|')
+        if not os.path.isfile(r['path']):
+            forget(r['path'])
+            continue
+        issue = myDB.selectone('SELECT i.IssueID, i.Issue_Number, i.ComicID, c.ComicName, c.ComicYear FROM issues i '
+                               'JOIN comics c ON c.ComicID=i.ComicID WHERE i.IssueID=? AND i.ComicID=?', [issueid, comicid]).fetchone()
+        if issue is None:
+            _drop_pick(r['path'])
+            continue
+        JOBS[r['path']] = {'state': 'waiting', 'note': 'Waiting to file as %s #%s' % (issue['ComicName'], issue['Issue_Number'])}
+        todo.append((r['path'], dict(issue)))
+    if todo:
+        logger.info('[ATTENTION] Filing %s file(s) you chose an issue for before the restart.' % len(todo))
+
+        def run():
+            for path, issue in todo:
+                _file_now(path, issue)
+        threading.Thread(target=run, name='ATTENTION-RESUME', daemon=True).start()
+    return len(todo)
 
 
 def entry_for(path, issue):
@@ -487,6 +650,7 @@ def _file_now(path, issue):
     try:
         pp = PostProcessor.PostProcessor('Manual Run', os.path.dirname(path), queue=queue.Queue())
         with PostProcessor.PP_LOCK:
+            JOBS[path] = {'state': 'filing', 'note': 'Filing as %s' % label}
             pp.nzb_or_oneoff_pp(manual=[entry_for(path, issue)])
         row = db.DBConnection().selectone('SELECT Status FROM issues WHERE IssueID=?', [issue['IssueID']]).fetchone()
         if row is not None and row['Status'] in ('Downloaded', 'Archived'):
@@ -497,9 +661,131 @@ def _file_now(path, issue):
             JOBS[path] = {'state': 'filed', 'note': 'Filed as %s' % label}
             logger.info('[ATTENTION] Filed %s as %s.' % (os.path.basename(path), label))
         else:
+            _drop_pick(path)
             JOBS[path] = {'state': 'failed', 'note': 'Filing didn\'t finish. The log has the details.'}
+            logger.warn('[ATTENTION] Filing %s as %s didn\'t finish.' % (os.path.basename(path), label))
     except Exception as e:
+        _drop_pick(path)
         logger.exception('[ATTENTION] Filing %s as %s failed: %s' % (path, label, e))
         JOBS[path] = {'state': 'failed', 'note': 'Filing failed: %s' % e}
     finally:
         _COUNT[0] = 0
+
+
+def refile_folders(paths):
+    """The folders to run filing over again for these files: the review folder as one, any other
+    file's own folder, leaving out folders inside one already listed. The review folder goes last,
+    as the longest run, so the others don't wait behind it."""
+    review = os.path.normpath(review_dir() or '')
+    found = set()
+    for p in paths:
+        p = os.path.normpath(p)
+        if review and p.startswith(review + os.sep):
+            found.add(review)
+        else:
+            found.add(os.path.dirname(p))
+    keep = []
+    for f in sorted(found, key=len):
+        if not any(f == k or f.startswith(k + os.sep) for k in keep):
+            keep.append(f)
+    keep.sort(key=lambda f: (f == review, f))
+    return keep
+
+
+def refile_all(auto=False):
+    """Run filing again over every folder holding a file listed here, in the background, so files
+    that newer matching would now place get filed. Returns what to tell the user."""
+    with _REFILE_LOCK:
+        if REFILE.get('state') == 'running':
+            return {'ok': False, 'note': 'Already trying again.'}
+        try:
+            paths = [p for p in _open_paths(db.DBConnection()) if not in_library(p)]
+        except Exception as e:
+            return {'ok': False, 'note': 'Could not list the files: %s' % e}
+        folders = refile_folders(paths)
+        if not folders:
+            return {'ok': False, 'note': 'Nothing here to try again.'}
+        REFILE.clear()
+        REFILE.update(state='running', auto=auto, folders=folders, total=len(folders), done=0, current='',
+                      before=len(paths), after=None, started=time.time(), finished=None, stop=False)
+    threading.Thread(target=_refile_run, args=(folders,), name='ATTENTION-REFILE', daemon=True).start()
+    logger.info('[ATTENTION] Trying to file %s file(s) again, in %s folder(s)%s.'
+                % (len(paths), len(folders), ' after an update' if auto else ''))
+    return {'ok': True, 'note': 'Trying %s files again. New downloads are filed first.' % len(paths)}
+
+
+def stop_refile():
+    with _REFILE_LOCK:
+        if REFILE.get('state') == 'running':
+            REFILE['stop'] = True
+            return True
+    return False
+
+
+def _refile_run(folders):
+    from mylar import PostProcessor
+    try:
+        for n, folder in enumerate(folders):
+            # new downloads go first: wait while the post-processing queue has work
+            while not REFILE.get('stop') and getattr(mylar, 'PP_QUEUE', None) is not None and mylar.PP_QUEUE.qsize():
+                REFILE['current'] = ''
+                REFILE['waiting'] = True
+                time.sleep(REFILE_WAIT)
+            REFILE['waiting'] = False
+            if REFILE.get('stop'):
+                break
+            REFILE['current'] = folder
+            if os.path.isdir(folder):
+                try:
+                    PostProcessor.PostProcessor('Manual Run', folder, queue=queue.Queue()).Process()
+                except Exception as e:
+                    logger.warn('[ATTENTION] Filing %s again failed: %s' % (folder, e))
+            REFILE['done'] = n + 1
+    finally:
+        _COUNT[0] = 0
+        try:
+            left = len([p for p in _open_paths(db.DBConnection()) if not in_library(p)])
+        except Exception:
+            left = None
+        with _REFILE_LOCK:
+            REFILE.update(state='stopped' if REFILE.get('stop') else 'done', after=left, current='',
+                          waiting=False, finished=time.time())
+        logger.info('[ATTENTION] Finished trying again: %s of %s file(s) still need attention.'
+                    % ('?' if left is None else left, REFILE.get('before')))
+
+
+def _version_key():
+    from mylar import appversion
+    return '%s %s' % (appversion.VERSION, getattr(mylar, 'CURRENT_VERSION', None) or '')
+
+
+def refile_after_update(delay=AFTER_UPDATE_DELAY):
+    """Once per new version: newer filing may place files an older one couldn't, so try them all again."""
+    cache = getattr(mylar.CONFIG, 'CACHE_DIR', None)
+    if not cache:
+        return False
+    marker = os.path.join(cache, 'attention_refiled_for')
+    key = _version_key()
+    try:
+        with open(marker) as fh:
+            if fh.read().strip() == key:
+                return False
+    except OSError:
+        pass
+    try:
+        with open(marker, 'w') as fh:
+            fh.write(key)
+    except OSError as e:
+        logger.warn('[ATTENTION] Could not note the version for trying files again: %s' % e)
+        return False
+
+    def later():
+        time.sleep(delay)
+        refile_all(auto=True)
+    threading.Thread(target=later, name='ATTENTION-AFTER-UPDATE', daemon=True).start()
+    return True
+
+
+def after_start():
+    resume_picks()
+    refile_after_update()

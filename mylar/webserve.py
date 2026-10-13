@@ -4581,6 +4581,10 @@ class WebInterface(object):
     attention_items.exposed = True
 
     def _attention_image(self, path):
+        if path == attention.BUSY:
+            # other covers are being made: the page asks again shortly
+            cherrypy.response.headers['Retry-After'] = '5'
+            raise cherrypy.HTTPError(503)
         if not path:
             raise cherrypy.HTTPError(404)
         cherrypy.response.headers['Content-Type'] = 'image/jpeg'
@@ -4588,11 +4592,11 @@ class WebInterface(object):
         with open(path, 'rb') as f:
             return f.read()
 
-    def attention_cover(self, path, v=None):   # v: the file's time, so a changed file isn't served from cache
+    def attention_cover(self, path, v=None, r=None):   # v: the file's time, so a changed file isn't served from cache; r: a retry
         return self._attention_image(attention.file_cover(path))
     attention_cover.exposed = True
 
-    def attention_issue_cover(self, issueid):
+    def attention_issue_cover(self, issueid, r=None):   # r: a retry after the server was busy
         return self._attention_image(attention.issue_cover(issueid))
     attention_issue_cover.exposed = True
 
@@ -4606,6 +4610,9 @@ class WebInterface(object):
 
     def attention_file(self, path, comicid, issueid):
         self._attention_post()
+        left = attention.gone(path)
+        if left:
+            return self._attention_json(left)
         return self._attention_json(attention.file_as(path, comicid, issueid))
     attention_file.exposed = True
 
@@ -4620,9 +4627,26 @@ class WebInterface(object):
 
     def attention_ignore(self, path):
         self._attention_post()
+        left = attention.gone(path)
+        if left:
+            return self._attention_json(left)
         attention.ignore(path)
         return self._attention_json({'ok': True, 'note': 'Hidden until the file changes.'})
     attention_ignore.exposed = True
+
+    def attention_status(self):
+        return self._attention_json(attention.status())
+    attention_status.exposed = True
+
+    def attention_refile(self):
+        self._attention_post()
+        return self._attention_json(attention.refile_all())
+    attention_refile.exposed = True
+
+    def attention_refile_stop(self):
+        self._attention_post()
+        return self._attention_json({'ok': attention.stop_refile(), 'note': 'Stopping after the folder being filed now.'})
+    attention_refile_stop.exposed = True
 
     def cblimport(self):
         return serve_template(templatename="cblimport.html", title="CBL Import")
@@ -4877,7 +4901,7 @@ class WebInterface(object):
 
     def webpConvert(self):
         return serve_template(templatename="webp.html", title="WebP conversion",
-                              defaults=webp.options(), library=webp.default_root())
+                              defaults=webp.options(), library=webp.default_root(), gradual=webp.gradual_settings())
     webpConvert.exposed = True
 
     def webp_status(self, **kwargs):
@@ -4891,7 +4915,7 @@ class WebInterface(object):
         if cherrypy.request.method != 'POST':
             return json.dumps({'error': 'Use the WebP conversion page.'})
         try:
-            opts = webp.options(root=root, since=since, unknown=helpers.str_to_bool(unknown), limit=limit or 0,
+            opts = webp.options(root=root, since=since, unknown=helpers.str_to_bool(unknown), limit=limit,
                                 quality=quality, min_q=min_q, backup_dir=backup_dir,
                                 no_backup=helpers.str_to_bool(no_backup), threads=threads, files=files)
         except ValueError as e:
@@ -4907,11 +4931,19 @@ class WebInterface(object):
         return json.dumps({'started': True, 'status': webp.status()})
     webp_preview.exposed = True
 
-    def webp_start(self, token=None, confirm=None, **kwargs):
+    def webp_start(self, token=None, confirm=None, quality=None, min_q=None, backup_dir=None, no_backup=None,
+                   threads=None, files=None, **kwargs):
         cherrypy.response.headers['Content-Type'] = 'application/json'
         if cherrypy.request.method != 'POST':
             return json.dumps({'error': 'Use the WebP conversion page.'})
-        problem = webp.start_run(token, confirm)
+        how = None
+        if quality is not None:
+            how = {'quality': quality, 'min_q': min_q, 'backup_dir': backup_dir, 'no_backup': helpers.str_to_bool(no_backup),
+                   'threads': threads, 'files': files}
+        try:
+            problem = webp.start_run(token, confirm, how)
+        except ValueError as e:
+            problem = 'Check the numbers: %s' % e
         return json.dumps({'error': problem} if problem else {'started': True, 'status': webp.status()})
     webp_start.exposed = True
 
@@ -4919,6 +4951,42 @@ class WebInterface(object):
         cherrypy.response.headers['Content-Type'] = 'application/json'
         return json.dumps({'stopping': webp.stop(), 'status': webp.status()})
     webp_stop.exposed = True
+
+    def webp_gradual(self, enabled=None, per_night=None, start=None, end=None, since=None, quality=None, min_q=None,
+                     backup_dir=None, no_backup=None, threads=None, files=None, limit=None, **kwargs):
+        # The gradual conversion's switch, quota and window, saved with the "How" choices it uses.
+        self._attention_post()
+        cherrypy.response.headers['Content-Type'] = 'application/json'
+        on = helpers.str_to_bool(enabled)
+        try:
+            opts = webp.options(since=since, limit=limit, quality=quality, min_q=min_q, backup_dir=backup_dir,
+                                no_backup=helpers.str_to_bool(no_backup), threads=threads, files=files)
+        except ValueError as e:
+            return json.dumps({'error': 'Check the numbers: %s' % e})
+        if on:
+            problem = webp.check_options(opts)
+            if problem:
+                return json.dumps({'error': problem})
+        problem = webp.save_gradual(on, per_night, start, end)
+        if problem:
+            return json.dumps({'error': problem})
+        webp.save_options(opts)
+        if opts['no_backup']:
+            mylar.CONFIG.writeconfig(values={'webp_backup_dir': ''})
+        if on:
+            webp.gradual_tick()   # inside the window: start now rather than at the next look-in
+        return json.dumps({'saved': True, 'status': webp.status()})
+    webp_gradual.exposed = True
+
+    def webp_recheck(self, **kwargs):
+        # Forget the files that had nothing to gain (say, after lowering the quality), so the
+        # next run looks at them again.
+        self._attention_post()
+        cherrypy.response.headers['Content-Type'] = 'application/json'
+        n = webp.recheck()
+        logger.info('[WEBP] %s files that had nothing to gain will be looked at again.' % n)
+        return json.dumps({'reopened': n, 'status': webp.status()})
+    webp_recheck.exposed = True
 
     def webp_reset(self, **kwargs):
         cherrypy.response.headers['Content-Type'] = 'application/json'

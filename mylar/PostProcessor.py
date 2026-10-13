@@ -57,6 +57,45 @@ def pack_other_series(myDB, issueid, comicid, names):
     sql = 'SELECT * FROM comics WHERE DynamicComicName IN ({seq}) COLLATE NOCASE AND ComicID != ?'.format(seq=','.join('?' * len(names)))
     return [r for r in myDB.select(sql, tuple(names) + (comicid,))]
 
+
+def _loop_name(name):
+    """A parsed series name the way filing looks it up in DynamicComicName."""
+    mod = filechecker.FileChecker().dynamic_replace(name)['mod_seriesname']
+    out = [re.sub(r'[\|\s]', '', mod.lower())]
+    if mylar.CONFIG.ANNUALS_ON and any(w in mod.lower() for w in ('annual', 'special')):
+        bare = re.sub('2021annual|annual|special', '', mod, flags=re.I).strip()
+        out.append(re.sub(r'[\|\s]', '', bare.lower()))
+    return out
+
+
+def run_series(myDB, comiclist, alt_list):
+    """The watchlist series a run over these files could file: those named like a file (or by
+    one of their alternate names), and those of any issue id in a file name."""
+    names, ids = set(), set()
+    for fl in comiclist:
+        for n in (fl.get('series_name'), fl.get('alt_series')):
+            if n:
+                names.update(_loop_name(n))
+        if fl.get('issueid'):
+            for table in ('issues', 'annuals'):
+                try:
+                    row = myDB.selectone('SELECT ComicID FROM %s WHERE IssueID=?' % table, [fl['issueid']]).fetchone()
+                except Exception:
+                    row = None
+                if row is not None:
+                    ids.add(str(row['ComicID']))
+    for x in alt_list or []:
+        alts = {re.sub(r'[\|\s]', '', a.lower()) for a in (x.get('AS_Alt') or [])}
+        if alts & names:
+            names.add(re.sub(r'[\|\s]', '', (x.get('AS_DyComicName') or '').lower()))
+    names.discard('')
+    names = sorted(names)
+    for i in range(0, len(names), 500):
+        part = names[i:i + 500]
+        sql = 'SELECT ComicID FROM comics WHERE DynamicComicName IN ({seq}) COLLATE NOCASE'.format(seq=','.join('?' * len(part)))
+        ids.update(str(r['ComicID']) for r in myDB.select(sql, tuple(part)))
+    return ids
+
 class PostProcessor(object):
     """
     A class which will process a media file according to the post processing settings in the config.
@@ -426,6 +465,21 @@ class PostProcessor(object):
             if self.apicall:
                 mylar.APILOCK = False
 
+    def _narrow_job(self, myDB, comiclist, alt_list):
+        """A run over a folder can file any series, so it held every search until it finished: a
+        Try filing again over 530 files kept 571 searches waiting. Its files' names say which
+        watchlist series it can file, so only searches of those wait."""
+        try:
+            ids = run_series(myDB, comiclist, alt_list)
+        except Exception as e:
+            logger.fdebug('[POST-PROCESSING] Keeping every search waiting - could not tell which series these files are: %s' % e)
+            return
+        job = getattr(self, 'job', None)
+        if job in archives.JOBS:
+            self.job = (frozenset(ids), None)
+            archives.JOBS[archives.JOBS.index(job)] = self.job
+            logger.fdebug('[POST-PROCESSING] Searches of %s series wait for this run; the rest carry on.' % len(ids))
+
     def _widen_job(self):
         job = getattr(self, 'job', None)
         if job in archives.JOBS:
@@ -604,6 +658,9 @@ class PostProcessor(object):
                         alt_list.append({'AS_Alt':   as_dinfo['AS_Alt'],
                                          'AS_Tuple': as_dinfo['AS_Tuple'],
                                          'AS_DyComicName': aldb['DynamicComicName']})
+
+                if self.job == (None, None):
+                    self._narrow_job(myDB, filelist['comiclist'], alt_list)
 
                 manual_arclist = []
                 oneoff_issuelist = []

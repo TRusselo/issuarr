@@ -8,6 +8,12 @@ Releases come from the `main` branch and are the `latest` Docker image. Changes 
 
 Nothing yet.
 
+## 0.8.3 (12 October 2026)
+
+### Searching
+
+- Searches keep going while a folder of files waits its turn to be filed (like Needs attention's Try filing again queued behind File as choices), except for the series in that folder. ([`71fc5d1`](https://github.com/issuarr/issuarr/commit/71fc5d1))
+
 ## 0.8.2 (12 October 2026)
 
 ### Searching
